@@ -1,0 +1,30 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "first.wildfires.mixin",
+  "compatibilityLevel": "JAVA_8",
+  "refmap": "wildfires.refmap.json",
+  "mixins": [
+    "create.KineticBlockEntityMixin",
+    "jade.StatusEffectsProviderMixin",
+    "legendarysurvivaloverhaul.CapabilityUtilMixin",
+    "legendarysurvivaloverhaul.CuriosEventsMixin",
+    "legendarysurvivaloverhaul.TemperatureEnumAccessor",
+    "legendarysurvivaloverhaul.TemperatureUtilMixin",
+    "legendarysurvivaloverhaul.WetnessCapabilityMixin",
+    "minecraft.ItemEntityMixin",
+    "minecraft.ItemStackMixin",
+    "minecraft.ShapedRecipeMixin",
+    "tfc.AdvancedShapedRecipeAccessor",
+    "tfc.AdvancedShapedRecipeMixin"
+  ],
+  "client": [
+    "minecraft.EffectRenderingInventoryScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}

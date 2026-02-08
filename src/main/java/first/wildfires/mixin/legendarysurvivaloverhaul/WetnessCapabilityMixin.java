@@ -1,0 +1,45 @@
+package first.wildfires.mixin.legendarysurvivaloverhaul;
+
+import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
+import com.llamalad7.mixinextras.sugar.Local;
+import first.wildfires.api.customEvent.PlayerWetnessEvent;
+import first.wildfires.utils.WildfiresUtil;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.Level;
+import net.minecraftforge.common.MinecraftForge;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import sfiomn.legendarysurvivaloverhaul.common.capabilities.wetness.WetnessCapability;
+
+@Mixin(value = WetnessCapability.class, remap = false)
+public class WetnessCapabilityMixin {
+
+    @WrapWithCondition(
+            method = "tickUpdate",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lsfiomn/legendarysurvivaloverhaul/common/capabilities/wetness/WetnessCapability;addWetness(I)V",
+                    ordinal = 2))
+    private boolean addWetnessOfRain(WetnessCapability instance, int wetness, @Local(argsOnly = true) Player player, @Local(argsOnly = true) Level level) {
+        PlayerWetnessEvent.RainIncrease event = new PlayerWetnessEvent.RainIncrease(player, instance, level, wetness);
+        WildfiresUtil.post(event);
+        if (!event.isCanceled()) {
+            instance.addWetness(event.getWetness());
+        }
+        return false;
+    }
+
+    @WrapWithCondition(
+            method = "tickUpdate",
+            at = @At(
+                    value = "INVOKE", target = "Lsfiomn/legendarysurvivaloverhaul/common/capabilities/wetness/WetnessCapability;addWetness(I)V", ordinal = 5))
+    private boolean addWetnessOfFluid(WetnessCapability instance, int wetness, @Local(argsOnly = true) Player player, @Local(argsOnly = true) Level level) {
+        PlayerWetnessEvent.FluidIncrease event = new PlayerWetnessEvent.FluidIncrease(player, instance, level, wetness);
+        MinecraftForge.EVENT_BUS.post(event);
+        if (!event.isCanceled()) {
+            instance.addWetness(event.getWetness());
+        }
+        return false;
+    }
+
+}

@@ -4,6 +4,7 @@ import first.wildfires.Wildfires;
 import first.wildfires.api.customEvent.FoodRottenEvent;
 import net.dries007.tfc.common.capabilities.food.FoodCapability;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
@@ -23,7 +24,7 @@ public class ForgeEvent {
 		if (tag != null) {
 			int polish = tag.getInt("Polish");
 			if (polish > 0) {
-				event.setNewSpeed(event.getOriginalSpeed() * (1 + polish * 0.001f));
+				event.setNewSpeed(Math.min(2, event.getNewSpeed() * (1 + polish * 0.001f)));
 			}
 		}
 	}

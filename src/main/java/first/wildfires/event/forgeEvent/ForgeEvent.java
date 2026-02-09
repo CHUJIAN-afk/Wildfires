@@ -24,7 +24,7 @@ public class ForgeEvent {
 		if (tag != null) {
 			int polish = tag.getInt("Polish");
 			if (polish > 0) {
-				event.setNewSpeed(Math.min(2, event.getNewSpeed() * (1 + polish * 0.001f)));
+				event.setNewSpeed(event.getNewSpeed() * Math.min(2, (1 + polish * 0.001f)));
 			}
 		}
 	}

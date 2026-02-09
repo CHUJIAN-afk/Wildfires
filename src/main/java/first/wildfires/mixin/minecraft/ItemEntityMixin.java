@@ -1,5 +1,6 @@
 package first.wildfires.mixin.minecraft;
 
+import first.wildfires.api.customEvent.ItemEntityTickEvent;
 import first.wildfires.register.SoundRegister;
 import first.wildfires.utils.WildfiresUtil;
 import net.dries007.tfc.common.items.TFCItems;
@@ -21,26 +22,20 @@ public class ItemEntityMixin {
             method = "tick",
             at = @At("HEAD")
     )
-    private void tick(CallbackInfo ci) {
+    private void tickHead(CallbackInfo ci) {
         ItemEntity itemEntity = (ItemEntity) (Object) this;
-        Level level = itemEntity.level();
-        ItemStack item = itemEntity.getItem();
-        if (!level.isClientSide() && item.is(TFCItems.METAL_ITEMS.get(Metal.Default.STEEL).get(Metal.ItemType.ROD).get())) {
-            CompoundTag tag = itemEntity.getPersistentData();
-            boolean onGround = itemEntity.onGround();
-            boolean lastOnGround = tag.getBoolean("lastOnGround");
-            if (onGround && !lastOnGround) {
-                WildfiresUtil.playSound(
-                        level,
-                        itemEntity.blockPosition(),
-                        SoundRegister.MetalPipe.get(),
-                        SoundSource.BLOCKS
-                );
-            }
-            if (onGround != lastOnGround) {
-                tag.putBoolean("lastOnGround", onGround);
-            }
-        }
+        ItemEntityTickEvent.Pre event = new ItemEntityTickEvent.Pre(itemEntity);
+        WildfiresUtil.post(event);
+    }
+
+    @Inject(
+            method = "tick",
+            at = @At("TAIL")
+    )
+    private void tickTail(CallbackInfo ci) {
+        ItemEntity itemEntity = (ItemEntity) (Object) this;
+        ItemEntityTickEvent.Post event = new ItemEntityTickEvent.Post(itemEntity);
+        WildfiresUtil.post(event);
     }
 
 }

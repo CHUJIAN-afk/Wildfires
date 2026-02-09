@@ -2,15 +2,27 @@ package first.wildfires.event.forgeEvent;
 
 import first.wildfires.Wildfires;
 import first.wildfires.api.customEvent.FoodRottenEvent;
+import first.wildfires.api.customEvent.ItemEntityTickEvent;
+import first.wildfires.register.SoundRegister;
 import first.wildfires.utils.WildfiresUtil;
 import net.dries007.tfc.common.capabilities.food.FoodCapability;
+import net.dries007.tfc.common.capabilities.heat.HeatCapability;
+import net.dries007.tfc.common.capabilities.heat.IHeat;
+import net.dries007.tfc.common.items.TFCItems;
+import net.dries007.tfc.util.Metal;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.TagKey;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
@@ -22,13 +34,50 @@ import net.minecraftforge.common.Tags;
 import net.minecraftforge.event.ItemAttributeModifierEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
-import net.minecraftforge.event.entity.player.AttackEntityEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
 @Mod.EventBusSubscriber(modid = Wildfires.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class ForgeEvent {
+
+	@SubscribeEvent
+	public static void itemEntityTick(ItemEntityTickEvent.Post event) {
+		ItemEntity itemEntity = event.getItemEntity();
+		ItemStack itemStack = itemEntity.getItem();
+		IHeat iHeat = HeatCapability.get(itemStack);
+		if (iHeat != null && iHeat.canWork() && itemStack.getTags().anyMatch(itemTagKey -> itemTagKey.location().toString().equals("kubejs:tool_head"))) {
+			CompoundTag tag = itemStack.getOrCreateTag();
+			tag.putInt("Quenching", tag.getInt("Quenching") + 1);
+			tag.putInt("Polish", tag.getInt("Polish") + 1);
+			if (iHeat.canWeld()) {
+				tag.putBoolean("Broken", true);
+			}
+		}
+	}
+
+	@SubscribeEvent
+	public static void metalPipeSound(ItemEntityTickEvent.Post event) {
+		ItemEntity itemEntity = event.getItemEntity();
+		Level level = itemEntity.level();
+		ItemStack item = itemEntity.getItem();
+		if (!level.isClientSide() && item.is(TFCItems.METAL_ITEMS.get(Metal.Default.STEEL).get(Metal.ItemType.ROD).get())) {
+			CompoundTag tag = itemEntity.getPersistentData();
+			boolean onGround = itemEntity.onGround();
+			boolean lastOnGround = tag.getBoolean("lastOnGround");
+			if (onGround && !lastOnGround) {
+				WildfiresUtil.playSound(
+						level,
+						itemEntity.blockPosition(),
+						SoundRegister.MetalPipe.get(),
+						SoundSource.BLOCKS
+				);
+			}
+			if (onGround != lastOnGround) {
+				tag.putBoolean("lastOnGround", onGround);
+			}
+		}
+	}
 
 	@SubscribeEvent
 	public static void hurt(LivingHurtEvent event) {
@@ -66,14 +115,16 @@ public class ForgeEvent {
 		CompoundTag tag = itemStack.getTag();
 		if (tag != null && event.getSlotType() == EquipmentSlot.MAINHAND) {
 			int polish = tag.getInt("Polish");
-			String name = "Polish";
-			AttributeModifier modifier = new AttributeModifier(
-					WildfiresUtil.getUUID(name),
-					name,
-					Math.min(0.15, polish * 0.001),
-					AttributeModifier.Operation.MULTIPLY_TOTAL
-			);
-			event.addModifier(Attributes.ATTACK_DAMAGE, modifier);
+			if (polish > 0) {
+				String name = "Polish";
+				AttributeModifier modifier = new AttributeModifier(
+						WildfiresUtil.getUUID(name),
+						name,
+						Math.min(0.15, polish * 0.001),
+						AttributeModifier.Operation.MULTIPLY_TOTAL
+				);
+				event.addModifier(Attributes.ATTACK_DAMAGE, modifier);
+			}
 		}
 	}
 

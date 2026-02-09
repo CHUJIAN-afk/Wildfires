@@ -6,7 +6,8 @@ import com.tterrag.registrate.util.entry.BlockEntityEntry;
 import first.wildfires.Wildfires;
 import first.wildfires.client.CustomCogWheelBlockEntityRenderer;
 
-import static first.wildfires.register.BlockRegister.*;
+import static first.wildfires.register.BlockRegister.StoneCogWheel;
+import static first.wildfires.register.BlockRegister.StoneLargeCogWheel;
 
 
 public class BlockEntityRegister {

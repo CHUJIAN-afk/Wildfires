@@ -38,9 +38,9 @@ public abstract class KineticBlockEntityMixin {
 		KineticBlockEntity blockEntity = (KineticBlockEntity) (Object) this;
 		KineticBlockEntityTickEvent.Post event = new KineticBlockEntityTickEvent.Post(blockEntity);
 		MinecraftForge.EVENT_BUS.post(event);
+
+
 /*
-
-
 		Level level = blockEntity.getLevel();
 		KineticNetwork createNetwork = blockEntity.getOrCreateNetwork();
 		BlockState blockState = blockEntity.getBlockState();
@@ -49,8 +49,14 @@ public abstract class KineticBlockEntityMixin {
 		if (level != null && createNetwork != null && !destroyed.contains(level.getGameTime())) {
 			float consumedStress = 0;
 			Map<KineticBlockEntity, Float> members = createNetwork.members;
+
+			Map<String, Integer> map = new HashMap<>();
+
+
 			List<KineticBlockEntity> list = members.keySet().stream().toList();
 			for (KineticBlockEntity kineticBlockEntity : list) {
+				kineticBlockEntity.getSpeed()
+
 				consumedStress += Math.abs(kineticBlockEntity.getSpeed() * (members.get(kineticBlockEntity)));
 			}
 			if (consumedStress > Config.getMaxPower(blockState) || Math.abs(blockEntity.getSpeed()) > Config.getMaxSpeed(blockState)) {

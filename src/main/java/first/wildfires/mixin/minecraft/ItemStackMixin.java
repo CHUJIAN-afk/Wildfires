@@ -1,14 +1,10 @@
 package first.wildfires.mixin.minecraft;
 
-import first.wildfires.utils.WildfiresUtil;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
-
-import java.util.Random;
 
 @Mixin(ItemStack.class)
 public class ItemStackMixin {

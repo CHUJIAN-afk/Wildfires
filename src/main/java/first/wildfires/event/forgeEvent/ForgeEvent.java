@@ -20,8 +20,11 @@ public class ForgeEvent {
 	@SubscribeEvent
 	public static void onBreakSpeed(PlayerEvent.BreakSpeed event) {
 		CompoundTag tag = event.getEntity().getMainHandItem().getTag();
-		if (tag != null && tag.getInt("Polish") > 0) {
-			event.setNewSpeed(event.getOriginalSpeed() * 8);
+		if (tag != null) {
+			int polish = tag.getInt("Polish");
+			if (polish > 0) {
+				event.setNewSpeed(event.getOriginalSpeed() * (1 + polish * 0.001f));
+			}
 		}
 	}
 

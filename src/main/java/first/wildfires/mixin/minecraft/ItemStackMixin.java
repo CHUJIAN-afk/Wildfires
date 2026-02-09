@@ -1,10 +1,14 @@
 package first.wildfires.mixin.minecraft;
 
+import first.wildfires.utils.WildfiresUtil;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
+
+import java.util.Random;
 
 @Mixin(ItemStack.class)
 public class ItemStackMixin {
@@ -20,6 +24,9 @@ public class ItemStackMixin {
         int remove = 0;
         CompoundTag tag = itemStack.getTag();
         if (itemStack.isDamageableItem() && tag != null) {
+            if (tag.getBoolean("Broken") && Math.random() < 0.25) {
+                amount++;
+            }
             int polish = tag.getInt("Polish");
             if (polish > 0) {
                 tag.putInt("Polish", polish - amount);

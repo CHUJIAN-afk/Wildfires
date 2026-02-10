@@ -4,9 +4,7 @@ import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import first.wildfires.Wildfires;
 import first.wildfires.api.KineticData;
-import first.wildfires.api.customEvent.FoodRottenEvent;
-import first.wildfires.api.customEvent.ItemEntityTickEvent;
-import first.wildfires.api.customEvent.KineticBlockEntityTickEvent;
+import first.wildfires.api.customEvent.*;
 import first.wildfires.register.SoundRegister;
 import first.wildfires.utils.WildfiresUtil;
 import net.dries007.tfc.common.capabilities.food.FoodCapability;
@@ -36,11 +34,54 @@ import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.items.IItemHandlerModifiable;
+import sfiomn.legendarysurvivaloverhaul.api.temperature.TemperatureEnum;
+import sfiomn.legendarysurvivaloverhaul.common.capabilities.temperature.TemperatureItemCapability;
+import sfiomn.legendarysurvivaloverhaul.util.CapabilityUtil;
+import top.theillusivec4.curios.api.CuriosApi;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Mod.EventBusSubscriber(modid = Wildfires.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class ForgeEvent {
+
+	@SubscribeEvent
+	public static void itemTemperatureModify(ItemTemperatureModifyEvent event) {
+		ItemStack itemStack = event.getItemStack();
+		event.setNewTemperature(event.getNewTemperature() + HeatCapability.getTemperature(itemStack) * 0.1f);
+	}
+
+	@SubscribeEvent
+	public static void playerTargetTemperatureModify(PlayerTargetTemperatureModifyEvent event) {
+		Player player = event.getPlayer();
+		double temperature = new ArrayList<>(player.getInventory().items).stream()
+				.filter(itemStack -> !player.getMainHandItem().equals(itemStack) && !player.getOffhandItem().equals(itemStack))
+				.filter(itemStack -> !itemStack.isEmpty())
+				.map(CapabilityUtil::getTempItemCapability)
+				.map(TemperatureItemCapability::getWorldTemperatureLevel)
+				.map(i -> i - TemperatureEnum.NORMAL.getMiddle())
+				.mapToDouble(Float::floatValue)
+				.sum() * 0.1;
+		List<ItemStack> itemStackList = new ArrayList<>();
+		player.getArmorSlots().forEach(itemStackList::add);
+		if (Wildfires.CurioLoaded) {
+			CuriosApi.getCuriosInventory(player).ifPresent(iCuriosItemHandler -> {
+				IItemHandlerModifiable equippedCurios = iCuriosItemHandler.getEquippedCurios();
+				for (int i = 0; i < equippedCurios.getSlots(); i++) {
+					itemStackList.add(equippedCurios.getStackInSlot(i));
+				}
+			});
+		}
+		temperature += itemStackList.stream()
+				.filter(itemStack -> !itemStack.isEmpty())
+				.map(CapabilityUtil::getTempItemCapability)
+				.map(TemperatureItemCapability::getWorldTemperatureLevel)
+				.map(i -> i - TemperatureEnum.NORMAL.getMiddle())
+				.mapToDouble(Float::floatValue)
+				.sum();
+		event.setNewTemperature((float) (event.getNewTemperature() + temperature));
+	}
 
 	@SubscribeEvent
 	public static void kineticBlockEntityTick(KineticBlockEntityTickEvent.Post event) {

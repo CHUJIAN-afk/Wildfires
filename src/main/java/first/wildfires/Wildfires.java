@@ -33,38 +33,6 @@ public class Wildfires {
 		CreativeModeTabRegister.register(eventBus);
 		ItemRegister.register(eventBus);
 		SoundRegister.register(eventBus);
-		eventBus.addListener(this::initCommon);
-		if (FMLEnvironment.dist == Dist.CLIENT) {
-			eventBus.addListener(this::initClient);
-		}
-	}
-
-	public void initCommon(final FMLCommonSetupEvent event) {
-		ModList modList = ModList.get();
-		TFCLoaded = modList.isLoaded("tfc");
-		CurioLoaded = modList.isLoaded("curios");
-		LSOLoaded = modList.isLoaded("legendarysurvivaloverhaul");
-		if (LSOLoaded) {
-			TemperatureEnum[] values = TemperatureEnum.values();
-			for (TemperatureEnum value : values) {
-				TemperatureEnumModifyEvent modifyEvent = new TemperatureEnumModifyEvent(value);
-				TemperatureEnumAccessor anEnum = (TemperatureEnumAccessor) (Object) value;
-				if (anEnum != null) {
-					int lowerBound = modifyEvent.getLowerBound();
-					if (value.getLowerBound() != lowerBound) {
-						anEnum.setLowerBound(lowerBound);
-					}
-					int upperBound = modifyEvent.getUpperBound();
-					if (value.getUpperBound() != upperBound) {
-						anEnum.setUpperBound(upperBound);
-					}
-				}
-			}
-		}
-	}
-
-	private void initClient(final FMLClientSetupEvent event) {
-		PartialModelRegister.register();
 	}
 
 	public static ResourceLocation rl(String path) {

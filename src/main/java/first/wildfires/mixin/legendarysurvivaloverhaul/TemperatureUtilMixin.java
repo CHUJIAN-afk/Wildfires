@@ -25,39 +25,6 @@ public class TemperatureUtilMixin {
         if (oldTemperature != newTemperature) {
             cir.setReturnValue(newTemperature);
         }
-        /*
-        List<ItemStack> list = new ArrayList<>(player.getInventory().items).stream()
-                .filter(itemStack -> !player.getMainHandItem().equals(itemStack) && !player.getOffhandItem().equals(itemStack))
-                .filter(ItemStack::isEmpty)
-                .toList();
-        float temperature = create_power$getTemperature(list) * 0.1f;
-        List<ItemStack> itemStackList = new ArrayList<>();
-        player.getArmorSlots().forEach(itemStackList::add);
-
-        CuriosApi.getCuriosInventory(player).ifPresent(iCuriosItemHandler -> {
-            IItemHandlerModifiable equippedCurios = iCuriosItemHandler.getEquippedCurios();
-            for (int i = 0; i < equippedCurios.getSlots(); i++) {
-                ItemStack itemStack = equippedCurios.getStackInSlot(i);
-                if (!itemStack.isEmpty()) {
-                    itemStackList.add(itemStack);
-                }
-            }
-        });
-
-        itemStackList.removeIf(ItemStack::isEmpty);
-        temperature += create_power$getTemperature(itemStackList);
-        cir.setReturnValue(temperature + cir.getReturnValue());
-        */
     }
-/*
-    @Unique
-    private static float create_power$getTemperature(List<ItemStack> list) {
-        return (float) list.stream()
-                .map(CapabilityUtil::getTempItemCapability)
-                .map(TemperatureItemCapability::getWorldTemperatureLevel)
-                .map(i -> i - TemperatureEnum.NORMAL.getMiddle())
-                .mapToDouble(Float::floatValue)
-                .sum();
-    }
-*/
+
 }

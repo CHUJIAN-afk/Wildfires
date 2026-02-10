@@ -9,6 +9,9 @@ import net.minecraftforge.eventbus.api.Event;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 对机器性能设置上限
+ */
 public class KineticDataModifyEvent extends Event {
 
     private final List<KineticData> kineticData;

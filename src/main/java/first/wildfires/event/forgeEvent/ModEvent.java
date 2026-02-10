@@ -1,20 +1,16 @@
 package first.wildfires.event.forgeEvent;
 
-import com.simibubi.create.AllBlockEntityTypes;
 import first.wildfires.Wildfires;
 import first.wildfires.api.customEvent.KineticDataModifyEvent;
 import first.wildfires.api.customEvent.TemperatureEnumModifyEvent;
 import first.wildfires.mixin.legendarysurvivaloverhaul.TemperatureEnumAccessor;
 import first.wildfires.utils.WildfiresUtil;
-import net.minecraft.world.item.Items;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import sfiomn.legendarysurvivaloverhaul.api.temperature.TemperatureEnum;
-
-import java.util.List;
 
 @Mod.EventBusSubscriber(modid = Wildfires.MODID, bus = Mod.EventBusSubscriber.Bus.MOD)
 public class ModEvent {

@@ -1,5 +1,6 @@
 package first.wildfires.utils;
 
+import first.wildfires.api.KineticData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
@@ -7,6 +8,8 @@ import net.minecraft.world.level.Level;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.eventbus.api.Event;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 import java.util.UUID;
 
@@ -17,6 +20,9 @@ public class WildfiresUtil {
     public static Random random() {
         return ThreadLocalRandom.get();
     }
+
+    public static final List<KineticData> kineticDataList = new ArrayList<>();
+    public static long destroyTime = -1;
 
     public static void post(Event event) {
         MinecraftForge.EVENT_BUS.post(event);

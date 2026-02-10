@@ -1,8 +1,12 @@
 package first.wildfires.event.forgeEvent;
 
+import com.simibubi.create.content.kinetics.KineticNetwork;
+import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import first.wildfires.Wildfires;
+import first.wildfires.api.KineticData;
 import first.wildfires.api.customEvent.FoodRottenEvent;
 import first.wildfires.api.customEvent.ItemEntityTickEvent;
+import first.wildfires.api.customEvent.KineticBlockEntityTickEvent;
 import first.wildfires.register.SoundRegister;
 import first.wildfires.utils.WildfiresUtil;
 import net.dries007.tfc.common.capabilities.food.FoodCapability;
@@ -22,6 +26,7 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.Tags;
@@ -32,15 +37,46 @@ import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import java.util.List;
+
 @Mod.EventBusSubscriber(modid = Wildfires.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class ForgeEvent {
+
+	@SubscribeEvent
+	public static void kineticBlockEntityTick(KineticBlockEntityTickEvent.Post event) {
+		KineticBlockEntity kinetic = event.getKineticBlockEntity();
+		Level level = kinetic.getLevel();
+		if (level != null && !level.isClientSide()) {
+			BlockEntityType<?> type = kinetic.getType();
+			KineticNetwork network = kinetic.getOrCreateNetwork();
+			if ( network != null) {
+				for (KineticData kineticData : WildfiresUtil.kineticDataList) {
+					if (kineticData.blockEntityType().equals(type)) {
+						boolean c1 = kineticData.maxNetworkStress() != null && kineticData.maxNetworkStress() < network.calculateStress();
+						boolean c2 = kineticData.maxSpeed() != null && Math.abs(kineticData.maxSpeed()) < Math.abs(kinetic.getSpeed());
+						if (c1 || c2) {
+							List<ItemStack> list = kineticData.list();
+							level.destroyBlock(kinetic.getBlockPos(), list == null);
+                            if (list != null) {
+                                for (ItemStack itemStack : list) {
+                                    Vec3 center = kinetic.getBlockPos().getCenter();
+                                    level.addFreshEntity(new ItemEntity(level, center.x(), center.y(), center.z(), itemStack.copy()));
+                                }
+                            }
+                        }
+						break;
+					}
+				}
+			}
+		}
+	}
 
 	@SubscribeEvent
 	public static void itemEntityTick(ItemEntityTickEvent.Post event) {
 		ItemEntity itemEntity = event.getItemEntity();
 		ItemStack itemStack = itemEntity.getItem();
 		IHeat iHeat = HeatCapability.get(itemStack);
-		if (iHeat != null && (iHeat.getTemperature()>=iHeat.getWorkingTemperature()*0.6) && itemStack.getTags().anyMatch(itemTagKey -> itemTagKey.location().toString().equals("kubejs:tool_head"))) {
+		if (!itemEntity.level().isClientSide() && itemEntity.isInWaterRainOrBubble() && iHeat != null && (iHeat.getTemperature() >= iHeat.getWorkingTemperature() * 0.6) && itemStack.getTags().anyMatch(itemTagKey -> itemTagKey.location().toString().equals("kubejs:tool_head"))) {
 			CompoundTag tag = itemStack.getOrCreateTag();
 			tag.putInt("Quenching", tag.getInt("Quenching") + 1);
 			tag.putInt("Polish", tag.getInt("Polish") + 1);
@@ -95,7 +131,7 @@ public class ForgeEvent {
 	@SubscribeEvent
 	public static void onBreakSpeed(PlayerEvent.BreakSpeed event) {
 		CompoundTag tag = event.getEntity().getMainHandItem().getTag();
-		if (tag != null&&event.getEntity().getMainHandItem().getTags().anyMatch(itemTagKey -> itemTagKey.location().toString().equals("kubejs:polish"))) {
+		if (tag != null && event.getEntity().getMainHandItem().getTags().anyMatch(itemTagKey -> itemTagKey.location().toString().equals("kubejs:polish"))) {
 			int polish = tag.getInt("Polish");
 			if (polish > 0) {
 				event.setNewSpeed(event.getNewSpeed() * Math.min(2, (1 + polish * 0.001f)));

@@ -40,7 +40,7 @@ public class ForgeEvent {
 		ItemEntity itemEntity = event.getItemEntity();
 		ItemStack itemStack = itemEntity.getItem();
 		IHeat iHeat = HeatCapability.get(itemStack);
-		if (iHeat != null && iHeat.canWork() && itemStack.getTags().anyMatch(itemTagKey -> itemTagKey.location().toString().equals("kubejs:tool_head"))) {
+		if (iHeat != null && (iHeat.getTemperature()>=iHeat.getWorkingTemperature()*0.6) && itemStack.getTags().anyMatch(itemTagKey -> itemTagKey.location().toString().equals("kubejs:tool_head"))) {
 			CompoundTag tag = itemStack.getOrCreateTag();
 			tag.putInt("Quenching", tag.getInt("Quenching") + 1);
 			tag.putInt("Polish", tag.getInt("Polish") + 1);
@@ -95,7 +95,7 @@ public class ForgeEvent {
 	@SubscribeEvent
 	public static void onBreakSpeed(PlayerEvent.BreakSpeed event) {
 		CompoundTag tag = event.getEntity().getMainHandItem().getTag();
-		if (tag != null) {
+		if (tag != null&&event.getEntity().getMainHandItem().getTags().anyMatch(itemTagKey -> itemTagKey.location().toString().equals("kubejs:polish"))) {
 			int polish = tag.getInt("Polish");
 			if (polish > 0) {
 				event.setNewSpeed(event.getNewSpeed() * Math.min(2, (1 + polish * 0.001f)));
@@ -107,7 +107,8 @@ public class ForgeEvent {
 	public static void itemModify(ItemAttributeModifierEvent event) {
 		ItemStack itemStack = event.getItemStack();
 		CompoundTag tag = itemStack.getTag();
-		if (tag != null && event.getSlotType() == EquipmentSlot.MAINHAND) {
+
+		if (tag != null && event.getSlotType() == EquipmentSlot.MAINHAND&&itemStack.getTags().anyMatch(itemTagKey -> itemTagKey.location().toString().equals("kubejs:polish"))) {
 			int polish = tag.getInt("Polish");
 			if (polish > 0) {
 				String name = "Polish";

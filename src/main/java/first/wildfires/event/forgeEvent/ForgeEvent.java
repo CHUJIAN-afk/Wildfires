@@ -24,7 +24,6 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.Tags;
@@ -88,17 +87,16 @@ public class ForgeEvent {
 		KineticBlockEntity kinetic = event.getKineticBlockEntity();
 		Level level = kinetic.getLevel();
 		if (level != null && !level.isClientSide()) {
-			BlockEntityType<?> type = kinetic.getType();
 			KineticNetwork network = kinetic.getOrCreateNetwork();
-			if ( network != null) {
+			if (network != null) {
 				for (KineticData kineticData : WildfiresUtil.kineticDataList) {
-					if (kineticData.blockEntityType().equals(type)) {
+					if (kineticData.block().equals(kinetic.getBlockState().getBlock())) {
 						boolean c1 = kineticData.maxNetworkStress() != null && kineticData.maxNetworkStress() < network.calculateStress();
 						boolean c2 = kineticData.maxSpeed() != null && Math.abs(kineticData.maxSpeed()) < Math.abs(kinetic.getSpeed());
 						if (c1 || c2) {
 							List<ItemStack> list = kineticData.list();
 							level.destroyBlock(kinetic.getBlockPos(), list == null);
-                            if (list != null) {
+							if (list != null) {
                                 for (ItemStack itemStack : list) {
                                     Vec3 center = kinetic.getBlockPos().getCenter();
                                     level.addFreshEntity(new ItemEntity(level, center.x(), center.y(), center.z(), itemStack.copy()));

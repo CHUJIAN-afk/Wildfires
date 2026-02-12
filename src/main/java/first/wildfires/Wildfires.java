@@ -1,19 +1,11 @@
 package first.wildfires;
 
 import com.simibubi.create.foundation.data.CreateRegistrate;
-import first.wildfires.api.customEvent.TemperatureEnumModifyEvent;
-import first.wildfires.mixin.legendarysurvivaloverhaul.TemperatureEnumAccessor;
 import first.wildfires.register.*;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
-import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
-import net.minecraftforge.fml.loading.FMLEnvironment;
-import sfiomn.legendarysurvivaloverhaul.api.temperature.TemperatureEnum;
 
 @Mod(Wildfires.MODID)
 public class Wildfires {

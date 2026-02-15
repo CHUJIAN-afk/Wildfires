@@ -1,7 +1,9 @@
 package first.wildfires.event.forgeEvent;
 
 import first.wildfires.Wildfires;
+import first.wildfires.api.NoiseData;
 import first.wildfires.api.customEvent.KineticDataModifyEvent;
+import first.wildfires.api.customEvent.NoiseDataModifyEvent;
 import first.wildfires.api.customEvent.TemperatureEnumModifyEvent;
 import first.wildfires.mixin.legendarysurvivaloverhaul.TemperatureEnumAccessor;
 import first.wildfires.utils.WildfiresUtil;
@@ -25,6 +27,12 @@ public class ModEvent {
 
     @SubscribeEvent
     public static void commonSetup(FMLCommonSetupEvent event) {
+
+        for (NoiseData value :  NoiseData.values()) {
+            NoiseDataModifyEvent noiseDataModifyEvent = new NoiseDataModifyEvent(value);
+            WildfiresUtil.post(noiseDataModifyEvent);
+        }
+
         if (Wildfires.LSOLoaded) {
             TemperatureEnum[] values = TemperatureEnum.values();
             for (TemperatureEnum value : values) {

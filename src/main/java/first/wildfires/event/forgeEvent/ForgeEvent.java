@@ -4,6 +4,7 @@ import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import first.wildfires.Wildfires;
 import first.wildfires.api.KineticData;
+import first.wildfires.api.NoiseData;
 import first.wildfires.api.customEvent.*;
 import first.wildfires.register.SoundRegister;
 import first.wildfires.utils.WildfiresUtil;

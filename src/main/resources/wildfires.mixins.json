@@ -16,7 +16,8 @@
     "minecraft.ItemStackMixin",
     "minecraft.ShapedRecipeMixin",
     "tfc.AdvancedShapedRecipeAccessor",
-    "tfc.AdvancedShapedRecipeMixin"
+    "tfc.AdvancedShapedRecipeMixin",
+    "tfc.TFCBiomesMixin"
   ],
   "client": [
     "minecraft.EffectRenderingInventoryScreenMixin"

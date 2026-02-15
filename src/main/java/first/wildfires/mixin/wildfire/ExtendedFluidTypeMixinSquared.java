@@ -7,7 +7,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-@Mixin(targets = "org.mantodea.wildfire.mixins.tfc.fluid.ExtendedFluidTypeMixin", remap = false)
+@Mixin(targets = "org.mantodea.wildfire.mixins.tfc.fluid.ExtendedFluidTypeMixin", remap = false, priority = 1500)
 public class ExtendedFluidTypeMixinSquared {
 
     @TargetHandler(

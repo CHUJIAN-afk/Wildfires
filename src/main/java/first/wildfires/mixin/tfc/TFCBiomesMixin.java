@@ -23,7 +23,7 @@ public class TFCBiomesMixin {
     )
     private static LongFunction<Noise2D> biomeBuilder0(LongFunction<Noise2D> heightNoiseFactory) {
         NoiseData noiseData = NoiseData.OCEAN;
-        return seed -> BiomeNoise.ocean(seed, noiseData.getDepthMin(), noiseData.getDepthMax());
+        return seed -> BiomeNoise.ocean(seed, noiseData.getHeightMin(), noiseData.getHeightMax());
     }
 
     @ModifyArg(
@@ -36,7 +36,7 @@ public class TFCBiomesMixin {
     )
     private static LongFunction<Noise2D> biomeBuilder1(LongFunction<Noise2D> heightNoiseFactory) {
         NoiseData noiseData = NoiseData.OCEAN_REEF;
-        return seed -> BiomeNoise.ocean(seed, noiseData.getDepthMin(), noiseData.getDepthMax());
+        return seed -> BiomeNoise.ocean(seed, noiseData.getHeightMin(), noiseData.getHeightMax());
     }
 
     @ModifyArg(
@@ -49,7 +49,7 @@ public class TFCBiomesMixin {
     )
     private static LongFunction<Noise2D> biomeBuilder2(LongFunction<Noise2D> heightNoiseFactory) {
         NoiseData noiseData = NoiseData.DEEP_OCEAN;
-        return seed -> BiomeNoise.ocean(seed, noiseData.getDepthMin(), noiseData.getDepthMax());
+        return seed -> BiomeNoise.ocean(seed, noiseData.getHeightMin(), noiseData.getHeightMax());
     }
 
     @ModifyArg(
@@ -62,7 +62,7 @@ public class TFCBiomesMixin {
     )
     private static LongFunction<Noise2D> biomeBuilder3(LongFunction<Noise2D> heightNoiseFactory) {
         NoiseData noiseData = NoiseData.DEEP_OCEAN_TRENCH;
-        return seed -> BiomeNoise.ocean(seed, noiseData.getDepthMin(), noiseData.getDepthMax());
+        return seed -> BiomeNoise.ocean(seed, noiseData.getHeightMin(), noiseData.getHeightMax());
     }
 
     @ModifyArg(
@@ -75,7 +75,7 @@ public class TFCBiomesMixin {
     )
     private static LongFunction<Noise2D> biomeBuilder10(LongFunction<Noise2D> heightNoiseFactory) {
         NoiseData noiseData = NoiseData.DEEP_OCEAN_TRENCH;
-        return seed -> BiomeNoise.sharpHills(seed).scaled(1, 1, noiseData.getDepthMin(), noiseData.getDepthMax());
+        return seed -> BiomeNoise.sharpHills(seed).scaled(1, 1, noiseData.getHeightMin(), noiseData.getHeightMax());
     }
 
     @ModifyArg(
@@ -88,7 +88,7 @@ public class TFCBiomesMixin {
     )
     private static LongFunction<Noise2D> biomeBuilder15(LongFunction<Noise2D> heightNoiseFactory) {
         NoiseData noiseData = NoiseData.MOUNTAINS;
-        return seed -> BiomeNoise.mountains(seed, noiseData.getDepthMin(), noiseData.getDepthMax());
+        return seed -> BiomeNoise.mountains(seed, noiseData.getHeightMin(), noiseData.getHeightMax());
     }
 
 }

@@ -8,33 +8,33 @@ public enum NoiseData {
     HIGHLANDS(60, 91),//高地
     MOUNTAINS(10, 70);//山脉
 
-    private int depthMin;
-    private int depthMax;
+    private int heightMin;
+    private int heightMax;
 
     NoiseData(int depthMin, int depthMax) {
-        this.depthMin = depthMin;
-        this.depthMax = depthMax;
+        this.heightMin = depthMin;
+        this.heightMax = depthMax;
     }
 
-    public int getDepthMax() {
-        return depthMax;
+    public int getHeightMax() {
+        return heightMax;
     }
 
-    public void setDepthMax(int depthMax) {
-        this.depthMax = depthMax;
+    public void setHeightMax(int heightMax) {
+        this.heightMax = heightMax;
     }
 
-    public int getDepthMin() {
-        return depthMin;
+    public int getHeightMin() {
+        return heightMin;
     }
 
-    public void setDepthMin(int depthMin) {
-        this.depthMin = depthMin;
+    public void setHeightMin(int heightMin) {
+        this.heightMin = heightMin;
     }
 
-    public void setDepth(int depthMax, int depthMin) {
-        setDepthMax(depthMax);
-        setDepthMin(depthMin);
+    public void setHeight(int heightMin, int heightMax) {
+        setHeightMin(heightMin);
+        setHeightMax(heightMax);
     }
 
 }

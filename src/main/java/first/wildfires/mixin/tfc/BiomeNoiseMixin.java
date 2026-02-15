@@ -18,8 +18,8 @@ public class BiomeNoiseMixin {
             )
     )
     private static void scaled(Args args) {
-        args.set(2, NoiseData.HIGHLANDS.getDepthMax());
-        args.set(3, NoiseData.HIGHLANDS.getDepthMin());
+        args.set(2, (double) NoiseData.HIGHLANDS.getDepthMax());
+        args.set(3, (double) NoiseData.HIGHLANDS.getDepthMin());
     }
 
 }

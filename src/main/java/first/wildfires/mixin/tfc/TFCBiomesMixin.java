@@ -74,7 +74,7 @@ public class TFCBiomesMixin {
             )
     )
     private static LongFunction<Noise2D> biomeBuilder10(LongFunction<Noise2D> heightNoiseFactory) {
-        NoiseData noiseData = NoiseData.DEEP_OCEAN_TRENCH;
+        NoiseData noiseData = NoiseData.HIGHLANDS;
         return seed -> BiomeNoise.sharpHills(seed).scaled(1, 1, noiseData.getHeightMin(), noiseData.getHeightMax());
     }
 

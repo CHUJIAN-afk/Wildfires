@@ -17,6 +17,7 @@
     "minecraft.ShapedRecipeMixin",
     "tfc.AdvancedShapedRecipeAccessor",
     "tfc.AdvancedShapedRecipeMixin",
+    "tfc.BiomeNoiseMixin",
     "tfc.TFCBiomesMixin"
   ],
   "client": [

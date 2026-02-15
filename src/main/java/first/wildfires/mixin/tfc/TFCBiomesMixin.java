@@ -22,8 +22,8 @@ public class TFCBiomesMixin {
             )
     )
     private static LongFunction<Noise2D> biomeBuilder0(LongFunction<Noise2D> heightNoiseFactory) {
-        NoiseData ocean = NoiseData.OCEAN;
-        return seed -> BiomeNoise.ocean(seed, ocean.getDepthMin(), ocean.getDepthMax());
+        NoiseData noiseData = NoiseData.OCEAN;
+        return seed -> BiomeNoise.ocean(seed, noiseData.getDepthMin(), noiseData.getDepthMax());
     }
 
     @ModifyArg(
@@ -35,8 +35,8 @@ public class TFCBiomesMixin {
             )
     )
     private static LongFunction<Noise2D> biomeBuilder1(LongFunction<Noise2D> heightNoiseFactory) {
-        NoiseData ocean = NoiseData.OCEAN_REEF;
-        return seed -> BiomeNoise.ocean(seed, ocean.getDepthMin(), ocean.getDepthMax());
+        NoiseData noiseData = NoiseData.OCEAN_REEF;
+        return seed -> BiomeNoise.ocean(seed, noiseData.getDepthMin(), noiseData.getDepthMax());
     }
 
     @ModifyArg(
@@ -48,8 +48,8 @@ public class TFCBiomesMixin {
             )
     )
     private static LongFunction<Noise2D> biomeBuilder2(LongFunction<Noise2D> heightNoiseFactory) {
-        NoiseData ocean = NoiseData.DEEP_OCEAN;
-        return seed -> BiomeNoise.ocean(seed, ocean.getDepthMin(), ocean.getDepthMax());
+        NoiseData noiseData = NoiseData.DEEP_OCEAN;
+        return seed -> BiomeNoise.ocean(seed, noiseData.getDepthMin(), noiseData.getDepthMax());
     }
 
     @ModifyArg(
@@ -61,8 +61,21 @@ public class TFCBiomesMixin {
             )
     )
     private static LongFunction<Noise2D> biomeBuilder3(LongFunction<Noise2D> heightNoiseFactory) {
-        NoiseData ocean = NoiseData.DEEP_OCEAN_TRENCH;
-        return seed -> BiomeNoise.ocean(seed, ocean.getDepthMin(), ocean.getDepthMax());
+        NoiseData noiseData = NoiseData.DEEP_OCEAN_TRENCH;
+        return seed -> BiomeNoise.ocean(seed, noiseData.getDepthMin(), noiseData.getDepthMax());
+    }
+
+    @ModifyArg(
+            method = "<clinit>",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/dries007/tfc/world/biome/BiomeBuilder;heightmap(Ljava/util/function/LongFunction;)Lnet/dries007/tfc/world/biome/BiomeBuilder;",
+                    ordinal = 15
+            )
+    )
+    private static LongFunction<Noise2D> biomeBuilder15(LongFunction<Noise2D> heightNoiseFactory) {
+        NoiseData noiseData = NoiseData.MOUNTAINS;
+        return seed -> BiomeNoise.mountains(seed, noiseData.getDepthMin(), noiseData.getDepthMax());
     }
 
 }

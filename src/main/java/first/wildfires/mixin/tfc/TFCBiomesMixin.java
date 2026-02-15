@@ -10,7 +10,7 @@ import org.spongepowered.asm.mixin.injection.ModifyArg;
 
 import java.util.function.LongFunction;
 
-@Mixin(TFCBiomes.class)
+@Mixin(value = TFCBiomes.class, remap = false)
 public class TFCBiomesMixin {
 
     @ModifyArg(

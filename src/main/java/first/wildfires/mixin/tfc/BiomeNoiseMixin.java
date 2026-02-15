@@ -7,7 +7,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyArgs;
 import org.spongepowered.asm.mixin.injection.invoke.arg.Args;
 
-@Mixin(BiomeNoise.class)
+@Mixin(value = BiomeNoise.class, remap = false)
 public class BiomeNoiseMixin {
 
     @ModifyArgs(

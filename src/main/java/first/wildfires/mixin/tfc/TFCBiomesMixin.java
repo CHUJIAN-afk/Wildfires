@@ -70,19 +70,6 @@ public class TFCBiomesMixin {
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/dries007/tfc/world/biome/BiomeBuilder;heightmap(Ljava/util/function/LongFunction;)Lnet/dries007/tfc/world/biome/BiomeBuilder;",
-                    ordinal = 10
-            )
-    )
-    private static LongFunction<Noise2D> biomeBuilder10(LongFunction<Noise2D> heightNoiseFactory) {
-        NoiseData noiseData = NoiseData.HIGHLANDS;
-        return seed -> BiomeNoise.sharpHills(seed).scaled(1, 1, noiseData.getHeightMin(), noiseData.getHeightMax());
-    }
-
-    @ModifyArg(
-            method = "<clinit>",
-            at = @At(
-                    value = "INVOKE",
-                    target = "Lnet/dries007/tfc/world/biome/BiomeBuilder;heightmap(Ljava/util/function/LongFunction;)Lnet/dries007/tfc/world/biome/BiomeBuilder;",
                     ordinal = 15
             )
     )

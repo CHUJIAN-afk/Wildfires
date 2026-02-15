@@ -1,10 +1,10 @@
 package first.wildfires.api;
 
 public enum NoiseData {
-    OCEAN(-26, -12),
-    OCEAN_REEF(-16, -8),
-    DEEP_OCEAN(-30, -16),
-    DEEP_OCEAN_TRENCH(-30, -16);
+    OCEAN(-26, -12),//海洋
+    OCEAN_REEF(-16, -8),//海洋礁
+    DEEP_OCEAN(-30, -16),//深海
+    DEEP_OCEAN_TRENCH(-30, -16);//深海海沟
 
     private int depthMin;
     private int depthMax;
@@ -29,4 +29,10 @@ public enum NoiseData {
     public void setDepthMin(int depthMin) {
         this.depthMin = depthMin;
     }
+
+    public void setDepth(int depthMax, int depthMin) {
+        setDepthMax(depthMax);
+        setDepthMin(depthMin);
+    }
+
 }

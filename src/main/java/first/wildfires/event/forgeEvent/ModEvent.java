@@ -27,7 +27,6 @@ public class ModEvent {
 
     @SubscribeEvent
     public static void commonSetup(FMLCommonSetupEvent event) {
-
         for (NoiseData value :  NoiseData.values()) {
             NoiseDataModifyEvent noiseDataModifyEvent = new NoiseDataModifyEvent(value);
             WildfiresUtil.post(noiseDataModifyEvent);

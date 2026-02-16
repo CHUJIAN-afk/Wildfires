@@ -17,8 +17,7 @@
     "minecraft.ShapedRecipeMixin",
     "tfc.AdvancedShapedRecipeAccessor",
     "tfc.AdvancedShapedRecipeMixin",
-    "tfc.TFCBiomesMixin",
-    "wildfire.ExtendedFluidTypeMixinSquared"
+    "tfc.TFCBiomesMixin"
   ],
   "client": [
     "minecraft.EffectRenderingInventoryScreenMixin"

@@ -21,7 +21,7 @@ public class ClientForgeEvent {
 
     @SubscribeEvent
     public static void inputEvent(MovementInputUpdateEvent event) {
-        if (event.getInput().up){
+        if (event.getInput().jumping){
             PlayerInputPacket packet = new PlayerInputPacket();
             packet.sendToServer();
         }

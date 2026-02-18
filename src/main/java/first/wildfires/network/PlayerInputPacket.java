@@ -35,7 +35,7 @@ public record PlayerInputPacket() implements ICustomPacketPayload {
                         if (string.equals("alexscaves:submarine")) {
                             Vec3 vec3 = player.getDeltaMovement();
                             if (vec3.y() < 0.1) {
-                                player.addDeltaMovement(new Vec3(0, 0.1, 0));
+                                vehicle.addDeltaMovement(new Vec3(0, 0.05, 0));
                             }
                         }
                     }

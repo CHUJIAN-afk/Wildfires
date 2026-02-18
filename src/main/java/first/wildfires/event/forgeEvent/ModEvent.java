@@ -1,18 +1,23 @@
 package first.wildfires.event.forgeEvent;
 
 import first.wildfires.Wildfires;
+import first.wildfires.api.MobPoopData;
 import first.wildfires.api.NoiseData;
 import first.wildfires.api.customEvent.KineticDataModifyEvent;
+import first.wildfires.api.customEvent.MobPoopDataModifyEvent;
 import first.wildfires.api.customEvent.NoiseDataModifyEvent;
 import first.wildfires.api.customEvent.TemperatureEnumModifyEvent;
 import first.wildfires.mixin.legendarysurvivaloverhaul.TemperatureEnumAccessor;
 import first.wildfires.utils.WildfiresUtil;
+import net.minecraft.world.entity.EntityType;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import sfiomn.legendarysurvivaloverhaul.api.temperature.TemperatureEnum;
+
+import java.util.List;
 
 @Mod.EventBusSubscriber(modid = Wildfires.MODID, bus = Mod.EventBusSubscriber.Bus.MOD)
 public class ModEvent {
@@ -27,11 +32,6 @@ public class ModEvent {
 
     @SubscribeEvent
     public static void commonSetup(FMLCommonSetupEvent event) {
-        for (NoiseData value :  NoiseData.values()) {
-            NoiseDataModifyEvent noiseDataModifyEvent = new NoiseDataModifyEvent(value);
-            WildfiresUtil.post(noiseDataModifyEvent);
-        }
-
         if (Wildfires.LSOLoaded) {
             TemperatureEnum[] values = TemperatureEnum.values();
             for (TemperatureEnum value : values) {
@@ -52,7 +52,17 @@ public class ModEvent {
         }
         KineticDataModifyEvent kineticDataModifyEvent = new KineticDataModifyEvent();
         WildfiresUtil.post(kineticDataModifyEvent);
+        WildfiresUtil.kineticDataList.clear();
         WildfiresUtil.kineticDataList.addAll(kineticDataModifyEvent.getKineticData());
+        MobPoopDataModifyEvent mobPoopDataModifyEvent = new MobPoopDataModifyEvent();
+        WildfiresUtil.post(mobPoopDataModifyEvent);
+        WildfiresUtil.mobPoopDataList.clear();
+        List<MobPoopData> list = mobPoopDataModifyEvent.getMobPoopDataList();
+        WildfiresUtil.mobPoopDataList.addAll(list);
+        WildfiresUtil.PoopList.clear();
+        for (MobPoopData data : list) {
+            WildfiresUtil.PoopList.add(data.type());
+        }
     }
 
 }

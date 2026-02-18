@@ -1,8 +1,10 @@
 package first.wildfires.event.forgeEvent;
 
 import first.wildfires.Wildfires;
+import first.wildfires.network.PlayerInputPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.MovementInputUpdateEvent;
 import net.minecraftforge.client.event.RenderGuiOverlayEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -16,5 +18,14 @@ public class ClientForgeEvent {
             event.setCanceled(true);
         }
     }
+
+    @SubscribeEvent
+    public static void inputEvent(MovementInputUpdateEvent event) {
+        if (event.getInput().up){
+            PlayerInputPacket packet = new PlayerInputPacket();
+            packet.sendToServer();
+        }
+    }
+
 
 }

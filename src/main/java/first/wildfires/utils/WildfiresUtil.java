@@ -1,9 +1,11 @@
 package first.wildfires.utils;
 
 import first.wildfires.api.KineticData;
+import first.wildfires.api.MobPoopData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.eventbus.api.Event;
@@ -22,6 +24,8 @@ public class WildfiresUtil {
     }
 
     public static final List<KineticData> kineticDataList = new ArrayList<>();
+    public static final List<MobPoopData> mobPoopDataList = new ArrayList<>();
+    public static final List<EntityType<?>> PoopList = new ArrayList<>();
     public static long destroyTime = -1;
 
     public static void post(Event event) {

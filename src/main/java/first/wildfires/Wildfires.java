@@ -22,6 +22,7 @@ public class Wildfires {
 		Registrate.registerEventListeners(eventBus);
 		BlockEntityRegister.register();
 		BlockRegister.register();
+		NetworkPacketRegister.register();
 		CreativeModeTabRegister.register(eventBus);
 		ItemRegister.register(eventBus);
 		SoundRegister.register(eventBus);

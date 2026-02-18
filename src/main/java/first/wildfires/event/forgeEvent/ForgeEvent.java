@@ -4,6 +4,7 @@ import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import first.wildfires.Wildfires;
 import first.wildfires.api.KineticData;
+import first.wildfires.api.MobPoopData;
 import first.wildfires.api.customEvent.*;
 import first.wildfires.register.SoundRegister;
 import first.wildfires.utils.WildfiresUtil;
@@ -14,8 +15,7 @@ import net.dries007.tfc.common.items.TFCItems;
 import net.dries007.tfc.util.Metal;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -29,7 +29,9 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.Tags;
 import net.minecraftforge.event.ItemAttributeModifierEvent;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
+import net.minecraftforge.event.entity.living.MobSpawnEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -42,8 +44,51 @@ import top.theillusivec4.curios.api.CuriosApi;
 import java.util.ArrayList;
 import java.util.List;
 
+
 @Mod.EventBusSubscriber(modid = Wildfires.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class ForgeEvent {
+
+	@SubscribeEvent
+	public static void entity(MobSpawnEvent.FinalizeSpawn event) {
+		Mob mob = event.getEntity();
+		Level level = mob.level();
+		if (!level.isClientSide()) {
+			if (event.getSpawnType() == MobSpawnType.BREEDING) {
+				List<Mob> mobList = level.getEntitiesOfClass(Mob.class, mob.getBoundingBox().inflate(32), living -> living.distanceTo(mob) < 32 && living.getType() == mob.getType());
+				if (mobList.size() > 16) {
+					event.setSpawnCancelled(true);
+				}
+			}
+		}
+	}
+
+	@SubscribeEvent
+	public static void livingTick(LivingEvent.LivingTickEvent event){
+		LivingEntity living = event.getEntity();
+		Level level = living.level();
+		if (!level.isClientSide()) {
+			EntityType<?> type = living.getType();
+			if (WildfiresUtil.PoopList.contains(type)) {
+				for (MobPoopData data : WildfiresUtil.mobPoopDataList) {
+					if (data.type() == type) {
+						int ticks = data.ticks();
+						CompoundTag tag = living.getPersistentData();
+						int poopTicks = tag.getInt("MobPoopTicks");
+						if (poopTicks >= ticks) {
+							List<ItemStack> itemStackList = data.list();
+							for (ItemStack itemStack : itemStackList) {
+								living.spawnAtLocation(itemStack);
+							}
+							tag.remove("MobPoopTicks");
+						} else {
+							tag.putInt("MobPoopTicks", poopTicks + 1);
+						}
+						break;
+					}
+				}
+			}
+		}
+	}
 
 	@SubscribeEvent
 	public static void itemTemperatureModify(ItemTemperatureModifyEvent event) {

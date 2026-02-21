@@ -18,7 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-@Mixin(CrushingWheelControllerBlockEntity.class)
+@Mixin(value = CrushingWheelControllerBlockEntity.class,remap = false)
 public class CrushingWheelControllerBlockEntityMixin {
 
     @ModifyExpressionValue(

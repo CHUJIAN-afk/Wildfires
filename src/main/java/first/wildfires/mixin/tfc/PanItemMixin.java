@@ -9,7 +9,7 @@ import net.minecraft.world.level.storage.loot.LootParams;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
-@Mixin(PanItem.class)
+@Mixin(value = PanItem.class, remap = false)
 public class PanItemMixin {
 
     @ModifyExpressionValue(

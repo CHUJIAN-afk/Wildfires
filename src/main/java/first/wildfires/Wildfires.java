@@ -1,9 +1,7 @@
 package first.wildfires;
 
-import com.simibubi.create.content.kinetics.crusher.CrushingWheelControllerBlockEntity;
 import com.simibubi.create.foundation.data.CreateRegistrate;
 import first.wildfires.register.*;
-import net.dries007.tfc.common.blockentities.TFCBlockEntities;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.common.Mod;
@@ -28,7 +26,7 @@ public class Wildfires {
 		CreativeModeTabRegister.register(eventBus);
 		ItemRegister.register(eventBus);
 		SoundRegister.register(eventBus);
-		
+
 	}
 
 	public static ResourceLocation rl(String path) {

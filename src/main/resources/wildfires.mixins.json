@@ -5,6 +5,7 @@
   "compatibilityLevel": "JAVA_8",
   "refmap": "wildfires.refmap.json",
   "mixins": [
+    "create.CrushingWheelControllerBlockEntityMixin",
     "create.KineticBlockEntityMixin",
     "jade.StatusEffectsProviderMixin",
     "legendarysurvivaloverhaul.CapabilityUtilMixin",
@@ -18,7 +19,8 @@
     "minecraft.ShapedRecipeMixin",
     "tfc.AdvancedShapedRecipeAccessor",
     "tfc.AdvancedShapedRecipeMixin",
-    "create.CrushingWheelControllerBlockEntityMixin",
+    "tfc.AnvilBlockEntityMixin",
+    "tfc.InventoryBlockEntityAccessor",
     "tfc.PanItemMixin",
     "tfc.SluiceBlockEntityMixin",
     "tfc.TFCBiomesMixin"

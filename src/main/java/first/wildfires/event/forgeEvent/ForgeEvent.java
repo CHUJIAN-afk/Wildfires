@@ -77,7 +77,7 @@ public class ForgeEvent {
 						if (poopTicks >= ticks) {
 							List<ItemStack> itemStackList = data.list();
 							for (ItemStack itemStack : itemStackList) {
-								living.spawnAtLocation(itemStack);
+								living.spawnAtLocation(itemStack.copy());
 							}
 							tag.remove("MobPoopTicks");
 						} else {

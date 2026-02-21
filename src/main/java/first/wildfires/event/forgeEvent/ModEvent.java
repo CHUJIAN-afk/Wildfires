@@ -2,14 +2,11 @@ package first.wildfires.event.forgeEvent;
 
 import first.wildfires.Wildfires;
 import first.wildfires.api.MobPoopData;
-import first.wildfires.api.NoiseData;
 import first.wildfires.api.customEvent.KineticDataModifyEvent;
 import first.wildfires.api.customEvent.MobPoopDataModifyEvent;
-import first.wildfires.api.customEvent.NoiseDataModifyEvent;
 import first.wildfires.api.customEvent.TemperatureEnumModifyEvent;
 import first.wildfires.mixin.legendarysurvivaloverhaul.TemperatureEnumAccessor;
 import first.wildfires.utils.WildfiresUtil;
-import net.minecraft.world.entity.EntityType;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModList;

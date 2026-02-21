@@ -18,6 +18,9 @@
     "minecraft.ShapedRecipeMixin",
     "tfc.AdvancedShapedRecipeAccessor",
     "tfc.AdvancedShapedRecipeMixin",
+    "create.CrushingWheelControllerBlockEntityMixin",
+    "tfc.PanItemMixin",
+    "tfc.SluiceBlockEntityMixin",
     "tfc.TFCBiomesMixin"
   ],
   "client": [

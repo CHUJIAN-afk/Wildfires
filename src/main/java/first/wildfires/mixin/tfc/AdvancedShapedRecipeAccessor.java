@@ -7,8 +7,8 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 
 @Mixin(value = AdvancedShapedRecipe.class, remap = false)
 public interface AdvancedShapedRecipeAccessor {
-
+/*
     @Accessor
     ItemStackProvider getProviderResult();
-
+*/
 }

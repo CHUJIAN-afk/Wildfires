@@ -14,7 +14,7 @@ import java.util.stream.Stream;
 
 @Mixin(ShapedRecipe.class)
 public class ShapedRecipeMixin {
-
+/*
     @ModifyVariable(
             method = "matches(Lnet/minecraft/world/inventory/CraftingContainer;IIZ)Z",
             at = @At("STORE"),
@@ -38,5 +38,5 @@ public class ShapedRecipeMixin {
         }
         return ingredient;
     }
-
+*/
 }

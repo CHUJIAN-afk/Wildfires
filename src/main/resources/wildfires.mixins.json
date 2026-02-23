@@ -22,7 +22,8 @@
     "tfc.AnvilBlockEntityMixin",
     "tfc.InventoryBlockEntityAccessor",
     "tfc.SluiceBlockEntityMixin",
-    "tfc.TFCBiomesMixin"
+    "tfc.TFCBiomesMixin",
+    "tfc.PanItemMixin"
   ],
   "client": [
     "minecraft.EffectRenderingInventoryScreenMixin"

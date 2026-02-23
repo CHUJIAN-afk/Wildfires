@@ -13,7 +13,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(value = AdvancedShapedRecipe.class, remap = false)
 public class AdvancedShapedRecipeMixin {
 
-    @Inject(
+   /* @Inject(
             method = "assemble(Lnet/minecraft/world/inventory/CraftingContainer;Lnet/minecraft/core/RegistryAccess;)Lnet/minecraft/world/item/ItemStack;",
             at = @At("RETURN")
     )
@@ -27,6 +27,6 @@ public class AdvancedShapedRecipeMixin {
                 tool.getOrCreateTag().putInt("TempDuration", tempDuration);
             }
         }
-    }
+    }*/
 
 }

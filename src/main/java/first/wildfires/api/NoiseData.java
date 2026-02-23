@@ -1,11 +1,11 @@
 package first.wildfires.api;
 
 public enum NoiseData {
-    OCEAN(-26, -12),//海洋
-    OCEAN_REEF(-16, -8),//海洋珊瑚礁
-    DEEP_OCEAN(-30, -16),//深海
-    DEEP_OCEAN_TRENCH(-30, -16),//深海海沟
-    MOUNTAINS(10, 70);//山脉
+    OCEAN(-30, -16),//海洋
+    OCEAN_REEF(-20, -10),//海洋珊瑚礁
+    DEEP_OCEAN(-60, -46),//深海
+    DEEP_OCEAN_TRENCH(-100, -70),//深海海沟
+    MOUNTAINS(30, 120);//山脉
 
     private int heightMin;
     private int heightMax;

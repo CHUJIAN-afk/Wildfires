@@ -4,6 +4,7 @@ import first.wildfires.api.MobPoopData;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
 import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.registries.ForgeRegistries;
 
@@ -26,11 +27,8 @@ public class MobPoopDataModifyEvent extends Event {
         mobPoopDataList.add(mobPoopData);
     }
 
-    public void addMobPoopData(String type, int ticks, List<ItemStack> list) {
-        EntityType<?> value = ForgeRegistries.ENTITY_TYPES.getValue(ResourceLocation.parse(type));
-        if (value != null) {
-            mobPoopDataList.add(new MobPoopData(value, ticks, list));
-        }
+    public void addMobPoopData(EntityType<?> type, int ticks, ItemStack itemStack, Block block) {
+        mobPoopDataList.add(new MobPoopData(type, ticks, itemStack, block));
     }
 
 }

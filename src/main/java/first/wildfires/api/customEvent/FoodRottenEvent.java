@@ -8,24 +8,18 @@ import net.minecraftforge.eventbus.api.Event;
  */
 public class FoodRottenEvent extends Event {
 
-    private final ItemStack oldItemStack;
-    private ItemStack newItemStack;
+    private ItemStack itemStack;
 
     public FoodRottenEvent(ItemStack itemStack) {
-        this.oldItemStack = itemStack;
-        this.newItemStack = oldItemStack;
+        this.itemStack = itemStack;
     }
 
-    public ItemStack getOldItemStack() {
-        return oldItemStack;
+    public void setItemStack(ItemStack itemStack) {
+        this.itemStack = itemStack;
     }
 
-    public ItemStack getNewItemStack() {
-        return newItemStack;
-    }
-
-    public void setNewItemStack(ItemStack newItemStack) {
-        this.newItemStack = newItemStack;
+    public ItemStack getItemStack() {
+        return itemStack;
     }
 
 }

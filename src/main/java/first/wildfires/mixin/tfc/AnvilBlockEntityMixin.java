@@ -11,6 +11,7 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.eventbus.api.Event;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -29,8 +30,8 @@ public class AnvilBlockEntityMixin {
         InventoryBlockEntityAccessor<?> accessor = (InventoryBlockEntityAccessor<?>) anvilBlockEntity;
         Level level = anvilBlockEntity.getLevel();
         if (level != null && accessor.getInventory() instanceof AnvilBlockEntity.AnvilInventory inventory) {
-            ItemStack left = inventory.getLeft();
-            ItemStack right = inventory.getRight();
+            ItemStack left = inventory.getRight();
+            ItemStack right = inventory.getLeft();
             WeldingRecipe recipe = level.getRecipeManager().getRecipeFor(TFCRecipeTypes.WELDING.get(), inventory, level).orElse(null);
             if (recipe == null && !left.isEmpty() && !right.isEmpty()) {
                 IHeat leftHeat = HeatCapability.get(left);
@@ -38,8 +39,9 @@ public class AnvilBlockEntityMixin {
                 if (leftHeat != null && rightHeat != null && leftHeat.canWeld()) {
                     AnvilWeldEvent event = new AnvilWeldEvent(left, right);
                     WildfiresUtil.post(event);
-                    ItemStack resultItem = event.getResultItem();
-                    if (resultItem != null) {
+                    if (event.getResult() == Event.Result.ALLOW) {
+                        inventory.setStackInSlot(1, event.getLeft());
+                        inventory.setStackInSlot(0, event.getRight());
                         cir.setReturnValue(InteractionResult.SUCCESS);
                     }
                 }

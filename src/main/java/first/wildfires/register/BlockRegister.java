@@ -7,6 +7,7 @@ import com.simibubi.create.foundation.data.SharedProperties;
 import com.tterrag.registrate.util.entry.BlockEntry;
 import first.wildfires.Wildfires;
 import first.wildfires.block.CustomCogWheelBlock;
+import net.minecraft.world.level.biome.BiomeSpecialEffects;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.material.MapColor;
 
@@ -37,8 +38,10 @@ public class BlockRegister {
                     .transform(customItemModel())
                     .register();
 
-    public static void register() {
 
+
+
+    public static void register() {
 
     }
 

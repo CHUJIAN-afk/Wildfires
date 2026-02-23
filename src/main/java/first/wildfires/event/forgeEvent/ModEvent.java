@@ -47,19 +47,6 @@ public class ModEvent {
                 }
             }
         }
-        KineticDataModifyEvent kineticDataModifyEvent = new KineticDataModifyEvent();
-        WildfiresUtil.post(kineticDataModifyEvent);
-        WildfiresUtil.kineticDataList.clear();
-        WildfiresUtil.kineticDataList.addAll(kineticDataModifyEvent.getKineticData());
-        MobPoopDataModifyEvent mobPoopDataModifyEvent = new MobPoopDataModifyEvent();
-        WildfiresUtil.post(mobPoopDataModifyEvent);
-        WildfiresUtil.mobPoopDataList.clear();
-        List<MobPoopData> list = mobPoopDataModifyEvent.getMobPoopDataList();
-        WildfiresUtil.mobPoopDataList.addAll(list);
-        WildfiresUtil.PoopList.clear();
-        for (MobPoopData data : list) {
-            WildfiresUtil.PoopList.add(data.type());
-        }
     }
 
 }

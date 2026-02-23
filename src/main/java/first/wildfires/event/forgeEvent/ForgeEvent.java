@@ -13,6 +13,7 @@ import net.dries007.tfc.common.capabilities.heat.HeatCapability;
 import net.dries007.tfc.common.capabilities.heat.IHeat;
 import net.dries007.tfc.common.items.TFCItems;
 import net.dries007.tfc.util.Metal;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.*;
@@ -24,15 +25,22 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.PowderSnowBlock;
+import net.minecraft.world.level.block.SnowLayerBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.Tags;
+import net.minecraftforge.event.AddReloadListenerEvent;
 import net.minecraftforge.event.ItemAttributeModifierEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.living.MobSpawnEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.items.IItemHandlerModifiable;
@@ -43,10 +51,28 @@ import top.theillusivec4.curios.api.CuriosApi;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 
 @Mod.EventBusSubscriber(modid = Wildfires.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class ForgeEvent {
+
+	@SubscribeEvent
+	public static void roald(ServerStartedEvent event) {
+		KineticDataModifyEvent kineticDataModifyEvent = new KineticDataModifyEvent();
+		WildfiresUtil.post(kineticDataModifyEvent);
+		WildfiresUtil.kineticDataList.clear();
+		WildfiresUtil.kineticDataList.addAll(kineticDataModifyEvent.getKineticData());
+		MobPoopDataModifyEvent mobPoopDataModifyEvent = new MobPoopDataModifyEvent();
+		WildfiresUtil.post(mobPoopDataModifyEvent);
+		WildfiresUtil.mobPoopDataList.clear();
+		List<MobPoopData> list = mobPoopDataModifyEvent.getMobPoopDataList();
+		WildfiresUtil.mobPoopDataList.addAll(list);
+		WildfiresUtil.PoopList.clear();
+		for (MobPoopData data : list) {
+			WildfiresUtil.PoopList.add(data.type());
+		}
+	}
 
 	@SubscribeEvent
 	public static void entity(MobSpawnEvent.FinalizeSpawn event) {
@@ -75,11 +101,31 @@ public class ForgeEvent {
 						CompoundTag tag = living.getPersistentData();
 						int poopTicks = tag.getInt("MobPoopTicks");
 						if (poopTicks >= ticks) {
-							List<ItemStack> itemStackList = data.list();
-							for (ItemStack itemStack : itemStackList) {
+							ItemStack itemStack = data.itemStack();
+							if (itemStack!= null) {
 								living.spawnAtLocation(itemStack.copy());
 							}
-							tag.remove("MobPoopTicks");
+							Block block = data.block();
+							if (block != null) {
+								BlockPos pos = living.blockPosition();
+								BlockState blockState = level.getBlockState(pos);
+								boolean pooped = false;
+								if (blockState.isAir()) {
+									level.setBlockAndUpdate(pos, block.defaultBlockState());
+									pooped = true;
+								} else if (blockState.hasProperty(BlockStateProperties.LAYERS)) {
+									int value = blockState.getValue(BlockStateProperties.LAYERS);
+									if (value < 8) {
+										level.setBlock(pos, blockState.setValue(BlockStateProperties.LAYERS, value + 1), 2);
+										pooped = true;
+									}
+								}
+								if (pooped) {
+									tag.remove("MobPoopTicks");
+								} else if (living.getRandom().nextDouble() < 0.05) {
+									living.hurt(living.damageSources().inWall(), 1);
+								}
+							}
 						} else {
 							tag.putInt("MobPoopTicks", poopTicks + 1);
 						}
@@ -253,9 +299,9 @@ public class ForgeEvent {
 				ItemStack item = slot.getItem();
 				if (FoodCapability.isRotten(item)) {
 					FoodRottenEvent rottenEvent = new FoodRottenEvent(item);
-					ItemStack oldItemStack = rottenEvent.getOldItemStack();
-					ItemStack newItemStack = rottenEvent.getNewItemStack();
-					if (!oldItemStack.equals(newItemStack)) {
+					WildfiresUtil.post(rottenEvent);
+					ItemStack newItemStack = rottenEvent.getItemStack();
+					if (rottenEvent.getItemStack() != item) {
 						slot.set(newItemStack);
 					}
 				}

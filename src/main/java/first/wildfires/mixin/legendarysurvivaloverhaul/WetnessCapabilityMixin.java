@@ -19,7 +19,9 @@ public class WetnessCapabilityMixin {
             at = @At(
                     value = "INVOKE",
                     target = "Lsfiomn/legendarysurvivaloverhaul/common/capabilities/wetness/WetnessCapability;addWetness(I)V",
-                    ordinal = 2))
+                    ordinal = 2
+            )
+    )
     private boolean addWetnessOfRain(WetnessCapability instance, int wetness, @Local(argsOnly = true) Player player, @Local(argsOnly = true) Level level) {
         PlayerWetnessEvent.RainIncrease event = new PlayerWetnessEvent.RainIncrease(player, instance, level, wetness);
         WildfiresUtil.post(event);
@@ -32,10 +34,30 @@ public class WetnessCapabilityMixin {
     @WrapWithCondition(
             method = "tickUpdate",
             at = @At(
-                    value = "INVOKE", target = "Lsfiomn/legendarysurvivaloverhaul/common/capabilities/wetness/WetnessCapability;addWetness(I)V", ordinal = 5))
-    private boolean addWetnessOfFluid(WetnessCapability instance, int wetness, @Local(argsOnly = true) Player player, @Local(argsOnly = true) Level level) {
+                    value = "INVOKE",
+                    target = "Lsfiomn/legendarysurvivaloverhaul/common/capabilities/wetness/WetnessCapability;addWetness(I)V",
+                    ordinal = 5
+            )
+    )
+    private boolean addWetnessOfFluid1(WetnessCapability instance, int wetness, @Local(argsOnly = true) Player player, @Local(argsOnly = true) Level level) {
         PlayerWetnessEvent.FluidIncrease event = new PlayerWetnessEvent.FluidIncrease(player, instance, level, wetness);
-        MinecraftForge.EVENT_BUS.post(event);
+        WildfiresUtil.post(event);
+        if (!event.isCanceled()) {
+            instance.addWetness(event.getWetness());
+        }
+        return false;
+    }
+    @WrapWithCondition(
+            method = "tickUpdate",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lsfiomn/legendarysurvivaloverhaul/common/capabilities/wetness/WetnessCapability;addWetness(I)V",
+                    ordinal = 8
+            )
+    )
+    private boolean addWetnessOfFluid2(WetnessCapability instance, int wetness, @Local(argsOnly = true) Player player, @Local(argsOnly = true) Level level) {
+        PlayerWetnessEvent.FluidIncrease event = new PlayerWetnessEvent.FluidIncrease(player, instance, level, wetness);
+        WildfiresUtil.post(event);
         if (!event.isCanceled()) {
             instance.addWetness(event.getWetness());
         }

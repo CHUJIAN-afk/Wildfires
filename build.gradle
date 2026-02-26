@@ -178,7 +178,8 @@ dependencies {
     //jei
     compileOnly("mezz.jei:jei-1.20.1-forge:15.20.0.116")
     //legendarysurvivaloverhaul
-    compileOnly fg.deobf("curse.maven:legendary-survival-overhaul-840254:7278266")
+    implementation fg.deobf("curse.maven:legendary-survival-overhaul-840254:6286507")
+    //compileOnly fg.deobf("curse.maven:legendary-survival-overhaul-840254:7278266")
     //jade
     compileOnly fg.deobf("curse.maven:jade-324717:6855440")
     //kjs

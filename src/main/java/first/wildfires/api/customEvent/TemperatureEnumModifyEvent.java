@@ -13,8 +13,8 @@ public class TemperatureEnumModifyEvent extends Event {
 
     public TemperatureEnumModifyEvent(TemperatureEnum temperatureEnum) {
         this.temperatureEnum = temperatureEnum;
-        this.lowerBound = temperatureEnum.getLowerBound();
-        this.upperBound = temperatureEnum.getUpperBound();
+        //this.lowerBound = temperatureEnum.getLowerBound();
+        //this.upperBound = temperatureEnum.getUpperBound();
     }
 
     public TemperatureEnum getTemperatureEnum() {

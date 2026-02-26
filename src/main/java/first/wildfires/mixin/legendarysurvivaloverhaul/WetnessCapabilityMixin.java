@@ -18,7 +18,7 @@ public class WetnessCapabilityMixin {
             at = @At(
                     value = "INVOKE",
                     target = "Lsfiomn/legendarysurvivaloverhaul/common/capabilities/wetness/WetnessCapability;addWetness(I)V",
-                    ordinal = 2
+                    ordinal = 1
             )
     )
     private int addWetnessOfRain(int wetness, @Local(argsOnly = true) Player player, @Local(argsOnly = true) Level level) {
@@ -35,7 +35,7 @@ public class WetnessCapabilityMixin {
             at = @At(
                     value = "INVOKE",
                     target = "Lsfiomn/legendarysurvivaloverhaul/common/capabilities/wetness/WetnessCapability;addWetness(I)V",
-                    ordinal = 5
+                    ordinal = 4
             )
     )
     private int addWetnessOfFluid1(int wetness, @Local(argsOnly = true) Player player, @Local(argsOnly = true) Level level) {

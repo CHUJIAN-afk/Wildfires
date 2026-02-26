@@ -9,12 +9,12 @@ import sfiomn.legendarysurvivaloverhaul.api.temperature.TemperatureEnum;
 public class TemperatureEnumModifyEvent extends Event {
 
     private final TemperatureEnum temperatureEnum;
-    private int lowerBound,upperBound;
+    private int lowerBound, upperBound;
 
     public TemperatureEnumModifyEvent(TemperatureEnum temperatureEnum) {
         this.temperatureEnum = temperatureEnum;
-        //this.lowerBound = temperatureEnum.getLowerBound();
-        //this.upperBound = temperatureEnum.getUpperBound();
+        this.lowerBound = temperatureEnum.getLowerBound();
+        this.upperBound = temperatureEnum.getUpperBound();
     }
 
     public TemperatureEnum getTemperatureEnum() {

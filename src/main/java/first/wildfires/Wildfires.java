@@ -21,7 +21,7 @@ public class Wildfires {
 		IEventBus eventBus = context.getModEventBus();
 		Registrate.registerEventListeners(eventBus);
 		BlockEntityRegister.register();
-		BlockRegister.register();
+		BlockRegister.register(eventBus);
 		NetworkPacketRegister.register();
 		CreativeModeTabRegister.register(eventBus);
 		ItemRegister.register(eventBus);

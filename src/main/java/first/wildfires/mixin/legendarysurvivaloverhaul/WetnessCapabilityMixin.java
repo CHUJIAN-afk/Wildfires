@@ -6,7 +6,6 @@ import first.wildfires.api.customEvent.PlayerWetnessEvent;
 import first.wildfires.utils.WildfiresUtil;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
-import net.minecraftforge.common.MinecraftForge;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import sfiomn.legendarysurvivaloverhaul.common.capabilities.wetness.WetnessCapability;

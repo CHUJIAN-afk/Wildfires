@@ -7,9 +7,16 @@ import com.simibubi.create.foundation.data.SharedProperties;
 import com.tterrag.registrate.util.entry.BlockEntry;
 import first.wildfires.Wildfires;
 import first.wildfires.block.CustomCogWheelBlock;
-import net.minecraft.world.level.biome.BiomeSpecialEffects;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.SlabBlock;
 import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.MapColor;
+import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.registries.DeferredRegister;
+import net.minecraftforge.registries.RegistryObject;
 
 import static com.simibubi.create.foundation.data.ModelGen.customItemModel;
 import static com.simibubi.create.foundation.data.TagGen.axeOrPickaxe;
@@ -38,11 +45,12 @@ public class BlockRegister {
                     .transform(customItemModel())
                     .register();
 
+    public static final DeferredRegister<Block> Register = DeferredRegister.create(Registries.BLOCK, Wildfires.MODID);
 
+    public static final RegistryObject<SlabBlock> GrassSlab = Register.register("grass_slab", () -> new SlabBlock(BlockBehaviour.Properties.copy(Blocks.GRASS_BLOCK)));
 
-
-    public static void register() {
-
+    public static void register(IEventBus eventBus) {
+        Register.register(eventBus);
     }
 
 }

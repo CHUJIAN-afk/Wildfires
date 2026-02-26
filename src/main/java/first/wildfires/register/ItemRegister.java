@@ -5,6 +5,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.food.FoodProperties;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.registries.DeferredRegister;
@@ -26,8 +27,10 @@ public class ItemRegister {
     public static final RegistryObject<Item> CopperBoltItem =
             Register.register("copper_bolt", () -> new Item(new Item.Properties()));
 
-    public static void register(IEventBus bus) {
-        Register.register(bus);
+    public static final RegistryObject<Item> GrassSlab = Register.register("grass_slab", () -> new BlockItem(BlockRegister.GrassSlab.get(), new Item.Properties()));
+
+    public static void register(IEventBus eventBus) {
+        Register.register(eventBus);
     }
 
 }

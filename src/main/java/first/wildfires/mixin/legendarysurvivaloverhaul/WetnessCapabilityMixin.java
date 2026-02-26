@@ -20,6 +20,7 @@ public class WetnessCapabilityMixin {
                     target = "Lsfiomn/legendarysurvivaloverhaul/common/capabilities/wetness/WetnessCapability;addWetness(I)V",
                     ordinal = 2
             )
+            , remap = true
     )
     private boolean addWetnessOfRain(WetnessCapability instance, int wetness, @Local(argsOnly = true) Player player, @Local(argsOnly = true) Level level) {
         PlayerWetnessEvent.RainIncrease event = new PlayerWetnessEvent.RainIncrease(player, level, wetness);
@@ -37,6 +38,7 @@ public class WetnessCapabilityMixin {
                     target = "Lsfiomn/legendarysurvivaloverhaul/common/capabilities/wetness/WetnessCapability;addWetness(I)V",
                     ordinal = 5
             )
+            , remap = true
     )
     private boolean addWetnessOfFluid1(WetnessCapability instance, int wetness, @Local(argsOnly = true) Player player, @Local(argsOnly = true) Level level) {
         PlayerWetnessEvent.FluidIncrease event = new PlayerWetnessEvent.FluidIncrease(player, level, wetness);
@@ -53,6 +55,7 @@ public class WetnessCapabilityMixin {
                     target = "Lsfiomn/legendarysurvivaloverhaul/common/capabilities/wetness/WetnessCapability;addWetness(I)V",
                     ordinal = 8
             )
+            , remap = true
     )
     private boolean addWetnessOfFluid2(WetnessCapability instance, int wetness, @Local(argsOnly = true) Player player, @Local(argsOnly = true) Level level) {
         PlayerWetnessEvent.FluidIncrease event = new PlayerWetnessEvent.FluidIncrease(player, level, wetness);

@@ -22,7 +22,7 @@ public class WetnessCapabilityMixin {
             )
     )
     private boolean addWetnessOfRain(WetnessCapability instance, int wetness, @Local(argsOnly = true) Player player, @Local(argsOnly = true) Level level) {
-        PlayerWetnessEvent.RainIncrease event = new PlayerWetnessEvent.RainIncrease(player, instance, level, wetness);
+        PlayerWetnessEvent.RainIncrease event = new PlayerWetnessEvent.RainIncrease(player, level, wetness);
         WildfiresUtil.post(event);
         if (!event.isCanceled()) {
             instance.addWetness(event.getWetness());
@@ -39,7 +39,7 @@ public class WetnessCapabilityMixin {
             )
     )
     private boolean addWetnessOfFluid1(WetnessCapability instance, int wetness, @Local(argsOnly = true) Player player, @Local(argsOnly = true) Level level) {
-        PlayerWetnessEvent.FluidIncrease event = new PlayerWetnessEvent.FluidIncrease(player, instance, level, wetness);
+        PlayerWetnessEvent.FluidIncrease event = new PlayerWetnessEvent.FluidIncrease(player, level, wetness);
         WildfiresUtil.post(event);
         if (!event.isCanceled()) {
             instance.addWetness(event.getWetness());
@@ -55,7 +55,7 @@ public class WetnessCapabilityMixin {
             )
     )
     private boolean addWetnessOfFluid2(WetnessCapability instance, int wetness, @Local(argsOnly = true) Player player, @Local(argsOnly = true) Level level) {
-        PlayerWetnessEvent.FluidIncrease event = new PlayerWetnessEvent.FluidIncrease(player, instance, level, wetness);
+        PlayerWetnessEvent.FluidIncrease event = new PlayerWetnessEvent.FluidIncrease(player, level, wetness);
         WildfiresUtil.post(event);
         if (!event.isCanceled()) {
             instance.addWetness(event.getWetness());

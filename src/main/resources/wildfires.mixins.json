@@ -18,6 +18,8 @@
     "minecraft.LivingEntityAccessor",
     "tfc.AnvilBlockEntityMixin",
     "tfc.InventoryBlockEntityAccessor",
+    "tfc.PanItemMixin",
+    "tfc.SluiceBlockEntityMixin",
     "tfc.TFCBiomesMixin"
   ],
   "client": [

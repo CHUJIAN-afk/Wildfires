@@ -20,7 +20,8 @@ public class SluiceBlockEntityMixin {
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/world/level/storage/loot/LootParams$Builder;withOptionalParameter(Lnet/minecraft/world/level/storage/loot/parameters/LootContextParam;Ljava/lang/Object;)Lnet/minecraft/world/level/storage/loot/LootParams$Builder;"
-            )
+            ),
+            remap = true
     )
     private static LootParams.Builder LootParams$Builder(LootParams.Builder original, @Local(argsOnly = true) Level level, @Local(argsOnly = true) BlockPos pos) {
         return WildfiresUtil.modifyLootParams(original, level, Player.class, new AABB(pos).inflate(32));

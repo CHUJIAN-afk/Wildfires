@@ -18,7 +18,8 @@ public class PanItemMixin {
                     value = "INVOKE",
                     target = "Lnet/minecraft/world/level/storage/loot/LootParams$Builder;withParameter(Lnet/minecraft/world/level/storage/loot/parameters/LootContextParam;Ljava/lang/Object;)Lnet/minecraft/world/level/storage/loot/LootParams$Builder;",
                     ordinal = 0
-            )
+            ),
+            remap = true
     )
     private LootParams.Builder withParameter(LootParams.Builder original, @Local(argsOnly = true) LivingEntity living) {
         return WildfiresUtil.modifyLootParams(original, living);

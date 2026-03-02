@@ -1,4 +1,20 @@
 {
   "itemGroup.wildfire_tab": "野火",
-  "item.wildfires.dragon_fruit": "火龙果"
+  "item.wildfires.dragon_fruit": "火龙果",
+  "block.wildfires.underwater_turbine": "水下涡轮",
+  "block.wildfires.submarine_core": "潜艇核心",
+  "block.wildfires.simple_air_cushion": "简易气球",
+  "block.wildfires.air_cushion": "气球",
+  "block.wildfires.double_wing": "双翼",
+  "block.wildfires.airship_slats": "飞艇侧板",
+  "block.wildfires.gyrodyne_propeller": "人力飞机扇叶",
+  "block.wildfires.biplane_engine": "双翼机引擎",
+  "block.wildfires.large_airship_engine": "大型飞艇引擎",
+  "block.wildfires.small_engine": "小型引擎",
+  "block.wildfires.small_side_engine": "小型侧引擎",
+  "block.wildfires.rugged_small_engine": "坚固小型引擎",
+  "block.wildfires.large_propeller": "大型螺旋桨",
+  "block.wildfires.large_twin_propeller": "大型双螺旋桨",
+  "block.wildfires.medium_propeller": "中型螺旋桨",
+  "block.wildfires.small_propeller": "小型螺旋桨"
 }

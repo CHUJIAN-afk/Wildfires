@@ -22,11 +22,11 @@ public class CustomDirectionalBlock extends DirectionalBlock {
 
     public static final DirectionProperty Facing =  BlockStateProperties.HORIZONTAL_FACING;
 
-    private Map<Direction, VoxelShape> shapes;
+    private Map<Direction, VoxelShape> shapes = new java.util.HashMap<>();
 
     public CustomDirectionalBlock(Properties properties, VoxelShape north, VoxelShape east, VoxelShape south, VoxelShape west) {
         super(properties);
-        this.defaultBlockState().setValue(Facing, Direction.NORTH);
+        this.registerDefaultState(this.stateDefinition.any().setValue(Facing, Direction.NORTH));
         shapes.put(Direction.NORTH, north);
         shapes.put(Direction.EAST, east);
         shapes.put(Direction.SOUTH, south);

@@ -1,0 +1,24 @@
+{
+	"format_version": "1.9.0",
+	"credit": "Made with Blockbench",
+    "parent": "block/block",
+	"texture_size": [32, 32],
+	"textures": {
+		"2": "wildfires:block/airship/simple_air_cushion",
+		"particle": "wildfires:block/airship/simple_air_cushion"
+	},
+	"elements": [
+		{
+			"from": [0, 0, 0],
+			"to": [16, 16, 16],
+			"faces": {
+				"north": {"uv": [0, 0, 8, 8], "texture": "#2"},
+				"east": {"uv": [0, 0, 8, 8], "texture": "#2"},
+				"south": {"uv": [0, 0, 8, 8], "texture": "#2"},
+				"west": {"uv": [0, 0, 8, 8], "texture": "#2"},
+				"up": {"uv": [16, 8, 8, 0], "texture": "#2"},
+				"down": {"uv": [16, 0, 8, 8], "texture": "#2"}
+			}
+		}
+	]
+}

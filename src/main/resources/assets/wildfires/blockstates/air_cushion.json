@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=east": {
+      "model": "wildfires:block/airship/air_cushion",
+      "y": 90
+    },
+    "facing=north": {
+      "model": "wildfires:block/airship/air_cushion"
+    },
+    "facing=south": {
+      "model": "wildfires:block/airship/air_cushion",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "wildfires:block/airship/air_cushion",
+      "y": 270
+    }
+  }
+}

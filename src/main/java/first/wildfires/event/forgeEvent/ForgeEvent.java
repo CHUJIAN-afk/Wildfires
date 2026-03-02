@@ -8,12 +8,16 @@ import first.wildfires.api.MobPoopData;
 import first.wildfires.api.customEvent.*;
 import first.wildfires.register.SoundRegister;
 import first.wildfires.utils.WildfiresUtil;
+import net.dries007.tfc.common.blocks.plant.fruit.FruitTreeBranchBlock;
+import net.dries007.tfc.common.blocks.plant.fruit.FruitTreeLeavesBlock;
+import net.dries007.tfc.common.blocks.plant.fruit.Lifecycle;
 import net.dries007.tfc.common.capabilities.food.FoodCapability;
 import net.dries007.tfc.common.capabilities.heat.HeatCapability;
 import net.dries007.tfc.common.capabilities.heat.IHeat;
 import net.dries007.tfc.common.items.TFCItems;
 import net.dries007.tfc.util.Metal;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.*;
@@ -31,13 +35,14 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.Tags;
+import net.minecraftforge.event.AddReloadListenerEvent;
 import net.minecraftforge.event.ItemAttributeModifierEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.living.MobSpawnEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.event.server.ServerStartedEvent;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.items.IItemHandlerModifiable;
@@ -46,28 +51,106 @@ import sfiomn.legendarysurvivaloverhaul.common.capabilities.temperature.Temperat
 import sfiomn.legendarysurvivaloverhaul.util.CapabilityUtil;
 import top.theillusivec4.curios.api.CuriosApi;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 
 @Mod.EventBusSubscriber(modid = Wildfires.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class ForgeEvent {
 
 	@SubscribeEvent
-	public static void roald(ServerStartedEvent event) {
-		KineticDataModifyEvent kineticDataModifyEvent = new KineticDataModifyEvent();
-		WildfiresUtil.post(kineticDataModifyEvent);
-		WildfiresUtil.kineticDataList.clear();
-		WildfiresUtil.kineticDataList.addAll(kineticDataModifyEvent.getKineticData());
-		MobPoopDataModifyEvent mobPoopDataModifyEvent = new MobPoopDataModifyEvent();
-		WildfiresUtil.post(mobPoopDataModifyEvent);
-		WildfiresUtil.mobPoopDataList.clear();
-		List<MobPoopData> list = mobPoopDataModifyEvent.getMobPoopDataList();
-		WildfiresUtil.mobPoopDataList.addAll(list);
-		WildfiresUtil.PoopList.clear();
-		for (MobPoopData data : list) {
-			WildfiresUtil.PoopList.add(data.type());
+	public static void reload(AddReloadListenerEvent event) {
+		event.addListener((preparationBarrier, resourceManager, profilerFiller, profilerFiller2, executor1, executor2) -> CompletableFuture.completedFuture(null).thenCompose(preparationBarrier::wait).thenAcceptAsync(v -> {
+			KineticDataModifyEvent kineticDataModifyEvent = new KineticDataModifyEvent();
+			WildfiresUtil.post(kineticDataModifyEvent);
+			WildfiresUtil.kineticDataList.clear();
+			WildfiresUtil.kineticDataList.addAll(kineticDataModifyEvent.getKineticData());
+			MobPoopDataModifyEvent mobPoopDataModifyEvent = new MobPoopDataModifyEvent();
+			WildfiresUtil.post(mobPoopDataModifyEvent);
+			WildfiresUtil.mobPoopDataList.clear();
+			List<MobPoopData> list = mobPoopDataModifyEvent.getMobPoopDataList();
+			WildfiresUtil.mobPoopDataList.addAll(list);
+			WildfiresUtil.PoopList.clear();
+			for (MobPoopData data : list) {
+				WildfiresUtil.PoopList.add(data.type());
+			}
+		}, executor2));
+	}
+
+	@SubscribeEvent
+	public static void right(PlayerInteractEvent.RightClickBlock event) {
+		BlockPos pos = event.getPos();
+		Player player = event.getEntity();
+		Level level = player.level();
+		if (!level.isClientSide()) {
+			Block block = level.getBlockState(pos).getBlock();
+			BlockPos targetPos = null;
+			if (block instanceof FruitTreeBranchBlock) {
+				BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
+				for (int y = pos.getY() + 1; y < 12; y++) {
+					mutablePos.set(pos.getX(), y, pos.getZ());
+					BlockState state = level.getBlockState(mutablePos);
+					if (state.getBlock() instanceof FruitTreeLeavesBlock) {
+						targetPos = mutablePos.immutable();
+						break;
+					}
+					boolean found = false;
+					for (Direction direction : Direction.values()) {
+						BlockPos neighborPos = mutablePos.relative(direction);
+						BlockState neighborState = level.getBlockState(neighborPos);
+
+						if (neighborState.getBlock() instanceof FruitTreeLeavesBlock) {
+							targetPos = neighborPos.immutable();
+							found = true;
+							break;
+						}
+					}
+					if (found) {
+						break;
+					}
+				}
+			}
+			if (targetPos != null) {
+				Set<BlockPos> set = getTargetList(level, targetPos, level.getRandom().nextFloat() * 0.5f);
+				for (BlockPos blockPos : set) {
+					BlockState blockState = level.getBlockState(blockPos);
+					if (blockState.hasProperty(FruitTreeLeavesBlock.LIFECYCLE) && level.getBlockState(blockPos).getBlock() instanceof FruitTreeLeavesBlock fruitTreeLeavesBlock) {
+						while (blockState.getValue(FruitTreeLeavesBlock.LIFECYCLE) == Lifecycle.FRUITING) {
+							fruitTreeLeavesBlock.onUpdate(level, blockPos, blockState);
+						}
+						ItemStack item = fruitTreeLeavesBlock.getProductItem(level.getRandom());
+						level.addFreshEntity(new ItemEntity(level, blockPos.getX() + 0.5, blockPos.getY() + 0.5, blockPos.getZ() + 0.5, item));
+					}
+				}
+			}
 		}
+	}
+
+	private static Set<BlockPos> getTargetList(Level level, BlockPos blockPos, float chance) {
+		Set<BlockPos> set = new HashSet<>();
+		Set<BlockPos> set1 = new HashSet<>();
+		Queue<BlockPos> queue = new LinkedList<>();
+		queue.offer(blockPos);
+		set1.add(blockPos);
+		while (!queue.isEmpty()) {
+			BlockPos pos = queue.poll();
+			BlockState blockState = level.getBlockState(pos);
+			if (blockState.getBlock() instanceof FruitTreeLeavesBlock) {
+				if (blockState.hasProperty(FruitTreeLeavesBlock.LIFECYCLE) && !blockState.getValue(FruitTreeLeavesBlock.PERSISTENT)) {
+					set.add(pos);
+					for (Direction direction : Direction.values()) {
+						BlockPos blockPos3 = pos.relative(direction);
+						if (!set1.contains(blockPos3)) {
+							set1.add(blockPos3);
+							if (level.getRandom().nextFloat() < chance) {
+								queue.offer(blockPos3);
+							}
+						}
+					}
+				}
+			}
+		}
+		return set;
 	}
 
 	@SubscribeEvent
@@ -118,8 +201,6 @@ public class ForgeEvent {
 								}
 								if (pooped) {
 									tag.remove("MobPoopTicks");
-								} else if (living.getRandom().nextDouble() < 0.05) {
-									living.hurt(living.damageSources().inWall(), 1);
 								}
 							}
 						} else {

@@ -29,6 +29,9 @@ public class ItemRegister {
 
     public static final RegistryObject<Item> GrassSlab = Register.register("grass_slab", () -> new BlockItem(BlockRegister.GrassSlab.get(), new Item.Properties()));
 
+    public static final RegistryObject<Item> UnderwaterTurbine =
+            Register.register("underwater_turbine", () -> new BlockItem(BlockRegister.UnderwaterTurbine.get(), new Item.Properties()));
+
     public static void register(IEventBus eventBus) {
         Register.register(eventBus);
     }

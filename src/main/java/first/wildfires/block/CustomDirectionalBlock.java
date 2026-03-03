@@ -21,7 +21,7 @@ import java.util.Map;
 
 public class CustomDirectionalBlock extends DirectionalBlock {
 
-    public static final DirectionProperty Facing =  BlockStateProperties.HORIZONTAL_FACING;
+    public static final DirectionProperty Facing = BlockStateProperties.HORIZONTAL_FACING;
 
     private final Map<Direction, VoxelShape> shapes;
 
@@ -59,8 +59,8 @@ public class CustomDirectionalBlock extends DirectionalBlock {
     @SuppressWarnings("deprecation")
     @Override
     public @NotNull VoxelShape getShape(BlockState state, @NotNull BlockGetter pLevel, @NotNull BlockPos pPos, @NotNull CollisionContext pContext) {
-        if (state.hasProperty(BlockStateProperties.FACING)) {
-            Direction direction = state.getValue(BlockStateProperties.FACING);
+        if (state.hasProperty(Facing)) {
+            Direction direction = state.getValue(Facing);
             return shapes.get(direction);
         }
         return super.getShape(state, pLevel, pPos, pContext);

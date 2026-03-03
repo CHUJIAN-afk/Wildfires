@@ -22,7 +22,7 @@ import java.util.function.Supplier;
 
 import static com.simibubi.create.foundation.data.ModelGen.customItemModel;
 import static com.simibubi.create.foundation.data.TagGen.axeOrPickaxe;
-import static net.minecraft.world.phys.shapes.Shapes.box;
+import static net.minecraft.world.level.block.Block.box;
 
 public class BlockRegister {
 
@@ -113,10 +113,10 @@ public class BlockRegister {
                 .strength(5.0f)
                 .requiresCorrectToolForDrops()
                 .noOcclusion();
-        VoxelShape north = box(0, 3, 6, 16, 14, 26);
-        VoxelShape south = box(0, 3, 6, 16, 14, 26);
-        VoxelShape west = box(0, 3, 6, 16, 14, 26);
-        VoxelShape east = box(0, 3, 6, 16, 14, 26);
+        VoxelShape north = box(0, 3, 6, 16, 14, 26).optimize();
+        VoxelShape south = box(0, 3, 6, 16, 14, 26).optimize();
+        VoxelShape west = box(0, 3, 6, 16, 14, 26).optimize();
+        VoxelShape east = box(0, 3, 6, 16, 14, 26).optimize();
         return new CustomDirectionalBlock(properties, north, east, south, west);
     });
 

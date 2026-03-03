@@ -16,17 +16,19 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
 import java.util.Map;
 
 public class CustomDirectionalBlock extends DirectionalBlock {
 
     public static final DirectionProperty Facing =  BlockStateProperties.HORIZONTAL_FACING;
 
-    private Map<Direction, VoxelShape> shapes = new java.util.HashMap<>();
+    private final Map<Direction, VoxelShape> shapes;
 
     public CustomDirectionalBlock(Properties properties, VoxelShape north, VoxelShape east, VoxelShape south, VoxelShape west) {
         super(properties);
         this.registerDefaultState(this.stateDefinition.any().setValue(Facing, Direction.NORTH));
+        shapes = new HashMap<>();
         shapes.put(Direction.NORTH, north);
         shapes.put(Direction.EAST, east);
         shapes.put(Direction.SOUTH, south);

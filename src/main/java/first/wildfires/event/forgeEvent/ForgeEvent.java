@@ -74,6 +74,9 @@ public class ForgeEvent {
 			for (MobPoopData data : list) {
 				WildfiresUtil.PoopList.add(data.type());
 			}
+			WildfiresUtil.StructureStageMap.clear();
+			StructureStageModifyEvent structureStageModifyEvent = new StructureStageModifyEvent();
+			WildfiresUtil.post(structureStageModifyEvent);
 		}, executor2));
 	}
 

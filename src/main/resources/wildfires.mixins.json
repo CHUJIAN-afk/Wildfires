@@ -16,6 +16,7 @@
     "minecraft.ItemEntityMixin",
     "minecraft.ItemStackMixin",
     "minecraft.LivingEntityAccessor",
+    "minecraft.StructureManagerMixin",
     "tfc.AnvilBlockEntityMixin",
     "tfc.InventoryBlockEntityAccessor",
     "tfc.PanItemMixin",

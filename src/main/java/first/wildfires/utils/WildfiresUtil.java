@@ -3,6 +3,7 @@ package first.wildfires.utils;
 import first.wildfires.api.KineticData;
 import first.wildfires.api.MobPoopData;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.EntityType;
@@ -19,10 +20,7 @@ import net.minecraftforge.eventbus.api.Event;
 import top.theillusivec4.curios.api.CuriosApi;
 import top.theillusivec4.curios.api.type.capability.ICuriosItemHandler;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
-import java.util.UUID;
+import java.util.*;
 
 public class WildfiresUtil {
 
@@ -35,6 +33,7 @@ public class WildfiresUtil {
     public static final List<KineticData> kineticDataList = new ArrayList<>();
     public static final List<MobPoopData> mobPoopDataList = new ArrayList<>();
     public static final List<EntityType<?>> PoopList = new ArrayList<>();
+    public static final Map<String, List<ResourceLocation>> StructureStageMap = new HashMap<>();
     public static long destroyTime = -1;
 
     public static boolean isEquippedCurio(Player player, Item item) {

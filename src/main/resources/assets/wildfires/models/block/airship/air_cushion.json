@@ -2,7 +2,6 @@
 	"format_version": "1.9.0",
 	"credit": "Made with Blockbench",
     "parent": "block/block",
-	"render_type": "translucent",
 	"texture_size": [32, 32],
 	"textures": {
 		"2": "wildfires:block/airship/air_cushion",

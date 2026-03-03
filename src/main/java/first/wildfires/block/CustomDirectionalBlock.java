@@ -45,7 +45,7 @@ public class CustomDirectionalBlock extends DirectionalBlock {
     public @Nullable BlockState getStateForPlacement(@NotNull BlockPlaceContext context) {
         BlockState blockState = super.getStateForPlacement(context);
         if (blockState != null && blockState.hasProperty(Facing)) {
-            return blockState.setValue(Facing, context.getHorizontalDirection().getCounterClockWise());
+            return blockState.setValue(Facing, context.getHorizontalDirection().getOpposite());
         }
         return super.getStateForPlacement(context);
     }

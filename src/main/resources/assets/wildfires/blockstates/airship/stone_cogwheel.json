@@ -1,0 +1,17 @@
+{
+  "variants": {
+    "axis=x": {
+      "model": "wildfires:block/stone_cogwheel",
+      "x": 90,
+      "y": 90
+    },
+    "axis=y": {
+      "model": "wildfires:block/stone_cogwheel"
+    },
+    "axis=z": {
+      "model": "wildfires:block/stone_cogwheel",
+      "x": 90,
+      "y": 180
+    }
+  }
+}

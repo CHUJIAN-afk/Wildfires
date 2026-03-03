@@ -42,7 +42,7 @@ public abstract class StructureManagerMixin {
         List<StructureStart> structureStartList = cir.getReturnValue();
         MinecraftServer server = level.getServer();
         ResourceLocation location = level.registryAccess().registryOrThrow(Registries.STRUCTURE).getKey(structure);
-        if (location != null && !structureStartList.isEmpty() && server != null && WildfiresUtil.StructureStageMap.values().stream().noneMatch(location::equals)) {
+        if (location != null && !structureStartList.isEmpty() && server != null && WildfiresUtil.StructureStageMap.values().stream().anyMatch(location::equals)) {
             boolean noneMatch = server.getPlayerList().getPlayers().stream()
                     .map(player -> (PlayerKJS) player)
                     .map(PlayerKJS::kjs$getStages)

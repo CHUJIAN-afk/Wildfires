@@ -21,13 +21,11 @@ import java.util.Map;
 
 public class CustomDirectionalBlock extends DirectionalBlock {
 
-    public static final DirectionProperty Facing = BlockStateProperties.HORIZONTAL_FACING;
-
     private final Map<Direction, VoxelShape> shapes;
 
     public CustomDirectionalBlock(Properties properties, VoxelShape north, VoxelShape east, VoxelShape south, VoxelShape west) {
         super(properties);
-        this.registerDefaultState(this.stateDefinition.any().setValue(Facing, Direction.NORTH));
+        this.registerDefaultState(this.stateDefinition.any().setValue(BlockStateProperties.HORIZONTAL_FACING, Direction.NORTH));
         shapes = new HashMap<>();
         shapes.put(Direction.NORTH, north);
         shapes.put(Direction.EAST, east);
@@ -38,14 +36,14 @@ public class CustomDirectionalBlock extends DirectionalBlock {
     @Override
     protected void createBlockStateDefinition(StateDefinition.@NotNull Builder<Block, BlockState> builder) {
         super.createBlockStateDefinition(builder);
-        builder.add(Facing);
+        builder.add(BlockStateProperties.HORIZONTAL_FACING);
     }
 
     @Override
     public @Nullable BlockState getStateForPlacement(@NotNull BlockPlaceContext context) {
         BlockState blockState = super.getStateForPlacement(context);
-        if (blockState != null && blockState.hasProperty(Facing)) {
-            return blockState.setValue(Facing, context.getHorizontalDirection().getOpposite());
+        if (blockState != null && blockState.hasProperty(BlockStateProperties.HORIZONTAL_FACING)) {
+            return blockState.setValue(BlockStateProperties.HORIZONTAL_FACING, context.getHorizontalDirection().getOpposite());
         }
         return super.getStateForPlacement(context);
     }
@@ -59,8 +57,8 @@ public class CustomDirectionalBlock extends DirectionalBlock {
     @SuppressWarnings("deprecation")
     @Override
     public @NotNull VoxelShape getShape(BlockState state, @NotNull BlockGetter pLevel, @NotNull BlockPos pPos, @NotNull CollisionContext pContext) {
-        if (state.hasProperty(Facing)) {
-            Direction direction = state.getValue(Facing);
+        if (state.hasProperty(BlockStateProperties.HORIZONTAL_FACING)) {
+            Direction direction = state.getValue(BlockStateProperties.HORIZONTAL_FACING);
             return shapes.get(direction);
         }
         return super.getShape(state, pLevel, pPos, pContext);

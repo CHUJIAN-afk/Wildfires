@@ -8,6 +8,7 @@ import com.tterrag.registrate.util.entry.BlockEntry;
 import first.wildfires.Wildfires;
 import first.wildfires.block.CustomCogWheelBlock;
 import first.wildfires.block.CustomDirectionalBlock;
+import first.wildfires.block.CustomShapeBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.level.BlockGetter;
@@ -21,6 +22,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.RegistryObject;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.function.Supplier;
 
@@ -151,12 +153,9 @@ public class BlockRegister {
                         .strength(5.0f)
                         .requiresCorrectToolForDrops()
                         .noOcclusion();
-                VoxelShape north = box(7.75, -16, 7.75, 8.25, 16, 8.25);
-                VoxelShape south = box(7.75, -16, 7.75, 8.25, 16, 8.25);
-                VoxelShape west = box(7.75, -16, 7.75, 8.25, 16, 8.25);
-                VoxelShape east = box(7.75, -16, 7.75, 8.25, 16, 8.25);
-                return new CustomDirectionalBlock(properties, north, east, south, west);
+                return new CustomShapeBlock(properties, box(0, 4, 0, 2, 13, 16));
             });
+
 
     // 双翼机引擎
     public static final RegistryObject<Block> BiplaneEngine = Register.register("airship/biplane_engine", () -> {

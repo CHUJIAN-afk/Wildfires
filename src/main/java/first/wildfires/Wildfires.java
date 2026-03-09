@@ -20,13 +20,13 @@ public class Wildfires {
 	public Wildfires(FMLJavaModLoadingContext context) {
 		IEventBus eventBus = context.getModEventBus();
 		Registrate.registerEventListeners(eventBus);
+		AttributeRegister.register(eventBus);
 		BlockEntityRegister.register();
 		BlockRegister.register(eventBus);
 		NetworkPacketRegister.register();
 		CreativeModeTabRegister.register(eventBus);
 		ItemRegister.register(eventBus);
 		SoundRegister.register(eventBus);
-
 	}
 
 	public static ResourceLocation rl(String path) {

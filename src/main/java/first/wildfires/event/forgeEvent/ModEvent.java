@@ -3,7 +3,10 @@ package first.wildfires.event.forgeEvent;
 import first.wildfires.Wildfires;
 import first.wildfires.api.customEvent.TemperatureEnumModifyEvent;
 import first.wildfires.mixin.legendarysurvivaloverhaul.TemperatureEnumAccessor;
+import first.wildfires.register.AttributeRegister;
 import first.wildfires.utils.WildfiresUtil;
+import net.minecraft.world.entity.EntityType;
+import net.minecraftforge.event.entity.EntityAttributeModificationEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModList;
@@ -20,6 +23,11 @@ public class ModEvent {
         Wildfires.TFCLoaded = modList.isLoaded("tfc");
         Wildfires.CurioLoaded = modList.isLoaded("curios");
         Wildfires.LSOLoaded = modList.isLoaded("legendarysurvivaloverhaul");
+    }
+
+    @SubscribeEvent
+    public static void EntityAttributeModificationEvent(EntityAttributeModificationEvent event) {
+        event.getTypes().forEach(entityType -> event.add(entityType, AttributeRegister.ArmorPenetration.get()));
     }
 
     @SubscribeEvent

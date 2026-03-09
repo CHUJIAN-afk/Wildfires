@@ -33,7 +33,7 @@ public class LivingEntityMixin {
             armorValue -= armorPenetration;
             armorValue = Math.max(armorValue, 0);
         }
-        float removed = armorValue > 0 ? Math.min(armorValue, damageAmount * armorValue * 0.05f) : 0;
+        float removed = armorValue > 0 ? Math.min(damageAmount, damageAmount * armorValue * 0.05f) : 0;
         if (removed > 0) {
             EquipmentSlot[] equipmentSlots = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
             for (EquipmentSlot equipmentSlot : equipmentSlots) {

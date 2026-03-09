@@ -4,7 +4,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraftforge.eventbus.api.Cancelable;
 import net.minecraftforge.eventbus.api.Event;
-import sfiomn.legendarysurvivaloverhaul.common.capabilities.wetness.WetnessCapability;
 
 /**
  * 玩家湿度事件,玩家湿度会触发此事件，分为降雨增加和流体增加两种事件

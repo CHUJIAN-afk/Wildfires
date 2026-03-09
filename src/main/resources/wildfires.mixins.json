@@ -15,7 +15,7 @@
     "legendarysurvivaloverhaul.WetnessCapabilityMixin",
     "minecraft.ItemEntityMixin",
     "minecraft.ItemStackMixin",
-    "minecraft.LivingEntityAccessor",
+    "minecraft.LivingEntityMixin",
     "minecraft.StructureManagerMixin",
     "tfc.AnvilBlockEntityMixin",
     "tfc.InventoryBlockEntityAccessor",

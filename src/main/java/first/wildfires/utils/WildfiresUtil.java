@@ -1,7 +1,9 @@
 package first.wildfires.utils;
 
+import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import first.wildfires.api.KineticData;
 import first.wildfires.api.MobPoopData;
+import first.wildfires.api.customEvent.StressAppliedModifyEvent;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvent;
@@ -35,6 +37,12 @@ public class WildfiresUtil {
     public static final List<EntityType<?>> PoopList = new ArrayList<>();
     public static final Map<String, List<ResourceLocation>> StructureStageMap = new HashMap<>();
     public static long destroyTime = -1;
+
+    public static float stressAppliedModify(KineticBlockEntity blockEntity, float stress) {
+        StressAppliedModifyEvent event = new StressAppliedModifyEvent(blockEntity.getBlockState().getBlock(), stress);
+        MinecraftForge.EVENT_BUS.post(event);
+        return event.getStressApplied();
+    }
 
     public static boolean isEquippedCurio(Player player, Item item) {
         ICuriosItemHandler handler = CuriosApi.getCuriosInventory(player).resolve().orElse(null);

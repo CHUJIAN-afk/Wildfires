@@ -2,15 +2,30 @@ package first.wildfires.mixin.create;
 
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import first.wildfires.api.customEvent.KineticBlockEntityTickEvent;
+import first.wildfires.api.customEvent.StressAppliedModifyEvent;
+import first.wildfires.utils.WildfiresUtil;
 import net.minecraftforge.common.MinecraftForge;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(value = KineticBlockEntity.class, remap = false)
 public abstract class KineticBlockEntityMixin {
-
+/*
+	@Inject(
+			method = "calculateStressApplied",
+			at = @At(
+					value = "RETURN"
+			),
+			cancellable = true
+	)
+	private void calculateStressApplied(CallbackInfoReturnable<Float> cir) {
+		KineticBlockEntity blockEntity = (KineticBlockEntity) (Object) this;
+		cir.setReturnValue(WildfiresUtil.stressAppliedModify(blockEntity, cir.getReturnValue()));
+	}
+*/
 	@Inject(
 			method = "tick",
 			at = @At(

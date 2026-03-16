@@ -87,73 +87,53 @@ public class ForgeEvent {
 		Level level = player.level();
 		if (!level.isClientSide()) {
 			Block block = level.getBlockState(pos).getBlock();
-			BlockPos targetPos = null;
 			if (block instanceof FruitTreeBranchBlock) {
 				BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
-				for (int y = pos.getY() + 1; y < 12; y++) {
+				for (int y = pos.getY() + 1; y < level.getMaxBuildHeight(); y++) {
 					mutablePos.set(pos.getX(), y, pos.getZ());
 					BlockState state = level.getBlockState(mutablePos);
+					if (!(state.getBlock() instanceof FruitTreeBranchBlock) && !(state.getBlock() instanceof FruitTreeLeavesBlock)) {
+						break;
+					}
 					if (state.getBlock() instanceof FruitTreeLeavesBlock) {
-						targetPos = mutablePos.immutable();
-						break;
-					}
-					boolean found = false;
-					for (Direction direction : Direction.values()) {
-						BlockPos neighborPos = mutablePos.relative(direction);
-						BlockState neighborState = level.getBlockState(neighborPos);
-
-						if (neighborState.getBlock() instanceof FruitTreeLeavesBlock) {
-							targetPos = neighborPos.immutable();
-							found = true;
-							break;
-						}
-					}
-					if (found) {
-						break;
-					}
-				}
-			}
-			if (targetPos != null) {
-				Set<BlockPos> set = getTargetList(level, targetPos, level.getRandom().nextFloat() * 0.5f);
-				for (BlockPos blockPos : set) {
-					BlockState blockState = level.getBlockState(blockPos);
-					if (blockState.hasProperty(FruitTreeLeavesBlock.LIFECYCLE) && level.getBlockState(blockPos).getBlock() instanceof FruitTreeLeavesBlock fruitTreeLeavesBlock) {
-						while (blockState.getValue(FruitTreeLeavesBlock.LIFECYCLE) == Lifecycle.FRUITING) {
-							fruitTreeLeavesBlock.onUpdate(level, blockPos, blockState);
-						}
-						ItemStack item = fruitTreeLeavesBlock.getProductItem(level.getRandom());
-						level.addFreshEntity(new ItemEntity(level, blockPos.getX() + 0.5, blockPos.getY() + 0.5, blockPos.getZ() + 0.5, item));
-					}
-				}
-			}
-		}
-	}
-
-	private static Set<BlockPos> getTargetList(Level level, BlockPos blockPos, float chance) {
-		Set<BlockPos> set = new HashSet<>();
-		Set<BlockPos> set1 = new HashSet<>();
-		Queue<BlockPos> queue = new LinkedList<>();
-		queue.offer(blockPos);
-		set1.add(blockPos);
-		while (!queue.isEmpty()) {
-			BlockPos pos = queue.poll();
-			BlockState blockState = level.getBlockState(pos);
-			if (blockState.getBlock() instanceof FruitTreeLeavesBlock) {
-				if (blockState.hasProperty(FruitTreeLeavesBlock.LIFECYCLE) && !blockState.getValue(FruitTreeLeavesBlock.PERSISTENT)) {
-					set.add(pos);
-					for (Direction direction : Direction.values()) {
-						BlockPos blockPos3 = pos.relative(direction);
-						if (!set1.contains(blockPos3)) {
-							set1.add(blockPos3);
-							if (level.getRandom().nextFloat() < chance) {
-								queue.offer(blockPos3);
+						Set<BlockPos> leaves = new HashSet<>();
+						Queue<BlockPos> queue = new LinkedList<>();
+						Set<BlockPos> visited = new HashSet<>();
+						queue.offer(mutablePos.immutable());
+						visited.add(mutablePos.immutable());
+						while (!queue.isEmpty()) {
+							BlockPos current = queue.poll();
+							BlockState currentState = level.getBlockState(current);
+							if (currentState.getBlock() instanceof FruitTreeLeavesBlock && currentState.hasProperty(FruitTreeLeavesBlock.LIFECYCLE) && !currentState.getValue(FruitTreeLeavesBlock.PERSISTENT)) {
+								leaves.add(current);
+							}
+							for (Direction dir : Direction.values()) {
+								BlockPos neighbor = current.relative(dir);
+								if (!visited.contains(neighbor)) {
+									visited.add(neighbor);
+									BlockState neighborState = level.getBlockState(neighbor);
+									Block neighborBlock = neighborState.getBlock();
+									if (neighborBlock instanceof FruitTreeBranchBlock || neighborBlock instanceof FruitTreeLeavesBlock) {
+										queue.offer(neighbor);
+									}
+								}
 							}
 						}
+						for (BlockPos leafPos : leaves) {
+							BlockState leafState = level.getBlockState(leafPos);
+							if (leafState.getBlock() instanceof FruitTreeLeavesBlock fruitTreeLeavesBlock) {
+								while (leafState.getValue(FruitTreeLeavesBlock.LIFECYCLE) == Lifecycle.FRUITING) {
+									fruitTreeLeavesBlock.onUpdate(level, leafPos, leafState);
+								}
+								ItemStack item = fruitTreeLeavesBlock.getProductItem(level.getRandom());
+								level.addFreshEntity(new ItemEntity(level, leafPos.getX() + 0.5, leafPos.getY() + 0.5, leafPos.getZ() + 0.5, item));
+							}
+						}
+						break;
 					}
 				}
 			}
 		}
-		return set;
 	}
 
 	@SubscribeEvent

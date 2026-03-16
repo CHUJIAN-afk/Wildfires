@@ -4,7 +4,7 @@ import com.simibubi.create.content.kinetics.simpleRelays.BracketedKineticBlockEn
 import com.simibubi.create.foundation.data.CreateRegistrate;
 import com.tterrag.registrate.util.entry.BlockEntityEntry;
 import first.wildfires.Wildfires;
-import first.wildfires.client.CustomCogWheelBlockEntityRenderer;
+import first.wildfires.client.renderer.blockEntity.CustomCogWheelBlockEntityRenderer;
 
 import static first.wildfires.register.BlockRegister.StoneCogWheel;
 import static first.wildfires.register.BlockRegister.StoneLargeCogWheel;

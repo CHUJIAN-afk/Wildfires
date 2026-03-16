@@ -153,13 +153,7 @@ repositories {
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
-/*
-    //mixinsquared
-    compileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
-    implementation(jarJar("com.github.bawnorton.mixinsquared:mixinsquared-forge:0.3.7-beta.1")) {
-        jarJar.ranged(it, "[0.3.7-beta.1,)")
-    }
-    */
+
     //curios
     compileOnly("top.theillusivec4.curios:curios-forge:5.14.1+1.20.1:api")
     //create
@@ -172,14 +166,12 @@ dependencies {
     implementation("io.github.llamalad7:mixinextras-forge:0.4.1")
     //tfc
     implementation fg.deobf("curse.maven:terrafirmacraft-302973:7442504")
-    //implementation files("run/mods/TerraFirmaCraft-Forge-1.20.1-3.2.20.jar")
     //patchouli
     implementation fg.deobf("curse.maven:patchouli-306770:6164575")
     //jei
     compileOnly("mezz.jei:jei-1.20.1-forge:15.20.0.116")
     //legendarysurvivaloverhaul
     implementation fg.deobf("curse.maven:legendary-survival-overhaul-840254:6286507")
-    //compileOnly fg.deobf("curse.maven:legendary-survival-overhaul-840254:7278266")
     //jade
     compileOnly fg.deobf("curse.maven:jade-324717:6855440")
     //kjs
@@ -188,8 +180,18 @@ dependencies {
     implementation fg.deobf("curse.maven:architectury-api-419699:5137938")
     implementation fg.deobf("curse.maven:probejs-585406:5227399")
     implementation fg.deobf("curse.maven:eventjs-1132802:7143082")
-
-
+    //geckolib
+    implementation fg.deobf("curse.maven:geckolib-388172:6789487")
+    //spartan-weaponry
+    implementation fg.deobf("curse.maven:spartan-weaponry-278141:5597663")
+    //irons-spells
+    compileOnly fg.deobf("curse.maven:irons-spells-n-spellbooks-855414:6054196")
+    //kubejs-tfc
+    implementation fg.deobf("curse.maven:kubejs-tfc-841001:6201323")
+    //create-metallurgy
+    implementation fg.deobf("curse.maven:create-metallurgy-1007404:6741785")
+    //citadel
+    implementation fg.deobf("curse.maven:citadel-331936:6702068")
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.

@@ -8,6 +8,7 @@
     "create.CrushingWheelControllerBlockEntityMixin",
     "create.KineticBlockEntityMixin",
     "jade.StatusEffectsProviderMixin",
+    "kubejs.UtilsJSMixin",
     "legendarysurvivaloverhaul.CapabilityUtilMixin",
     "legendarysurvivaloverhaul.CuriosEventsMixin",
     "legendarysurvivaloverhaul.TemperatureEnumAccessor",
@@ -17,19 +18,27 @@
     "minecraft.ItemStackMixin",
     "minecraft.LivingEntityMixin",
     "minecraft.StructureManagerMixin",
+    "spartan.HeavyCrossbowItemMixin",
+    "spartan.SwordBaseItemAccessor",
+    "spartan.SwordBaseItemMixin",
+    "spartan.ThrowingWeaponItemAccessor",
     "tfc.AnvilBlockEntityMixin",
+    "tfc.ExtendedFluidTypeMixin",
     "tfc.InventoryBlockEntityAccessor",
+    "tfc.ItemTypeMixin",
     "tfc.PanItemMixin",
+    "tfc.PredatorMixin",
     "tfc.SluiceBlockEntityMixin",
     "tfc.TFCBiomesMixin"
   ],
   "client": [
-    "minecraft.EffectRenderingInventoryScreenMixin"
+    "minecraft.EffectRenderingInventoryScreenMixin",
+    "tfc.ClimateScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1
   },
   "overwrites": {
-    "requireAnnotations": true
+    "requireAnnotations": false
   }
 }

@@ -4,8 +4,11 @@ package first.wildfires.event.forgeEvent;
 import first.wildfires.Wildfires;
 import first.wildfires.register.BlockRegister;
 import first.wildfires.register.PartialModelRegister;
+import first.wildfires.client.renderer.entity.ReplacedBearRenderer;
+import net.dries007.tfc.common.entities.TFCEntities;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.client.event.RegisterColorHandlersEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -17,6 +20,13 @@ public class ClientModEvent {
     @SubscribeEvent
     public static void clientSetup(final FMLClientSetupEvent event) {
         PartialModelRegister.register();
+    }
+
+    @SubscribeEvent
+    public static void registerRenderers(final EntityRenderersEvent.RegisterRenderers event) {
+        event.registerEntityRenderer(TFCEntities.BLACK_BEAR.get(), ReplacedBearRenderer::BlackBear);
+        event.registerEntityRenderer(TFCEntities.POLAR_BEAR.get(), ReplacedBearRenderer::PolarBear);
+        event.registerEntityRenderer(TFCEntities.GRIZZLY_BEAR.get(), ReplacedBearRenderer::GrizzlyBear);
     }
 
     @SubscribeEvent

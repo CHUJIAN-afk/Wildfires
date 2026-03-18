@@ -1,10 +1,14 @@
 package first.wildfires.register;
 
+import com.github.alexthe666.citadel.server.item.CustomArmorMaterial;
 import first.wildfires.Wildfires;
+import first.wildfires.item.GeckoSimpleArmorItem;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.food.FoodProperties;
+import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -76,6 +80,23 @@ public class ItemRegister {
 
     public static final RegistryObject<Item> SmallPropeller =
             Register.register("small_propeller", () -> new BlockItem(BlockRegister.SmallPropeller.get(), new Item.Properties()));
+
+    public static final CustomArmorMaterial ExampleArmorMaterial = new CustomArmorMaterial(
+            "example_armor",//护甲材料id
+            100, //耐久
+            new int[]{1, 2, 3, 1}, //护甲值, 头盔, 胸甲, 腿甲, 靴子
+            10, //附魔值
+            SoundEvents.ARMOR_EQUIP_GENERIC, //装备音效
+            0.0F, // 韧性
+            0.0F // 击退抗性
+    );
+
+    public static final RegistryObject<GeckoSimpleArmorItem> ExampleArmor =
+            Register.register("example_armor_helmet", () -> new GeckoSimpleArmorItem(
+                    ExampleArmorMaterial,//护甲材料
+                    ArmorItem.Type.HELMET,//头盔
+                    new Item.Properties()//属性
+            ));
 
     public static void register(IEventBus eventBus) {
         Register.register(eventBus);

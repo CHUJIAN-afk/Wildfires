@@ -1,10 +1,10 @@
 package first.wildfires.client.renderer.entity;
 
+import first.wildfires.Wildfires;
+import first.wildfires.item.GeckoSimpleArmorItem;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ArmorItem;
-import first.wildfires.Wildfires;
-import first.wildfires.item.GeckoSimpleArmorItem;
 import software.bernie.geckolib.model.DefaultedItemGeoModel;
 import software.bernie.geckolib.renderer.GeoArmorRenderer;
 

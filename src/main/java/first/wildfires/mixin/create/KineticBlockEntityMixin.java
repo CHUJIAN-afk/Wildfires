@@ -2,14 +2,11 @@ package first.wildfires.mixin.create;
 
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import first.wildfires.api.customEvent.KineticBlockEntityTickEvent;
-import first.wildfires.api.customEvent.StressAppliedModifyEvent;
-import first.wildfires.utils.WildfiresUtil;
 import net.minecraftforge.common.MinecraftForge;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(value = KineticBlockEntity.class, remap = false)
 public abstract class KineticBlockEntityMixin {

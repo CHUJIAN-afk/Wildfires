@@ -1,9 +1,9 @@
 package first.wildfires.compats.kubejs.spartan.builders;
 
 import com.oblivioussp.spartanweaponry.util.WeaponFactory;
+import first.wildfires.compats.kubejs.spartan.SpartanWeaponBuilder;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
-import first.wildfires.compats.kubejs.spartan.SpartanWeaponBuilder;
 
 public class ScytheBuilder extends SpartanWeaponBuilder {
 

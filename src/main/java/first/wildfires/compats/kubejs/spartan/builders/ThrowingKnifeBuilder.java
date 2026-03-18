@@ -1,10 +1,10 @@
 package first.wildfires.compats.kubejs.spartan.builders;
 
 import com.oblivioussp.spartanweaponry.util.WeaponFactory;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.Item;
 import first.wildfires.compats.kubejs.spartan.SpartanWeaponBuilder;
 import first.wildfires.mixin.spartan.ThrowingWeaponItemAccessor;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
 
 public class ThrowingKnifeBuilder extends SpartanWeaponBuilder {
 

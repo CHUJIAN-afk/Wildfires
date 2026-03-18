@@ -1,13 +1,13 @@
 package first.wildfires.client.renderer.entity;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import first.wildfires.api.gecko.GeckoAnimal;
+import first.wildfires.client.model.ReplacedBearModel;
+import first.wildfires.entity.ReplacedBearEntity;
 import net.dries007.tfc.common.entities.predator.Predator;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import org.jetbrains.annotations.NotNull;
-import first.wildfires.api.gecko.GeckoAnimal;
-import first.wildfires.entity.ReplacedBearEntity;
-import first.wildfires.client.model.ReplacedBearModel;
 import software.bernie.geckolib.renderer.GeoReplacedEntityRenderer;
 
 public class ReplacedBearRenderer extends GeoReplacedEntityRenderer<Predator, ReplacedBearEntity> {

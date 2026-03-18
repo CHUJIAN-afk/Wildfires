@@ -7,7 +7,6 @@ import net.minecraft.world.item.SwordItem;
 import net.minecraft.world.item.Tier;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.gen.Accessor;
 
 @Mixin(value = SwordBaseItem.class,remap = false)
 public abstract class SwordBaseItemMixin extends SwordItem {

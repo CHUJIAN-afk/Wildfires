@@ -1,10 +1,10 @@
 package first.wildfires.mixin.tfc;
 
+import first.wildfires.item.GeckoSimpleArmorItem;
 import net.dries007.tfc.util.Metal;
 import net.dries007.tfc.util.registry.RegistryMetal;
 import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.Item;
-import first.wildfires.item.GeckoSimpleArmorItem;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;

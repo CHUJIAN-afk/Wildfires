@@ -2,13 +2,12 @@ package first.wildfires.register;
 
 import com.simibubi.create.content.kinetics.simpleRelays.BracketedKineticBlockModel;
 import com.simibubi.create.content.kinetics.simpleRelays.CogwheelBlockItem;
+import com.simibubi.create.foundation.data.AssetLookup;
 import com.simibubi.create.foundation.data.CreateRegistrate;
 import com.simibubi.create.foundation.data.SharedProperties;
 import com.tterrag.registrate.util.entry.BlockEntry;
 import first.wildfires.Wildfires;
-import first.wildfires.block.CustomCogWheelBlock;
-import first.wildfires.block.CustomDirectionalBlock;
-import first.wildfires.block.CustomShapeBlock;
+import first.wildfires.block.*;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -24,11 +23,35 @@ import net.minecraftforge.registries.RegistryObject;
 
 import static com.simibubi.create.foundation.data.ModelGen.customItemModel;
 import static com.simibubi.create.foundation.data.TagGen.axeOrPickaxe;
+import static com.simibubi.create.foundation.data.TagGen.pickaxeOnly;
 import static net.minecraft.world.level.block.Block.box;
 
 public class BlockRegister {
 
     private static final CreateRegistrate Registrate = Wildfires.Registrate;
+
+    public static final BlockEntry<CustomMillstoneBlock> StoneMillstone = Registrate
+            .block("stone_millstone",
+                    properties -> new CustomMillstoneBlock(PartialModelRegister.StoneCrushingWheel, properties))
+            .initialProperties(SharedProperties::stone)
+            .properties(p -> p.mapColor(MapColor.METAL))
+            .transform(pickaxeOnly())
+            .blockstate((c, p) -> p.simpleBlock(c.getEntry(), AssetLookup.partialBaseModel(c, p)))
+            .item()
+            .transform(customItemModel())
+            .register();
+
+    public static final BlockEntry<CustomCrushingWheelBlock> StoneCrushingWheel = Registrate
+            .block("stone_crushing_wheel",
+                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.StoneCrushingWheel, properties))
+            .initialProperties(SharedProperties::softMetal)
+            .properties(p -> p.noOcclusion().mapColor(MapColor.COLOR_BLACK).sound(SoundType.NETHERITE_BLOCK))
+            .transform(axeOrPickaxe())
+            .onRegister(CreateRegistrate.blockModel(() -> BracketedKineticBlockModel::new))
+            .item()
+            .transform(customItemModel())
+            .register();
+
 
     public static final BlockEntry<CustomCogWheelBlock> StoneCogWheel = Registrate
             .block("stone_cogwheel",

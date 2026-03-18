@@ -2,10 +2,10 @@ package first.wildfires.compats.kubejs.spartan;
 
 import com.oblivioussp.spartanweaponry.api.WeaponMaterial;
 import dev.latvian.mods.kubejs.item.ItemBuilder;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.Item;
 import first.wildfires.mixin.spartan.SwordBaseItemAccessor;
 import first.wildfires.mixin.spartan.ThrowingWeaponItemAccessor;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
 
 public abstract class SpartanWeaponBuilder extends ItemBuilder {
 

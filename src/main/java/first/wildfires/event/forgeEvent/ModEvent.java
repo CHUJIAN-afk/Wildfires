@@ -5,7 +5,6 @@ import first.wildfires.api.customEvent.TemperatureEnumModifyEvent;
 import first.wildfires.mixin.legendarysurvivaloverhaul.TemperatureEnumAccessor;
 import first.wildfires.register.AttributeRegister;
 import first.wildfires.utils.WildfiresUtil;
-import net.minecraft.world.entity.EntityType;
 import net.minecraftforge.event.entity.EntityAttributeModificationEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;

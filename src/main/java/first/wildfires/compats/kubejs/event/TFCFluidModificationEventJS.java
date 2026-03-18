@@ -1,9 +1,9 @@
 package first.wildfires.compats.kubejs.event;
 
 import dev.latvian.mods.kubejs.event.EventJS;
+import first.wildfires.api.tfc.fluid.IExtendedFluidTypeMixin;
 import net.dries007.tfc.common.fluids.ExtendedFluidType;
 import net.minecraft.resources.ResourceLocation;
-import first.wildfires.api.tfc.fluid.IExtendedFluidTypeMixin;
 
 public class TFCFluidModificationEventJS extends EventJS {
 

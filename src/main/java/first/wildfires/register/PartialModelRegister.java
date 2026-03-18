@@ -7,7 +7,8 @@ public class PartialModelRegister {
 
     public static final PartialModel
             StoneCogWheel = block("stone_cogwheel"),
-            StoneLargeCogWheel = block("stone_large_cogwheel");
+            StoneLargeCogWheel = block("stone_large_cogwheel"),
+            StoneCrushingWheel = block("stone_large_cogwheel");
 
     private static PartialModel block(String path) {
         return PartialModel.of(Wildfires.rl("block/" + path));

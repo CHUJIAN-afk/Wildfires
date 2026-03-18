@@ -5,7 +5,9 @@
   "compatibilityLevel": "JAVA_8",
   "refmap": "wildfires.refmap.json",
   "mixins": [
+    "create.CrushingWheelBlockMixin",
     "create.CrushingWheelControllerBlockEntityMixin",
+    "create.CrushingWheelControllerBlockMixin",
     "create.KineticBlockEntityMixin",
     "jade.StatusEffectsProviderMixin",
     "kubejs.UtilsJSMixin",

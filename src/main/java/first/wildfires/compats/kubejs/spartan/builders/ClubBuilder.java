@@ -2,9 +2,9 @@ package first.wildfires.compats.kubejs.spartan.builders;
 
 import com.oblivioussp.spartanweaponry.item.SwordBaseItem;
 import com.oblivioussp.spartanweaponry.util.WeaponArchetype;
+import first.wildfires.compats.kubejs.spartan.SpartanWeaponBuilder;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
-import first.wildfires.compats.kubejs.spartan.SpartanWeaponBuilder;
 
 public class ClubBuilder extends SpartanWeaponBuilder {
 

@@ -1,5 +1,6 @@
 package first.wildfires.mixin.tfc;
 
+import first.wildfires.api.tfc.fluid.IExtendedFluidTypeMixin;
 import fr.lucreeper74.createmetallurgy.registries.CMDamageTypes;
 import net.dries007.tfc.common.fluids.ExtendedFluidType;
 import net.dries007.tfc.common.fluids.FluidTypeClientProperties;
@@ -16,7 +17,6 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.client.extensions.common.IClientFluidTypeExtensions;
 import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.fluids.FluidType;
-import first.wildfires.api.tfc.fluid.IExtendedFluidTypeMixin;
 import org.spongepowered.asm.mixin.*;
 
 import javax.annotation.Nullable;

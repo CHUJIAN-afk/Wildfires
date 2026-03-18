@@ -1,10 +1,10 @@
 package first.wildfires.mixin.kubejs;
 
 import dev.latvian.mods.kubejs.util.UtilsJS;
-import net.dries007.tfc.common.fluids.ExtendedFluidType;
-import net.minecraftforge.registries.ForgeRegistries;
 import first.wildfires.compats.kubejs.event.TFCFluidEvents;
 import first.wildfires.compats.kubejs.event.TFCFluidModificationEventJS;
+import net.dries007.tfc.common.fluids.ExtendedFluidType;
+import net.minecraftforge.registries.ForgeRegistries;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;

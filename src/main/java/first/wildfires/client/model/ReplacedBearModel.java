@@ -1,9 +1,9 @@
 package first.wildfires.client.model;
 
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.util.Mth;
 import first.wildfires.Wildfires;
 import first.wildfires.entity.ReplacedBearEntity;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
 import software.bernie.geckolib.constant.DataTickets;
 import software.bernie.geckolib.core.animatable.model.CoreGeoBone;
 import software.bernie.geckolib.core.animation.AnimationState;

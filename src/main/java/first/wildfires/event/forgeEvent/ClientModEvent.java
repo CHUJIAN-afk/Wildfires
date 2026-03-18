@@ -2,9 +2,9 @@ package first.wildfires.event.forgeEvent;
 
 
 import first.wildfires.Wildfires;
+import first.wildfires.client.renderer.entity.ReplacedBearRenderer;
 import first.wildfires.register.BlockRegister;
 import first.wildfires.register.PartialModelRegister;
-import first.wildfires.client.renderer.entity.ReplacedBearRenderer;
 import net.dries007.tfc.common.entities.TFCEntities;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraftforge.api.distmarker.Dist;

@@ -13,7 +13,7 @@ public class StructureStageModifyEvent extends Event {
         WildfiresUtil.StructureStageMap.put(stage, structureList);
     }
 
-    public void addStructure(String stage, ResourceLocation structure) {
+    public void addStage(String stage, ResourceLocation structure) {
         WildfiresUtil.StructureStageMap.getOrDefault(stage, new ArrayList<>()).add(structure);
     }
 

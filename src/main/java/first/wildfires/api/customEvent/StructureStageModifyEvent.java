@@ -14,7 +14,7 @@ public class StructureStageModifyEvent extends Event {
     }
 
     public void add(String stage, ResourceLocation structure) {
-        WildfiresUtil.StructureStageMap.getOrDefault(stage, new ArrayList<>()).add(structure);
+        WildfiresUtil.StructureStageMap.computeIfAbsent(stage, k -> new ArrayList<>()).add(structure);
     }
 
 }

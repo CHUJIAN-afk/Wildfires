@@ -9,11 +9,11 @@ import java.util.List;
 
 public class StructureStageModifyEvent extends Event {
 
-    public void addStage(String stage, List<ResourceLocation> structureList) {
+    public void add(String stage, List<ResourceLocation> structureList) {
         WildfiresUtil.StructureStageMap.put(stage, structureList);
     }
 
-    public void addStage(String stage, ResourceLocation structure) {
+    public void add(String stage, ResourceLocation structure) {
         WildfiresUtil.StructureStageMap.getOrDefault(stage, new ArrayList<>()).add(structure);
     }
 

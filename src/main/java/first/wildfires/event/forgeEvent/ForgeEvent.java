@@ -303,7 +303,7 @@ public class ForgeEvent {
 	public static void hurt(LivingHurtEvent event) {
 		if (event.getSource().getEntity() instanceof LivingEntity attacker) {
 			ItemStack item = attacker.getMainHandItem();
-			if (item.is(Tags.Items.TOOLS)) {
+			if (item.getTags().anyMatch(itemTagKey -> itemTagKey.location().toString().equals("kubejs:spear"))) {
 				LivingEntity target = event.getEntity();
 				AABB aabb = target.getBoundingBox();
 				Vec3 center = attacker.getBoundingBox().getCenter();

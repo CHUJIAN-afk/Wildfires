@@ -1,0 +1,46 @@
+{
+	"format_version": "1.9.0",
+	"credit": "Made with Blockbench",
+	"parent": "block/block",
+	"render_type": "translucent",
+	"texture_size": [32, 32],
+	"textures": {
+		"1": "wildfires:block/small_propeller",
+		"particle": "wildfires:block/small_propeller"
+	},
+	"elements": [
+		{
+			"name": "t",
+			"from": [1, 1, 13.2],
+			"to": [15, 15, 13.2],
+			"rotation": {"angle": 0, "axis": "y", "origin": [8, 8, 8]},
+			"faces": {
+				"north": {"uv": [7, 0, 0, 7], "texture": "#1"},
+				"south": {"uv": [0, 0, 7, 7], "texture": "#1"},
+				"down": {"uv": [7, 0, 0, 0], "texture": "#1"}
+			}
+		},
+		{
+			"name": "o",
+			"from": [5, 5, 13.5],
+			"to": [11, 11, 16.5],
+			"rotation": {"angle": 0, "axis": "x", "origin": [8, 8, 8]},
+			"faces": {
+				"north": {"uv": [3, 7, 0, 10], "texture": "#1"},
+				"east": {"uv": [8.5, 0, 7, 3], "texture": "#1"},
+				"south": {"uv": [3, 7, 0, 10], "texture": "#1"},
+				"west": {"uv": [7, 0, 8.5, 3], "texture": "#1"},
+				"up": {"uv": [7, 3, 8.5, 0], "rotation": 90, "texture": "#1"},
+				"down": {"uv": [8.5, 3, 7, 0], "rotation": 90, "texture": "#1"}
+			}
+		}
+	],
+	"groups": [
+		{
+			"name": "ot",
+			"origin": [8, 8, 8],
+			"color": 0,
+			"children": [0, 1]
+		}
+	]
+}

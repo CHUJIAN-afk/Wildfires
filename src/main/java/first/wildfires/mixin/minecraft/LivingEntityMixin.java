@@ -22,6 +22,7 @@ public class LivingEntityMixin {
                     target = "Lnet/minecraft/world/damagesource/CombatRules;getDamageAfterAbsorb(FFF)F"
             )
     )
+    
     private float getDamageAfterArmorAbsorb(float original, @Local(argsOnly = true) DamageSource damageSource, @Local(argsOnly = true) float damageAmount) {
         LivingEntity target = (LivingEntity) (Object) this;
         int armorValue = target.getArmorValue();
@@ -33,7 +34,7 @@ public class LivingEntityMixin {
             armorValue -= armorPenetration;
             armorValue = Math.max(armorValue, 0);
         }
-        float removed = armorValue > 0 ? Math.min(damageAmount, damageAmount * armorValue * 0.05f) : 0;
+        float removed = armorValue > 0 ? Math.min( 0.95f*damageAmount, damageAmount * armorValue * 0.05f) : 0;
         if (removed > 0) {
             EquipmentSlot[] equipmentSlots = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
             for (EquipmentSlot equipmentSlot : equipmentSlots) {

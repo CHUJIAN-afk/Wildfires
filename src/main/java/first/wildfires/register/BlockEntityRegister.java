@@ -11,24 +11,36 @@ import first.wildfires.client.renderer.blockEntity.CustomCrushingWheelBlockEntit
 import first.wildfires.client.renderer.blockEntity.CustomMillstoneBlockEntityRenderer;
 
 import static first.wildfires.register.BlockRegister.*;
+//import static first.wildfires.register.BlockRegister.StoneCrushingWheeldiorite;
 
 
 public class BlockEntityRegister {
 
     private static final CreateRegistrate Registrate = Wildfires.Registrate;
 
+    // 磨石方块实体注册
     public static final BlockEntityEntry<MillstoneBlockEntity> CustomMillstoneBlockEntity =
             Registrate.blockEntity("millstone", MillstoneBlockEntity::new)
-                    .validBlocks(StoneMillstone)
+                    .validBlocks(StoneMillgranite)
+                    .validBlocks(StoneMilldiorite)
+                    .validBlocks(StoneMillgabbro)
+                    .validBlocks(StoneMillrhyolite)
+                    .validBlocks(StoneMillbasalt)
+                    .validBlocks(StoneMilldacite)
                     .renderer(() -> CustomMillstoneBlockEntityRenderer::new)
                     .register();
 
+    // 破碎轮方块实体注册
     public static final BlockEntityEntry<CrushingWheelBlockEntity> CustomCrushingWheelBlockEntity =
             Registrate.blockEntity("crushing_wheel", CrushingWheelBlockEntity::new)
-                    .validBlocks(StoneCrushingWheel)
+                    .validBlocks(StoneCrushingWheelGranite)
+                    .validBlocks(StoneCrushingWheelDiorite)
+                    .validBlocks(StoneCrushingWheelGabbro)
+                    .validBlocks(StoneCrushingWheelRhyolite)
+                    .validBlocks(StoneCrushingWheelBasalt)
+                    .validBlocks(StoneCrushingWheelDacite)
                     .renderer(() -> CustomCrushingWheelBlockEntityRenderer::new)
                     .register();
-
     public static final BlockEntityEntry<BracketedKineticBlockEntity> CustomCogWheelBlockEntity =
             Registrate.blockEntity("cogwheel", BracketedKineticBlockEntity::new)
                     .validBlocks(StoneCogWheel, StoneLargeCogWheel)

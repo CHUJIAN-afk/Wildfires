@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=east": {
+      "model": "wildfires:block/airship_slats",
+      "y": 90
+    },
+    "facing=north": {
+      "model": "wildfires:block/airship_slats"
+    },
+    "facing=south": {
+      "model": "wildfires:block/airship_slats",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "wildfires:block/airship_slats",
+      "y": 270
+    }
+  }
+}

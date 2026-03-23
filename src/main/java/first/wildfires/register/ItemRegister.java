@@ -9,8 +9,7 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.ArmorItem;
-import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.Item;
+import net.minecraft.world.item.*;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.RegistryObject;
@@ -27,6 +26,16 @@ public class ItemRegister {
                             .effect(() -> new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 200), 0.2f)
                             .build())
             ));
+//时装
+
+
+
+    public static final RegistryObject<Item> COSMETIC =
+            Register.register("cosmetic_tunmou_helmet",() -> new DyeableArmorItem(ArmorMaterials.LEATHER, ArmorItem.Type.HELMET,new Item.Properties())
+
+
+            );
+
 
     public static final RegistryObject<Item> CopperBoltItem =
             Register.register("copper_bolt", () -> new Item(new Item.Properties()));
@@ -81,22 +90,141 @@ public class ItemRegister {
     public static final RegistryObject<Item> SmallPropeller =
             Register.register("small_propeller", () -> new BlockItem(BlockRegister.SmallPropeller.get(), new Item.Properties()));
 
-    public static final CustomArmorMaterial ExampleArmorMaterial = new CustomArmorMaterial(
-            "example_armor",//护甲材料id
-            100, //耐久
-            new int[]{1, 2, 3, 1}, //护甲值, 头盔, 胸甲, 腿甲, 靴子
-            10, //附魔值
+    public static final CustomArmorMaterial CosmeticArmorTunmou = new CustomArmorMaterial(
+            "wildfires:tunmou_armor",//护甲材料id
+            -1, //耐久
+            new int[]{0, 0, 0, 0}, //护甲值, 头盔, 胸甲, 腿甲, 靴子
+            0, //附魔值
+            SoundEvents.ARMOR_EQUIP_GENERIC, //装备音效
+            0.0F, // 韧性
+            0.0F // 击退抗性
+    );
+    public static final CustomArmorMaterial CosmeticArmoryuyu = new CustomArmorMaterial(
+            "wildfires:yuyu_armor",//护甲材料id
+            -1, //耐久
+            new int[]{0, 0, 0, 0}, //护甲值, 头盔, 胸甲, 腿甲, 靴子
+            0, //附魔值
+            SoundEvents.ARMOR_EQUIP_GENERIC, //装备音效
+            0.0F, // 韧性
+            0.0F // 击退抗性
+    );
+    public static final CustomArmorMaterial CosmeticArmorbeizi = new CustomArmorMaterial(
+            "wildfires:beizi_armor",//护甲材料id
+            -1, //耐久
+            new int[]{0, 0, 0, 0}, //护甲值, 头盔, 胸甲, 腿甲, 靴子
+            0, //附魔值
+            SoundEvents.ARMOR_EQUIP_GENERIC, //装备音效
+            0.0F, // 韧性
+            0.0F // 击退抗性
+    );
+    public static final CustomArmorMaterial CosmeticArmorhuacao = new CustomArmorMaterial(
+            "wildfires:huacao_armor",//护甲材料id
+            -1, //耐久
+            new int[]{0, 0, 0, 0}, //护甲值, 头盔, 胸甲, 腿甲, 靴子
+            0, //附魔值
             SoundEvents.ARMOR_EQUIP_GENERIC, //装备音效
             0.0F, // 韧性
             0.0F // 击退抗性
     );
 
-    public static final RegistryObject<GeckoSimpleArmorItem> ExampleArmor =
-            Register.register("example_armor_helmet", () -> new GeckoSimpleArmorItem(
-                    ExampleArmorMaterial,//护甲材料
+    public static final CustomArmorMaterial CosmeticArmormushroom = new CustomArmorMaterial(
+            "wildfires:mushroom_armor",//护甲材料id
+            -1, //耐久
+            new int[]{0, 0, 0, 0}, //护甲值, 头盔, 胸甲, 腿甲, 靴子
+            0, //附魔值
+            SoundEvents.ARMOR_EQUIP_GENERIC, //装备音效
+            0.0F, // 韧性
+            0.0F // 击退抗性
+
+    );
+    public static final CustomArmorMaterial CosmeticArmorxk = new CustomArmorMaterial(
+            "wildfires:xk_armor",//护甲材料id
+            -1, //耐久
+            new int[]{0, 0, 0, 0}, //护甲值, 头盔, 胸甲, 腿甲, 靴子
+            0, //附魔值
+            SoundEvents.ARMOR_EQUIP_GENERIC, //装备音效
+            0.0F, // 韧性
+            0.0F // 击退抗性
+
+    );
+
+
+    public static final RegistryObject<GeckoSimpleArmorItem> CosmeticmushroomHelmet =
+            Register.register("decoration/mushroom_helmet", () -> new GeckoSimpleArmorItem(
+                    CosmeticArmormushroom,//护甲材料
                     ArmorItem.Type.HELMET,//头盔
                     new Item.Properties()//属性
             ));
+    public static final RegistryObject<GeckoSimpleArmorItem> CosmeticmushroomChestplat =
+            Register.register("decoration/mushroom_armor_chestplate", () -> new GeckoSimpleArmorItem(
+                    CosmeticArmormushroom,//护甲材料
+                    ArmorItem.Type.CHESTPLATE,//头盔
+                    new Item.Properties()//属性
+            ));
+
+
+
+
+    public static final RegistryObject<GeckoSimpleArmorItem> CosmetichuacaoHelmet =
+            Register.register("decoration/huacao_helmet", () -> new GeckoSimpleArmorItem(
+                    CosmeticArmorhuacao,//护甲材料
+                    ArmorItem.Type.HELMET,//头盔
+                    new Item.Properties()//属性
+            ));
+    public static final RegistryObject<GeckoSimpleArmorItem> CosmeticyuyuHelmet =
+            Register.register("decoration/yuyu_helmet", () -> new GeckoSimpleArmorItem(
+                    CosmeticArmoryuyu,//护甲材料
+                    ArmorItem.Type.HELMET,//头盔
+                    new Item.Properties()//属性
+            ));
+    public static final RegistryObject<GeckoSimpleArmorItem> CosmeticbeiziHelmet =
+            Register.register("decoration/beizi_helmet", () -> new GeckoSimpleArmorItem(
+                    CosmeticArmorbeizi,//护甲材料
+                    ArmorItem.Type.HELMET,//头盔
+                    new Item.Properties()//属性
+            ));
+    public static final RegistryObject<GeckoSimpleArmorItem> CosmeticbeiziChestplat =
+            Register.register("decoration/beizi_armor_chestplate", () -> new GeckoSimpleArmorItem(
+                    CosmeticArmorbeizi,//护甲材料
+                    ArmorItem.Type.CHESTPLATE,//头盔
+                    new Item.Properties()//属性
+            ));
+
+    public static final RegistryObject<GeckoSimpleArmorItem> CosmeticTunmouHelmet =
+            Register.register("decoration/tunmou_armor_helmet", () -> new GeckoSimpleArmorItem(
+                    CosmeticArmorTunmou,//护甲材料
+                    ArmorItem.Type.HELMET,//头盔
+                    new Item.Properties()//属性
+            ));
+
+    public static final RegistryObject<GeckoSimpleArmorItem> CosmeticTunmouChestplat =
+            Register.register("decoration/tunmou_armor_chestplate", () -> new GeckoSimpleArmorItem(
+                    CosmeticArmorTunmou,//护甲材料
+                    ArmorItem.Type.CHESTPLATE,//头盔
+                    new Item.Properties()//属性
+            ));
+    public static final RegistryObject<GeckoSimpleArmorItem> CosmeticTunmouLeggings =
+            Register.register("decoration/tunmou_armor_leggings", () -> new GeckoSimpleArmorItem(
+                    CosmeticArmorTunmou,//护甲材料
+                    ArmorItem.Type.LEGGINGS,//头盔
+                    new Item.Properties()//属性
+            ));
+
+    public static final RegistryObject<GeckoSimpleArmorItem> CosmeticTunmouBoots =
+            Register.register("decoration/tunmou_armor_boots", () -> new GeckoSimpleArmorItem(
+                    CosmeticArmorTunmou,//护甲材料
+                    ArmorItem.Type.BOOTS,//头盔
+                    new Item.Properties()//属性
+            ));
+
+
+    public static final RegistryObject<GeckoSimpleArmorItem> CosmeticxkHelmet =
+            Register.register("decoration/xk_helmet", () -> new GeckoSimpleArmorItem(
+                    CosmeticArmorxk,//护甲材料
+                    ArmorItem.Type.HELMET,//头盔
+                    new Item.Properties()//属性
+            ));
+
 
     public static void register(IEventBus eventBus) {
         Register.register(eventBus);

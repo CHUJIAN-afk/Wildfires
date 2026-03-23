@@ -5,7 +5,7 @@ public enum NoiseData {
     OCEAN_REEF(-20, -10),//海洋珊瑚礁
     DEEP_OCEAN(-60, -46),//深海
     DEEP_OCEAN_TRENCH(-100, -70),//深海海沟
-    MOUNTAINS(30, 120);//山脉
+    MOUNTAINS(30, 100);//山脉
 
     private int heightMin;
     private int heightMax;

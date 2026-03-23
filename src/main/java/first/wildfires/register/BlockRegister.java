@@ -29,9 +29,14 @@ import static net.minecraft.world.level.block.Block.box;
 public class BlockRegister {
 
     private static final CreateRegistrate Registrate = Wildfires.Registrate;
-
-    public static final BlockEntry<CustomMillstoneBlock> StoneMillstone = Registrate
-            .block("stone_millstone",
+    /*  { in: "granite", out: "granite" },
+      { in: "diorite", out: "diorite" },
+      { in: "gabbro", out: "tuff" },
+      { in: "rhyolite", out: "dripstone" },
+      { in: "basalt", out: "deepslate" },
+      { in: "dacite", out: "limestone" }*/
+    public static final BlockEntry<CustomMillstoneBlock> StoneMillgranite = Registrate
+            .block("granite_millstone",
                     properties -> new CustomMillstoneBlock(PartialModelRegister.StoneCrushingWheel, properties))
             .initialProperties(SharedProperties::stone)
             .properties(p -> p.mapColor(MapColor.METAL))
@@ -41,8 +46,67 @@ public class BlockRegister {
             .transform(customItemModel())
             .register();
 
-    public static final BlockEntry<CustomCrushingWheelBlock> StoneCrushingWheel = Registrate
-            .block("stone_crushing_wheel",
+    public static final BlockEntry<CustomMillstoneBlock> StoneMilldiorite = Registrate
+            .block("diorite_millstone",
+                    properties -> new CustomMillstoneBlock(PartialModelRegister.StoneCrushingWheel, properties))
+            .initialProperties(SharedProperties::stone)
+            .properties(p -> p.mapColor(MapColor.METAL))
+            .transform(pickaxeOnly())
+            .blockstate((c, p) -> p.simpleBlock(c.getEntry(), AssetLookup.partialBaseModel(c, p)))
+            .item()
+            .transform(customItemModel())
+            .register();
+
+    public static final BlockEntry<CustomMillstoneBlock> StoneMillgabbro = Registrate
+            .block("gabbro_millstone",
+                    properties -> new CustomMillstoneBlock(PartialModelRegister.StoneCrushingWheel, properties))
+            .initialProperties(SharedProperties::stone)
+            .properties(p -> p.mapColor(MapColor.METAL))
+            .transform(pickaxeOnly())
+            .blockstate((c, p) -> p.simpleBlock(c.getEntry(), AssetLookup.partialBaseModel(c, p)))
+            .item()
+            .transform(customItemModel())
+            .register();
+
+    // 补充 rhyolite 对应的磨石注册
+    public static final BlockEntry<CustomMillstoneBlock> StoneMillrhyolite = Registrate
+            .block("rhyolite_millstone",
+                    properties -> new CustomMillstoneBlock(PartialModelRegister.StoneCrushingWheel, properties))
+            .initialProperties(SharedProperties::stone)
+            .properties(p -> p.mapColor(MapColor.METAL))
+            .transform(pickaxeOnly())
+            .blockstate((c, p) -> p.simpleBlock(c.getEntry(), AssetLookup.partialBaseModel(c, p)))
+            .item()
+            .transform(customItemModel())
+            .register();
+
+    // 补充 basalt 对应的磨石注册
+    public static final BlockEntry<CustomMillstoneBlock> StoneMillbasalt = Registrate
+            .block("basalt_millstone",
+                    properties -> new CustomMillstoneBlock(PartialModelRegister.StoneCrushingWheel, properties))
+            .initialProperties(SharedProperties::stone)
+            .properties(p -> p.mapColor(MapColor.METAL))
+            .transform(pickaxeOnly())
+            .blockstate((c, p) -> p.simpleBlock(c.getEntry(), AssetLookup.partialBaseModel(c, p)))
+            .item()
+            .transform(customItemModel())
+            .register();
+
+    // 补充 dacite 对应的磨石注册
+    public static final BlockEntry<CustomMillstoneBlock> StoneMilldacite = Registrate
+            .block("dacite_millstone",
+                    properties -> new CustomMillstoneBlock(PartialModelRegister.StoneCrushingWheel, properties))
+            .initialProperties(SharedProperties::stone)
+            .properties(p -> p.mapColor(MapColor.METAL))
+            .transform(pickaxeOnly())
+            .blockstate((c, p) -> p.simpleBlock(c.getEntry(), AssetLookup.partialBaseModel(c, p)))
+            .item()
+            .transform(customItemModel())
+            .register();
+
+    // 基础 granite 版本
+    public static final BlockEntry<CustomCrushingWheelBlock> StoneCrushingWheelGranite = Registrate
+            .block("granite_crushing_wheel",
                     properties -> new CustomCrushingWheelBlock(PartialModelRegister.StoneCrushingWheel, properties))
             .initialProperties(SharedProperties::softMetal)
             .properties(p -> p.noOcclusion().mapColor(MapColor.COLOR_BLACK).sound(SoundType.NETHERITE_BLOCK))
@@ -52,6 +116,65 @@ public class BlockRegister {
             .transform(customItemModel())
             .register();
 
+    // 补充 diorite 对应的破碎轮
+    public static final BlockEntry<CustomCrushingWheelBlock> StoneCrushingWheelDiorite = Registrate
+            .block("diorite_crushing_wheel",
+                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.StoneCrushingWheel, properties))
+            .initialProperties(SharedProperties::softMetal)
+            .properties(p -> p.noOcclusion().mapColor(MapColor.COLOR_BLACK).sound(SoundType.NETHERITE_BLOCK))
+            .transform(axeOrPickaxe())
+            .onRegister(CreateRegistrate.blockModel(() -> BracketedKineticBlockModel::new))
+            .item()
+            .transform(customItemModel())
+            .register();
+
+    // 补充 gabbro 对应的破碎轮
+    public static final BlockEntry<CustomCrushingWheelBlock> StoneCrushingWheelGabbro = Registrate
+            .block("gabbro_crushing_wheel",
+                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.StoneCrushingWheel, properties))
+            .initialProperties(SharedProperties::softMetal)
+            .properties(p -> p.noOcclusion().mapColor(MapColor.COLOR_BLACK).sound(SoundType.NETHERITE_BLOCK))
+            .transform(axeOrPickaxe())
+            .onRegister(CreateRegistrate.blockModel(() -> BracketedKineticBlockModel::new))
+            .item()
+            .transform(customItemModel())
+            .register();
+
+    // 补充 rhyolite 对应的破碎轮
+    public static final BlockEntry<CustomCrushingWheelBlock> StoneCrushingWheelRhyolite = Registrate
+            .block("rhyolite_crushing_wheel",
+                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.StoneCrushingWheel, properties))
+            .initialProperties(SharedProperties::softMetal)
+            .properties(p -> p.noOcclusion().mapColor(MapColor.COLOR_BLACK).sound(SoundType.NETHERITE_BLOCK))
+            .transform(axeOrPickaxe())
+            .onRegister(CreateRegistrate.blockModel(() -> BracketedKineticBlockModel::new))
+            .item()
+            .transform(customItemModel())
+            .register();
+
+    // 补充 basalt 对应的破碎轮
+    public static final BlockEntry<CustomCrushingWheelBlock> StoneCrushingWheelBasalt = Registrate
+            .block("basalt_crushing_wheel",
+                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.StoneCrushingWheel, properties))
+            .initialProperties(SharedProperties::softMetal)
+            .properties(p -> p.noOcclusion().mapColor(MapColor.COLOR_BLACK).sound(SoundType.NETHERITE_BLOCK))
+            .transform(axeOrPickaxe())
+            .onRegister(CreateRegistrate.blockModel(() -> BracketedKineticBlockModel::new))
+            .item()
+            .transform(customItemModel())
+            .register();
+
+    // 补充 dacite 对应的破碎轮
+    public static final BlockEntry<CustomCrushingWheelBlock> StoneCrushingWheelDacite = Registrate
+            .block("dacite_crushing_wheel",
+                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.StoneCrushingWheel, properties))
+            .initialProperties(SharedProperties::softMetal)
+            .properties(p -> p.noOcclusion().mapColor(MapColor.COLOR_BLACK).sound(SoundType.NETHERITE_BLOCK))
+            .transform(axeOrPickaxe())
+            .onRegister(CreateRegistrate.blockModel(() -> BracketedKineticBlockModel::new))
+            .item()
+            .transform(customItemModel())
+            .register();
 
     public static final BlockEntry<CustomCogWheelBlock> StoneCogWheel = Registrate
             .block("stone_cogwheel",
@@ -81,7 +204,7 @@ public class BlockRegister {
             () -> new SlabBlock(BlockBehaviour.Properties.copy(Blocks.GRASS_BLOCK)));
 
     // 水下涡轮
-    public static final RegistryObject<Block> UnderwaterTurbine = Register.register("airship/underwater_turbine",
+    public static final RegistryObject<Block> UnderwaterTurbine = Register.register("underwater_turbine",
             () -> {
                 BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                         .sound(SoundType.NETHERITE_BLOCK)
@@ -96,7 +219,7 @@ public class BlockRegister {
             });
 
     // 潜艇核心
-    public static final RegistryObject<Block> SubmarineCore = Register.register("airship/submarine_core", () -> {
+    public static final RegistryObject<Block> SubmarineCore = Register.register("submarine_core", () -> {
         BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                 .sound(SoundType.COPPER)
                 .strength(20.0f)
@@ -110,7 +233,7 @@ public class BlockRegister {
     });
 
     // 简易气球
-    public static final RegistryObject<Block> SimpleAirCushion = Register.register("airship/simple_air_cushion", () -> {
+    public static final RegistryObject<Block> SimpleAirCushion = Register.register("simple_air_cushion", () -> {
         BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                 .sound(SoundType.WOOL)
                 .strength(5.0f)
@@ -123,7 +246,7 @@ public class BlockRegister {
     });
 
     // 气球
-    public static final RegistryObject<Block> AirCushion = Register.register("airship/air_cushion", () -> {
+    public static final RegistryObject<Block> AirCushion = Register.register("air_cushion", () -> {
         BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                 .sound(SoundType.WOOL)
                 .strength(5.0f)
@@ -136,7 +259,7 @@ public class BlockRegister {
     });
 
     // 双翼
-    public static final RegistryObject<Block> DoubleWing = Register.register("airship/double_wing", () -> {
+    public static final RegistryObject<Block> DoubleWing = Register.register("double_wing", () -> {
         BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                 .sound(SoundType.SCAFFOLDING)
                 .strength(5.0f)
@@ -151,7 +274,7 @@ public class BlockRegister {
     });
 
     // 飞艇侧板
-    public static final RegistryObject<Block> AirshipSlats = Register.register("airship/airship_slats", () -> {
+    public static final RegistryObject<Block> AirshipSlats = Register.register("airship_slats", () -> {
         BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                 .sound(SoundType.SCAFFOLDING)
                 .strength(5.0f)
@@ -165,7 +288,7 @@ public class BlockRegister {
     });
 
     // 人力飞机扇叶
-    public static final RegistryObject<Block> GyrodynePropeller = Register.register("airship/gyrodyne_propeller",
+    public static final RegistryObject<Block> GyrodynePropeller = Register.register("gyrodyne_propeller",
             () -> {
                 BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                         .sound(SoundType.SCAFFOLDING)
@@ -177,7 +300,7 @@ public class BlockRegister {
 
 
     // 双翼机引擎
-    public static final RegistryObject<Block> BiplaneEngine = Register.register("airship/biplane_engine", () -> {
+    public static final RegistryObject<Block> BiplaneEngine = Register.register("biplane_engine", () -> {
         BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                 .sound(SoundType.NETHERITE_BLOCK)
                 .strength(20.0f)
@@ -191,7 +314,7 @@ public class BlockRegister {
     });
 
     // 大型飞艇引擎
-    public static final RegistryObject<Block> LargeAirshipEngine = Register.register("airship/large_airship_engine",
+    public static final RegistryObject<Block> LargeAirshipEngine = Register.register("large_airship_engine",
             () -> {
                 BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                         .sound(SoundType.NETHERITE_BLOCK)
@@ -206,7 +329,7 @@ public class BlockRegister {
             });
 
     // 小型引擎
-    public static final RegistryObject<Block> SmallEngine = Register.register("airship/small_engine", () -> {
+    public static final RegistryObject<Block> SmallEngine = Register.register("small_engine", () -> {
         BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                 .sound(SoundType.NETHERITE_BLOCK)
                 .strength(20.0f)
@@ -220,7 +343,7 @@ public class BlockRegister {
     });
 
     // 小型侧引擎
-    public static final RegistryObject<Block> SmallSideEngine = Register.register("airship/small_side_engine", () -> {
+    public static final RegistryObject<Block> SmallSideEngine = Register.register("small_side_engine", () -> {
         BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                 .sound(SoundType.NETHERITE_BLOCK)
                 .strength(20.0f)
@@ -234,7 +357,7 @@ public class BlockRegister {
     });
 
     // 坚固小型引擎
-    public static final RegistryObject<Block> RuggedSmallEngine = Register.register("airship/rugged_small_engine",
+    public static final RegistryObject<Block> RuggedSmallEngine = Register.register("rugged_small_engine",
             () -> {
                 BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                         .sound(SoundType.NETHERITE_BLOCK)
@@ -249,7 +372,7 @@ public class BlockRegister {
             });
 
     // 大型螺旋桨
-    public static final RegistryObject<Block> LargePropeller = Register.register("airship/large_propeller", () -> {
+    public static final RegistryObject<Block> LargePropeller = Register.register("large_propeller", () -> {
         BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                 .sound(SoundType.NETHERITE_BLOCK)
                 .strength(20.0f)
@@ -263,7 +386,7 @@ public class BlockRegister {
     });
 
     // 大型双螺旋桨
-    public static final RegistryObject<Block> LargeTwinPropeller = Register.register("airship/large_twin_propeller",
+    public static final RegistryObject<Block> LargeTwinPropeller = Register.register("large_twin_propeller",
             () -> {
                 BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                         .sound(SoundType.NETHERITE_BLOCK)
@@ -278,7 +401,7 @@ public class BlockRegister {
             });
 
     // 中型螺旋桨
-    public static final RegistryObject<Block> MediumPropeller = Register.register("airship/medium_propeller", () -> {
+    public static final RegistryObject<Block> MediumPropeller = Register.register("medium_propeller", () -> {
         BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                 .sound(SoundType.NETHERITE_BLOCK)
                 .strength(20.0f)
@@ -292,7 +415,7 @@ public class BlockRegister {
     });
 
     // 小型螺旋桨
-    public static final RegistryObject<Block> SmallPropeller = Register.register("airship/small_propeller", () -> {
+    public static final RegistryObject<Block> SmallPropeller = Register.register("small_propeller", () -> {
         BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
                 .sound(SoundType.NETHERITE_BLOCK)
                 .strength(20.0f)

@@ -14,7 +14,7 @@ public class CustomMillstoneBlock extends MillstoneBlock {
     }
 
     public PartialModel getModel() {
-        return AllPartialModels.COGWHEEL;
+        return AllPartialModels.MILLSTONE_COG;
     }
 
     @Override

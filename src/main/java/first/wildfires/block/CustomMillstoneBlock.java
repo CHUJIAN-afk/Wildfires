@@ -1,5 +1,6 @@
 package first.wildfires.block;
 
+import com.simibubi.create.AllPartialModels;
 import com.simibubi.create.content.kinetics.millstone.MillstoneBlock;
 import com.simibubi.create.content.kinetics.millstone.MillstoneBlockEntity;
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
@@ -8,15 +9,12 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 
 public class CustomMillstoneBlock extends MillstoneBlock {
 
-    private final PartialModel model;
-
-    public CustomMillstoneBlock(PartialModel model, Properties properties) {
+    public CustomMillstoneBlock(Properties properties) {
         super(properties);
-        this.model = model;
     }
 
     public PartialModel getModel() {
-        return model;
+        return AllPartialModels.COGWHEEL;
     }
 
     @Override

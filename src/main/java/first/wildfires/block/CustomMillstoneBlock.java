@@ -9,12 +9,19 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 
 public class CustomMillstoneBlock extends MillstoneBlock {
 
-    public CustomMillstoneBlock(Properties properties) {
+    private final PartialModel model;
+
+    public CustomMillstoneBlock(PartialModel model, Properties properties) {
         super(properties);
+        this.model = model;
+    }
+
+    public CustomMillstoneBlock(Properties properties) {
+        this(null, properties);
     }
 
     public PartialModel getModel() {
-        return AllPartialModels.MILLSTONE_COG;
+        return model != null ? model : AllPartialModels.MILLSTONE_COG;
     }
 
     @Override

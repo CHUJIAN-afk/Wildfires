@@ -47,7 +47,7 @@ public class BlockRegister {
             .register();
 
     public static final BlockEntry<CustomMillstoneBlock> StoneMilldiorite = Registrate
-            .block("diorite_millstone",CustomMillstoneBlock::new)
+            .block("diorite_millstone", CustomMillstoneBlock::new)
             .initialProperties(SharedProperties::stone)
             .properties(p -> p.mapColor(MapColor.METAL))
             .transform(pickaxeOnly())

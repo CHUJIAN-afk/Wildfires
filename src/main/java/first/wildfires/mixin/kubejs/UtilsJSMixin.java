@@ -10,15 +10,16 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-@Mixin(value = UtilsJS.class,remap = false)
+@Mixin(value = UtilsJS.class, remap = false)
 public class UtilsJSMixin {
+
     @Inject(method = "postModificationEvents", at = @At("TAIL"), remap = false)
     private static void postModificationEvents(CallbackInfo ci) {
-        for (var fluid : ForgeRegistries.FLUIDS.getValues())
-        {
+        for (var fluid : ForgeRegistries.FLUIDS.getValues()) {
             if (fluid.getFluidType() instanceof ExtendedFluidType extendedFluidType) {
                 TFCFluidEvents.MODIFY.post(new TFCFluidModificationEventJS(extendedFluidType, extendedFluidType.toString()));
             }
         }
     }
+
 }

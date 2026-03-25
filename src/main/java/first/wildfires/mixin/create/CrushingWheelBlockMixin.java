@@ -9,7 +9,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
-@Mixin(value = CrushingWheelBlock.class,remap = false)
+@Mixin(value = CrushingWheelBlock.class, remap = false)
 public class CrushingWheelBlockMixin {
 
     @WrapOperation(
@@ -31,7 +31,8 @@ public class CrushingWheelBlockMixin {
             at = @At(
                     value = "INVOKE",
                     target = "Lcom/tterrag/registrate/util/entry/BlockEntry;has(Lnet/minecraft/world/level/block/state/BlockState;)Z"
-            )
+            ),
+            remap = true
     )
     public boolean canSurviveCheckInstance(BlockEntry<?> instance, BlockState state, Operation<Boolean> original) {
         if (state.getBlock() instanceof CustomCrushingWheelBlock) {

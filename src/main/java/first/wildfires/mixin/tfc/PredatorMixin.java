@@ -35,7 +35,11 @@ public abstract class PredatorMixin extends WildAnimal implements GeckoAnimal {
         goalSelector.addGoal(1, new SwimGoal(this, 1f));
     }
 
-    @Inject(method = "handleEntityEvent", at = @At("HEAD"))
+    @Inject(
+            method = "handleEntityEvent",
+            at = @At("HEAD"),
+            remap = true
+    )
     public void handleEntityEvent(byte id, CallbackInfo ci) {
         if (id == 4) {
             wildfires$startAttack = true;
@@ -47,4 +51,5 @@ public abstract class PredatorMixin extends WildAnimal implements GeckoAnimal {
         if (wildfires$startAttack)
             wildfires$startAttack = false;
     }
+
 }

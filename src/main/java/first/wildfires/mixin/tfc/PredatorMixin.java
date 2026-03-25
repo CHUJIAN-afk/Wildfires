@@ -46,7 +46,11 @@ public abstract class PredatorMixin extends WildAnimal implements GeckoAnimal {
         }
     }
 
-    @Inject(method = "tick", at = @At("HEAD"))
+    @Inject(
+            method = "tick",
+            at = @At("HEAD"),
+            remap = true
+    )
     public void tick(CallbackInfo ci) {
         if (wildfires$startAttack)
             wildfires$startAttack = false;

@@ -1,5 +1,7 @@
 package first.wildfires;
 
+import com.github.alexmodguy.alexscaves.AlexsCaves;
+import com.github.alexmodguy.alexscaves.server.block.ACBlockRegistry;
 import com.simibubi.create.foundation.data.CreateRegistrate;
 import first.wildfires.register.*;
 import net.minecraft.resources.ResourceLocation;

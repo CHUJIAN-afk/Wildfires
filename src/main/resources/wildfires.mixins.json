@@ -5,6 +5,7 @@
   "compatibilityLevel": "JAVA_8",
   "refmap": "wildfires.refmap.json",
   "mixins": [
+    "alex.GuanoLayerBlockMixin",
     "create.CrushingWheelBlockMixin",
     "create.CrushingWheelControllerBlockEntityMixin",
     "create.CrushingWheelControllerBlockMixin",

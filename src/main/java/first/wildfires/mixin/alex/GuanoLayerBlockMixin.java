@@ -20,7 +20,8 @@ public class GuanoLayerBlockMixin {
     @Inject(
             method = "getCollisionShape",
             at = @At("RETURN"),
-            cancellable = true
+            cancellable = true,
+            remap = false
     )
     private void getCollisionShape(BlockState state, BlockGetter level, BlockPos blockPos, CollisionContext context, CallbackInfoReturnable<VoxelShape> cir){
         cir.setReturnValue(Shapes.empty());

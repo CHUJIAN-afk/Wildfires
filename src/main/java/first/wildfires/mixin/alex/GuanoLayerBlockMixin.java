@@ -13,7 +13,7 @@ public class GuanoLayerBlockMixin {
             method = "<init>",
             at = @At(
                     value = "INVOKE",
-                    target = "Lnet/minecraft/world/level/block/state/BlockBehaviour$Properties;randomTicks()Lnet/minecraft/world/level/block/state/BlockBehaviour$Properties;"
+                    target = "Lnet/minecraft/world/level/block/state/BlockBehaviour$Properties;of()Lnet/minecraft/world/level/block/state/BlockBehaviour$Properties;"
             )
     )
     private static BlockBehaviour.Properties injectRandomTicks(BlockBehaviour.Properties original) {

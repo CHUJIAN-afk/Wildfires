@@ -122,11 +122,11 @@ public class ForgeEvent {
 						for (BlockPos leafPos : leaves) {
 							BlockState leafState = level.getBlockState(leafPos);
 							if (leafState.getBlock() instanceof FruitTreeLeavesBlock fruitTreeLeavesBlock) {
-								if (leafState.getValue(FruitTreeLeavesBlock.LIFECYCLE) == Lifecycle.FRUITING) {
+								if (level.getRandom().nextDouble() < 0.25 && leafState.getValue(FruitTreeLeavesBlock.LIFECYCLE) == Lifecycle.FRUITING) {
 									ItemStack item = fruitTreeLeavesBlock.getProductItem(level.getRandom());
 									level.addFreshEntity(new ItemEntity(level, leafPos.getX() + 0.5, leafPos.getY() + 0.5, leafPos.getZ() + 0.5, item));
+									level.setBlockAndUpdate(leafPos, leafState.setValue(FruitTreeLeavesBlock.LIFECYCLE, Lifecycle.HEALTHY));
 								}
-								level.setBlockAndUpdate(leafPos, leafState.setValue(FruitTreeLeavesBlock.LIFECYCLE, Lifecycle.HEALTHY));
 							}
 						}
 						break;

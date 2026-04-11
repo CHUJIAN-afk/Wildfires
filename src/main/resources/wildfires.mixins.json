@@ -6,6 +6,7 @@
   "refmap": "wildfires.refmap.json",
   "mixins": [
     "alex.GuanoLayerBlockMixin",
+    "aquaculture.FishDataMixin",
     "create.CrushingWheelBlockMixin",
     "create.CrushingWheelControllerBlockEntityMixin",
     "create.CrushingWheelControllerBlockMixin",

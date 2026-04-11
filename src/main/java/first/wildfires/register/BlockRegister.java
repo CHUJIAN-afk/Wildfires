@@ -1,6 +1,5 @@
 package first.wildfires.register;
 
-import com.simibubi.create.AllPartialModels;
 import com.simibubi.create.content.kinetics.simpleRelays.BracketedKineticBlockModel;
 import com.simibubi.create.content.kinetics.simpleRelays.CogwheelBlockItem;
 import com.simibubi.create.foundation.data.AssetLookup;
@@ -36,8 +35,10 @@ public class BlockRegister {
       { in: "rhyolite", out: "dripstone" },
       { in: "basalt", out: "deepslate" },
       { in: "dacite", out: "limestone" }*/
+    // Granite（花岗岩）磨石 - 绑定 GraniteMillingWheel 模型
     public static final BlockEntry<CustomMillstoneBlock> StoneMillgranite = Registrate
-            .block("granite_millstone", CustomMillstoneBlock::new)
+            .block("granite_millstone",
+                    properties -> new CustomMillstoneBlock(PartialModelRegister.GraniteMillingWheel, properties))
             .initialProperties(SharedProperties::stone)
             .properties(p -> p.mapColor(MapColor.METAL))
             .transform(pickaxeOnly())
@@ -46,8 +47,10 @@ public class BlockRegister {
             .transform(customItemModel())
             .register();
 
+    // Diorite（闪长岩）磨石 - 绑定 DioriteMillingWheel 模型
     public static final BlockEntry<CustomMillstoneBlock> StoneMilldiorite = Registrate
-            .block("diorite_millstone", CustomMillstoneBlock::new)
+            .block("diorite_millstone",
+                    properties -> new CustomMillstoneBlock(PartialModelRegister.DioriteMillingWheel, properties))
             .initialProperties(SharedProperties::stone)
             .properties(p -> p.mapColor(MapColor.METAL))
             .transform(pickaxeOnly())
@@ -56,8 +59,10 @@ public class BlockRegister {
             .transform(customItemModel())
             .register();
 
+    // Gabbro（辉长岩）磨石 - 绑定 GabbroMillingWheel 模型
     public static final BlockEntry<CustomMillstoneBlock> StoneMillgabbro = Registrate
-            .block("gabbro_millstone",CustomMillstoneBlock::new)
+            .block("gabbro_millstone",
+                    properties -> new CustomMillstoneBlock(PartialModelRegister.GabbroMillingWheel, properties))
             .initialProperties(SharedProperties::stone)
             .properties(p -> p.mapColor(MapColor.METAL))
             .transform(pickaxeOnly())
@@ -66,9 +71,10 @@ public class BlockRegister {
             .transform(customItemModel())
             .register();
 
-    // 补充 rhyolite 对应的磨石注册
+    // Rhyolite（流纹岩）磨石 - 绑定 RhyoliteMillingWheel 模型
     public static final BlockEntry<CustomMillstoneBlock> StoneMillrhyolite = Registrate
-            .block("rhyolite_millstone",CustomMillstoneBlock::new)
+            .block("rhyolite_millstone",
+                    properties -> new CustomMillstoneBlock(PartialModelRegister.RhyoliteMillingWheel, properties))
             .initialProperties(SharedProperties::stone)
             .properties(p -> p.mapColor(MapColor.METAL))
             .transform(pickaxeOnly())
@@ -77,9 +83,10 @@ public class BlockRegister {
             .transform(customItemModel())
             .register();
 
-    // 补充 basalt 对应的磨石注册
+    // Basalt（玄武岩）磨石 - 绑定 BasaltMillingWheel 模型
     public static final BlockEntry<CustomMillstoneBlock> StoneMillbasalt = Registrate
-            .block("basalt_millstone",CustomMillstoneBlock::new)
+            .block("basalt_millstone",
+                    properties -> new CustomMillstoneBlock(PartialModelRegister.BasaltMillingWheel, properties))
             .initialProperties(SharedProperties::stone)
             .properties(p -> p.mapColor(MapColor.METAL))
             .transform(pickaxeOnly())
@@ -88,9 +95,10 @@ public class BlockRegister {
             .transform(customItemModel())
             .register();
 
-    // 补充 dacite 对应的磨石注册
+    // Dacite（英安岩）磨石 - 绑定 DaciteMillingWheel 模型
     public static final BlockEntry<CustomMillstoneBlock> StoneMilldacite = Registrate
-            .block("dacite_millstone",CustomMillstoneBlock::new)
+            .block("dacite_millstone",
+                    properties -> new CustomMillstoneBlock(PartialModelRegister.DaciteMillingWheel, properties))
             .initialProperties(SharedProperties::stone)
             .properties(p -> p.mapColor(MapColor.METAL))
             .transform(pickaxeOnly())
@@ -98,8 +106,7 @@ public class BlockRegister {
             .item()
             .transform(customItemModel())
             .register();
-
-    // 基础 granite 版本
+    // 基础 granite 版本（保留原有正确的 GraniteCrushingWheel 引用）
     public static final BlockEntry<CustomCrushingWheelBlock> StoneCrushingWheelGranite = Registrate
             .block("granite_crushing_wheel",
                     properties -> new CustomCrushingWheelBlock(PartialModelRegister.GraniteCrushingWheel, properties))
@@ -111,10 +118,10 @@ public class BlockRegister {
             .transform(customItemModel())
             .register();
 
-    // 补充 diorite 对应的破碎轮
+    // 补充 diorite 对应的破碎轮（修正为 DioriteCrushingWheel）
     public static final BlockEntry<CustomCrushingWheelBlock> StoneCrushingWheelDiorite = Registrate
             .block("diorite_crushing_wheel",
-                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.GraniteCrushingWheel, properties))
+                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.DioriteCrushingWheel, properties))
             .initialProperties(SharedProperties::softMetal)
             .properties(p -> p.noOcclusion().mapColor(MapColor.COLOR_BLACK).sound(SoundType.NETHERITE_BLOCK))
             .transform(axeOrPickaxe())
@@ -123,10 +130,10 @@ public class BlockRegister {
             .transform(customItemModel())
             .register();
 
-    // 补充 gabbro 对应的破碎轮
+    // 补充 gabbro 对应的破碎轮（修正为 GabbroCrushingWheel）
     public static final BlockEntry<CustomCrushingWheelBlock> StoneCrushingWheelGabbro = Registrate
             .block("gabbro_crushing_wheel",
-                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.GraniteCrushingWheel, properties))
+                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.GabbroCrushingWheel, properties))
             .initialProperties(SharedProperties::softMetal)
             .properties(p -> p.noOcclusion().mapColor(MapColor.COLOR_BLACK).sound(SoundType.NETHERITE_BLOCK))
             .transform(axeOrPickaxe())
@@ -135,10 +142,10 @@ public class BlockRegister {
             .transform(customItemModel())
             .register();
 
-    // 补充 rhyolite 对应的破碎轮
+    // 补充 rhyolite 对应的破碎轮（修正为 RhyoliteCrushingWheel）
     public static final BlockEntry<CustomCrushingWheelBlock> StoneCrushingWheelRhyolite = Registrate
             .block("rhyolite_crushing_wheel",
-                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.GraniteCrushingWheel, properties))
+                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.RhyoliteCrushingWheel, properties))
             .initialProperties(SharedProperties::softMetal)
             .properties(p -> p.noOcclusion().mapColor(MapColor.COLOR_BLACK).sound(SoundType.NETHERITE_BLOCK))
             .transform(axeOrPickaxe())
@@ -147,10 +154,10 @@ public class BlockRegister {
             .transform(customItemModel())
             .register();
 
-    // 补充 basalt 对应的破碎轮
+    // 补充 basalt 对应的破碎轮（修正为 BasaltCrushingWheel）
     public static final BlockEntry<CustomCrushingWheelBlock> StoneCrushingWheelBasalt = Registrate
             .block("basalt_crushing_wheel",
-                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.GraniteCrushingWheel, properties))
+                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.BasaltCrushingWheel, properties))
             .initialProperties(SharedProperties::softMetal)
             .properties(p -> p.noOcclusion().mapColor(MapColor.COLOR_BLACK).sound(SoundType.NETHERITE_BLOCK))
             .transform(axeOrPickaxe())
@@ -159,10 +166,10 @@ public class BlockRegister {
             .transform(customItemModel())
             .register();
 
-    // 补充 dacite 对应的破碎轮
+    // 补充 dacite 对应的破碎轮（修正为 DaciteCrushingWheel）
     public static final BlockEntry<CustomCrushingWheelBlock> StoneCrushingWheelDacite = Registrate
             .block("dacite_crushing_wheel",
-                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.GraniteCrushingWheel, properties))
+                    properties -> new CustomCrushingWheelBlock(PartialModelRegister.DaciteCrushingWheel, properties))
             .initialProperties(SharedProperties::softMetal)
             .properties(p -> p.noOcclusion().mapColor(MapColor.COLOR_BLACK).sound(SoundType.NETHERITE_BLOCK))
             .transform(axeOrPickaxe())

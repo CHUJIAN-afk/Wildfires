@@ -1,0 +1,7 @@
+{
+	"parent": "create:block/millstone/block",
+	"textures": {
+		"5": "wildfires:block/millstones/basalt",
+		"particle": "tfc:block/rock/raw/basalt"
+	}
+}

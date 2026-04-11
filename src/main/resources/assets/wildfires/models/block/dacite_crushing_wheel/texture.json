@@ -1,0 +1,12 @@
+{
+	"parent": "block/block",
+	"ambientocclusion": false,
+	"textures": {
+		"axis": "create:block/axis",
+		"axis_top": "create:block/axis_top",
+		"plates": "wildfires:block/crushing_wheels/dacite/plates",
+		"insert": "wildfires:block/crushing_wheels/dacite/insert",
+		"spruce_log_top": "block/spruce_log_top",
+		"particle": "tfc:block/rock/raw/dacite"
+	}
+}

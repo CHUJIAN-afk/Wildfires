@@ -1,0 +1,6 @@
+{
+  "parent": "create:block/millstone/inner",
+  "textures": {
+    "5": "wildfires:block/millstones/rhyolite"
+  }
+}

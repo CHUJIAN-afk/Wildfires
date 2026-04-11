@@ -1,0 +1,6 @@
+{
+	"parent": "wildfires:block/dacite_crushing_wheel/texture",
+	"loader": "forge:obj",
+	"flip_v": true,
+	"model": "create:models/block/crushing_wheel/crushing_wheel.obj"
+}

@@ -26,6 +26,7 @@ public class CrushingWheelBlockMixin {
         return original.call(instance, state);
     }
 
+
     @WrapOperation(
             method = "canSurvive(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/LevelReader;Lnet/minecraft/core/BlockPos;)Z",
             at = @At(

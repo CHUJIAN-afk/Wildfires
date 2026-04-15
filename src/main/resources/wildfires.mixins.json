@@ -31,8 +31,7 @@
     "tfc.ItemTypeMixin",
     "tfc.PanItemMixin",
     "tfc.PredatorMixin",
-    "tfc.SluiceBlockEntityMixin",
-    "tfc.TFCBiomesMixin"
+    "tfc.SluiceBlockEntityMixin"
   ],
   "client": [
     "minecraft.EffectRenderingInventoryScreenMixin",

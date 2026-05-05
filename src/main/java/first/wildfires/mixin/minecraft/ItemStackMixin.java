@@ -20,8 +20,12 @@ public class ItemStackMixin {
         int remove = 0;
         CompoundTag tag = itemStack.getTag();
         if (itemStack.isDamageableItem() && tag != null) {
-            if (tag.getBoolean("Broken") && Math.random() < 0.25) {
-                amount++;
+            if (tag.getBoolean("Broken")) {
+                amount = amount / 2 + 1;
+            }
+            int quenching = tag.getInt("Quenching");
+            if (quenching > 0 && Math.random() < (1 - 1.0 / (1 + quenching / 900.0))) {
+                amount = 0;
             }
             int polish = tag.getInt("Polish");
             if (polish > 0) {

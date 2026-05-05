@@ -327,6 +327,12 @@ public class ForgeEvent {
 				event.setNewSpeed(event.getNewSpeed() * Math.min(2, (1 + polish * 0.001f)));
 			}
 		}
+		if (tag != null) {
+			int quenching = tag.getInt("Quenching");
+			if (quenching > 0) {
+				event.setNewSpeed(event.getNewSpeed() * (1 + (float) (1 - 1.0 / (1 + quenching / 900.0))));
+			}
+		}
 	}
 
 	@SubscribeEvent

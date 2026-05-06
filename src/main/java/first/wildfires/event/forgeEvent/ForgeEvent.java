@@ -225,6 +225,7 @@ public class ForgeEvent {
 		}
 		temperature += itemStackList.stream()
 				.filter(itemStack -> !itemStack.isEmpty())
+				.filter(itemStack -> itemStack.getTags().anyMatch(key -> key.location().toString().equals("kubejs:hot_water_bottle")))
 				.map(CapabilityUtil::getTempItemCapability)
 				.map(TemperatureItemCapability::getWorldTemperatureLevel)
 				.map(i -> i - TemperatureEnum.NORMAL.getMiddle())

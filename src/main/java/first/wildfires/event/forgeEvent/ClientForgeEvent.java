@@ -13,13 +13,6 @@ import net.minecraftforge.fml.common.Mod;
 public class ClientForgeEvent {
 
     @SubscribeEvent
-    public static void GuiRenderEvent(RenderGuiOverlayEvent.Pre event) {
-        if (Wildfires.LSOLoaded && event.getOverlay().id().equals(ResourceLocation.parse("legendarysurvivaloverhaul:health_overhaul"))) {
-            event.setCanceled(true);
-        }
-    }
-
-    @SubscribeEvent
     public static void inputEvent(MovementInputUpdateEvent event) {
         if (event.getInput().jumping){
             PlayerInputPacket packet = new PlayerInputPacket();

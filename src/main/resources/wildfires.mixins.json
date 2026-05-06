@@ -14,6 +14,7 @@
     "kubejs.UtilsJSMixin",
     "legendarysurvivaloverhaul.CapabilityUtilMixin",
     "legendarysurvivaloverhaul.CuriosEventsMixin",
+    "legendarysurvivaloverhaul.RenderHealthGuiMixin",
     "legendarysurvivaloverhaul.TemperatureEnumAccessor",
     "legendarysurvivaloverhaul.TemperatureUtilMixin",
     "legendarysurvivaloverhaul.WetnessCapabilityMixin",

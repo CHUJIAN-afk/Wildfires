@@ -208,6 +208,7 @@ public class ForgeEvent {
 		double temperature = new ArrayList<>(player.getInventory().items).stream()
 				.filter(itemStack -> !player.getMainHandItem().equals(itemStack) && !player.getOffhandItem().equals(itemStack))
 				.filter(itemStack -> !itemStack.isEmpty())
+				.filter(itemStack -> itemStack.getTags().anyMatch(key -> key.location().toString().equals("kubejs:hot_water_bottle")))
 				.map(CapabilityUtil::getTempItemCapability)
 				.map(TemperatureItemCapability::getWorldTemperatureLevel)
 				.map(i -> i - TemperatureEnum.NORMAL.getMiddle())

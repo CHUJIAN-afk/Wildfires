@@ -15,6 +15,7 @@
     "legendarysurvivaloverhaul.CapabilityUtilMixin",
     "legendarysurvivaloverhaul.CuriosEventsMixin",
     "legendarysurvivaloverhaul.RenderHealthGuiMixin",
+    "legendarysurvivaloverhaul.RenderTemperatureGuiMixin",
     "legendarysurvivaloverhaul.TemperatureEnumAccessor",
     "legendarysurvivaloverhaul.TemperatureUtilMixin",
     "legendarysurvivaloverhaul.WetnessCapabilityMixin",

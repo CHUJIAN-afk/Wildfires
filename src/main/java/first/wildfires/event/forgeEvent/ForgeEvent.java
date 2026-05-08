@@ -7,6 +7,7 @@ import first.wildfires.api.KineticData;
 import first.wildfires.api.MobPoopData;
 import first.wildfires.api.customEvent.*;
 import first.wildfires.register.SoundRegister;
+import first.wildfires.utils.CuriosUtil;
 import first.wildfires.utils.WildfiresUtil;
 import net.dries007.tfc.common.blocks.plant.fruit.FruitTreeBranchBlock;
 import net.dries007.tfc.common.blocks.plant.fruit.FruitTreeLeavesBlock;
@@ -27,6 +28,7 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -50,6 +52,7 @@ import sfiomn.legendarysurvivaloverhaul.api.temperature.TemperatureEnum;
 import sfiomn.legendarysurvivaloverhaul.common.capabilities.temperature.TemperatureItemCapability;
 import sfiomn.legendarysurvivaloverhaul.util.CapabilityUtil;
 import top.theillusivec4.curios.api.CuriosApi;
+import top.theillusivec4.curios.api.event.CurioChangeEvent;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -57,6 +60,14 @@ import java.util.concurrent.CompletableFuture;
 
 @Mod.EventBusSubscriber(modid = Wildfires.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class ForgeEvent {
+
+	@SubscribeEvent
+	public static void onCurioChange(CurioChangeEvent event) {
+		Map<Item, Boolean> cache = CuriosUtil.CACHE.get(event.getEntity().getUUID());
+		if (cache != null && !cache.isEmpty()) {
+			cache.clear();
+		}
+	}
 
 	@SubscribeEvent
 	public static void reload(AddReloadListenerEvent event) {

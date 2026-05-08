@@ -1,6 +1,7 @@
 package first.wildfires.mixin.legendarysurvivaloverhaul;
 
 
+import first.wildfires.utils.CuriosUtil;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.client.gui.overlay.IGuiOverlay;
@@ -13,20 +14,22 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import sfiomn.legendarysurvivaloverhaul.api.temperature.TemperatureDisplayEnum;
 import sfiomn.legendarysurvivaloverhaul.client.render.RenderTemperatureGui;
-import sfiomn.legendarysurvivaloverhaul.common.integration.curios.CuriosUtil;
 import sfiomn.legendarysurvivaloverhaul.config.Config;
+import sfiomn.legendarysurvivaloverhaul.registry.ItemRegistry;
 
 import java.util.Objects;
 import java.util.Random;
 
-@Mixin(value = RenderTemperatureGui.class,remap = false)
+@Mixin(value = RenderTemperatureGui.class, remap = false)
 public class RenderTemperatureGuiMixin {
 
     @Mutable
     @Shadow(remap = false)
     public static IGuiOverlay TEMPERATURE_GUI;
 
-    @Shadow @Final private static Random rand;
+    @Shadow
+    @Final
+    private static Random rand;
 
     @Inject(
             method = "<clinit>",
@@ -39,12 +42,13 @@ public class RenderTemperatureGuiMixin {
                 if (player != null) {
                     rand.setSeed((long) player.tickCount * 445L);
                     forgeGui.setupOverlayRenderState(true, false);
-                    if (Objects.requireNonNull(Config.Baked.temperatureDisplayMode) == TemperatureDisplayEnum.SYMBOL && !CuriosUtil.isThermometerEquipped) {
+                    boolean equipped = CuriosUtil.isEquipped(player, ItemRegistry.THERMOMETER.get());
+                    if (Objects.requireNonNull(Config.Baked.temperatureDisplayMode) == TemperatureDisplayEnum.SYMBOL && !equipped) {
                         Minecraft.getInstance().getProfiler().push("temperature_gui");
                         RenderTemperatureGui.drawTemperatureAsSymbol(guiGraphics, player, width, height);
                         Minecraft.getInstance().getProfiler().pop();
                     }
-                    if (CuriosUtil.isThermometerEquipped) {
+                    if (equipped) {
                         Minecraft.getInstance().getProfiler().push("body_temperature_gui");
                         RenderTemperatureGui.drawBodyTemperature(guiGraphics, player, width, height);
                         Minecraft.getInstance().getProfiler().pop();

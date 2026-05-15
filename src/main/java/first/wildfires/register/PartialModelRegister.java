@@ -7,9 +7,11 @@ import first.wildfires.Wildfires;
 public class PartialModelRegister {
 
     public static final PartialModel
+            EmptySpool = path("block/loom/empty_spool"),
+            Spool = path("block/loom/spool"),
+
             StoneCogWheel = block("stone_cogwheel"),
             StoneLargeCogWheel = block("stone_large_cogwheel"),
-
 
     // 花岗岩
             GraniteCrushingWheel = block("granite_crushing_wheel"),
@@ -34,12 +36,19 @@ public class PartialModelRegister {
     // 英安岩
             DaciteCrushingWheel = block("dacite_crushing_wheel"),
             DaciteMillingWheel = inner("dacite_millstone");
+
+    private static PartialModel path(String path) {
+        return PartialModel.of(Wildfires.rl(path));
+    }
+
     private static PartialModel block(String path) {
-        return PartialModel.of(Wildfires.rl("block/" + path+"/block"));
+        return PartialModel.of(Wildfires.rl("block/" + path + "/block"));
     }
+
     private static PartialModel inner(String path) {
-        return PartialModel.of(Wildfires.rl("block/" + path+"/inner"));
+        return PartialModel.of(Wildfires.rl("block/" + path + "/inner"));
     }
+
     public static void register() {
 
     }

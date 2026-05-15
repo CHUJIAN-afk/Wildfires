@@ -44,5 +44,8 @@
   "block.wildfires.diorite_millstone": "闪长岩石磨",
   "item.wildfires.tunmou_armor_boots": "吞吞盔甲靴子",
   "block.wildfires.granite_millstone": "花岗岩石磨",
-  "block.wildfires.grass_slab": "草质台阶"
+  "block.wildfires.grass_slab": "草质台阶",
+  "block.wildfires.loom_control_block": "织布机",
+  "block.wildfires.loom_structure_block": "织布机结构",
+  "wildfires.loom.space_insufficient": "空间不足，无法放置织布机"
 }

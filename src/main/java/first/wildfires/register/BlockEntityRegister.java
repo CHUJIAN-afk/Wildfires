@@ -9,7 +9,12 @@ import first.wildfires.Wildfires;
 import first.wildfires.client.renderer.blockEntity.CustomCogWheelBlockEntityRenderer;
 import first.wildfires.client.renderer.blockEntity.CustomCrushingWheelBlockEntityRenderer;
 import first.wildfires.client.renderer.blockEntity.CustomMillstoneBlockEntityRenderer;
+import first.wildfires.kinetic.loom.LoomControlBlockEntity;
+import first.wildfires.kinetic.loom.LoomControlBlockEntityRenderer;
+import first.wildfires.kinetic.loom.LoomStructureBlockEntity;
+import first.wildfires.kinetic.loom.LoomStructureBlockEntityRenderer;
 
+import static com.simibubi.create.api.contraption.storage.item.MountedItemStorageType.mountedItemStorage;
 import static first.wildfires.register.BlockRegister.*;
 //import static first.wildfires.register.BlockRegister.StoneCrushingWheeldiorite;
 
@@ -17,6 +22,20 @@ import static first.wildfires.register.BlockRegister.*;
 public class BlockEntityRegister {
 
     private static final CreateRegistrate Registrate = Wildfires.Registrate;
+
+    //织布机控制中心
+    public static final BlockEntityEntry<LoomControlBlockEntity> LoomControlBlockEntity =
+            Registrate.blockEntity("loom_control_block_entity", LoomControlBlockEntity::new)
+                    .validBlock(BlockRegister.LoomControlBlock)
+                    .renderer(() -> LoomControlBlockEntityRenderer::new)
+                    .register();
+
+    //织布机结构块
+    public static final BlockEntityEntry<LoomStructureBlockEntity> LoomStructureBlockEntity =
+            Registrate.blockEntity("loom_structure_block_entity", LoomStructureBlockEntity::new)
+                    .validBlock(BlockRegister.LoomStructureBlock)
+                    .renderer(() -> LoomStructureBlockEntityRenderer::new)
+                    .register();
 
     // 磨石方块实体注册
     public static final BlockEntityEntry<MillstoneBlockEntity> CustomMillstoneBlockEntity =

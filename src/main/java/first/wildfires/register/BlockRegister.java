@@ -8,6 +8,9 @@ import com.simibubi.create.foundation.data.SharedProperties;
 import com.tterrag.registrate.util.entry.BlockEntry;
 import first.wildfires.Wildfires;
 import first.wildfires.block.*;
+import first.wildfires.kinetic.loom.LoomBlockItem;
+import first.wildfires.kinetic.loom.LoomControlBlock;
+import first.wildfires.kinetic.loom.LoomStructureBlock;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -29,6 +32,24 @@ import static net.minecraft.world.level.block.Block.box;
 public class BlockRegister {
 
     private static final CreateRegistrate Registrate = Wildfires.Registrate;
+
+    public static final BlockEntry<LoomControlBlock> LoomControlBlock =
+            Registrate.block("loom_control_block", LoomControlBlock::new)
+                    .initialProperties(SharedProperties::wooden)
+                    .properties(p -> p.mapColor(MapColor.METAL))
+                    .transform(pickaxeOnly())
+                    .blockstate((c, p) -> p.simpleBlock(c.getEntry(), AssetLookup.partialBaseModel(c, p)))
+                    .item(LoomBlockItem::new)
+                    .transform(customItemModel())
+                    .register();
+
+    public static final BlockEntry<LoomStructureBlock> LoomStructureBlock =
+            Registrate.block("loom_structure_block", LoomStructureBlock::new)
+                    .initialProperties(SharedProperties::wooden)
+                    .properties(p -> p.mapColor(MapColor.COLOR_BLACK).noOcclusion())
+                    .transform(pickaxeOnly())
+                    .register();
+
     /*  { in: "granite", out: "granite" },
       { in: "diorite", out: "diorite" },
       { in: "gabbro", out: "tuff" },

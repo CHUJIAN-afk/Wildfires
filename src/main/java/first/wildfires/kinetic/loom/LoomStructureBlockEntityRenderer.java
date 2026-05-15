@@ -15,6 +15,11 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
+import net.minecraftforge.common.util.LazyOptional;
+import net.minecraftforge.items.IItemHandler;
+
+import java.util.Optional;
 
 public class LoomStructureBlockEntityRenderer extends KineticBlockEntityRenderer<LoomStructureBlockEntity> {
 
@@ -24,8 +29,8 @@ public class LoomStructureBlockEntityRenderer extends KineticBlockEntityRenderer
 
     @Override
     protected void renderSafe(LoomStructureBlockEntity be, float partialTicks, PoseStack ms, MultiBufferSource buffer, int light, int overlay) {
-        PartialModel model = getModel(be);
-        if (model != null) {
+        PartialModel[] models = getModel(be);
+        if (models != null) {
             Direction.Axis axis = getRotationAxisOf(be);
             if (axis == Direction.Axis.Z) {
                 axis = Direction.Axis.X;
@@ -53,11 +58,16 @@ public class LoomStructureBlockEntityRenderer extends KineticBlockEntityRenderer
             }
             BlockState state = this.getRenderedBlockState(be);
             RenderType type = this.getRenderType(be, state);
-            renderRotatingBuffer(be, CachedBuffers.partialFacingVertical(model, blockState, facing), ms, buffer.getBuffer(type), light);
+            PartialModel emptySpool = models[0];
+            renderRotatingBuffer(be, CachedBuffers.partialFacingVertical(emptySpool, blockState, facing), ms, buffer.getBuffer(type), light);
+            if (models.length > 1) {
+                PartialModel spool = models[1];
+                renderRotatingBuffer(be, CachedBuffers.partialFacingVertical(spool, blockState, facing), ms, buffer.getBuffer(type), light);
+            }
         }
     }
 
-    private PartialModel getModel(LoomStructureBlockEntity be){
+    private PartialModel[] getModel(LoomStructureBlockEntity be) {
         BlockPos blockPos = be.getBlockPos();
         Level level = be.getLevel();
         if (level != null) {
@@ -68,11 +78,16 @@ public class LoomStructureBlockEntityRenderer extends KineticBlockEntityRenderer
                 if (!blockState.is(BlockRegister.LoomControlBlock.get())) {
                     BlockPos masterRecursive = LoomStructureBlock.findMasterRecursive(level, blockPos, state);
                     if (masterRecursive != null && level.getBlockEntity(masterRecursive) instanceof LoomControlBlockEntity loomControlBlockEntity) {
-                        if (loomControlBlockEntity.getProgress() != 0) {
-                            return PartialModelRegister.Spool;
-                        } else {
-                            return PartialModelRegister.EmptySpool;
+                        IItemHandler iItemHandler = loomControlBlockEntity.getCapability(ForgeCapabilities.ITEM_HANDLER).resolve().orElse(null);
+                        if (iItemHandler != null) {
+                            int slots = iItemHandler.getSlots();
+                            for (int i = 0; i < slots; i++) {
+                                if (!iItemHandler.getStackInSlot(i).isEmpty()) {
+                                    return new PartialModel[]{PartialModelRegister.EmptySpool, PartialModelRegister.Spool};
+                                }
+                            }
                         }
+                        return new PartialModel[]{PartialModelRegister.EmptySpool};
                     }
                 }
             }

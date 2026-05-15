@@ -1,14 +1,12 @@
 package first.wildfires;
 
-import com.github.alexmodguy.alexscaves.AlexsCaves;
-import com.github.alexmodguy.alexscaves.server.block.ACBlockRegistry;
 import com.simibubi.create.foundation.data.CreateRegistrate;
+import first.wildfires.register.WeavingRecipeRegister;
 import first.wildfires.register.*;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
-import software.bernie.geckolib.util.GeckoLibUtil;
 
 @Mod(Wildfires.MODID)
 public class Wildfires {
@@ -30,6 +28,7 @@ public class Wildfires {
 		CreativeModeTabRegister.register(eventBus);
 		ItemRegister.register(eventBus);
 		SoundRegister.register(eventBus);
+		WeavingRecipeRegister.register(eventBus);
 	}
 
 	public static ResourceLocation rl(String path) {

@@ -2,12 +2,20 @@ package first.wildfires.kinetic.loom;
 
 import com.simibubi.create.api.equipment.goggles.IHaveGoggleInformation;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
+import net.dries007.tfc.common.capabilities.Capabilities;
+import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.api.distmarker.OnlyIn;
+import net.minecraftforge.common.util.LazyOptional;
+import net.minecraftforge.items.IItemHandler;
+import net.minecraftforge.items.ItemStackHandler;
 import software.bernie.geckolib.animatable.GeoBlockEntity;
 import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
 import software.bernie.geckolib.core.animation.*;
@@ -16,7 +24,10 @@ import software.bernie.geckolib.util.GeckoLibUtil;
 public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlockEntity, IHaveGoggleInformation {
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
-    public float progress = 0;
+    private final ItemStackHandler itemStackHandler = new ItemStackHandler(2);
+    private final LazyOptional<IItemHandler> itemHandlerLazy = LazyOptional.of(() -> itemStackHandler);
+    private float lastProgress = 0;
+    private float progress = 0;
 
     public LoomControlBlockEntity(BlockEntityType<?> typeIn, BlockPos pos, BlockState state) {
         super(typeIn, pos, state);
@@ -29,6 +40,9 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
             float speed = getSpeed();
             if (speed != 0) {
                 progress += speed / 60;
+                if (progress > 160) {
+                    progress -= 160;
+                }
             }
             setChanged();
             sendData();
@@ -39,6 +53,7 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
     protected void write(CompoundTag compound, boolean clientPacket) {
         super.write(compound, clientPacket);
         compound.putFloat("progress", progress);
+        compound.put("inventory", itemStackHandler.serializeNBT());
     }
 
     @Override
@@ -46,6 +61,9 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
         super.read(compound, clientPacket);
         if (compound.contains("progress")) {
             progress = compound.getFloat("progress");
+        }
+        if (compound.contains("inventory")) {
+            itemStackHandler.deserializeNBT(compound.getCompound("inventory"));
         }
     }
 
@@ -76,10 +94,27 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
 
     @Override
     public double getTick(Object object) {
-        return this.progress;
+        if (level != null && level.isClientSide()) {
+            return getRenderTick();
+        }
+        return 0;
+    }
+
+    @OnlyIn(Dist.CLIENT)
+    public double getRenderTick() {
+        float partialTick = Minecraft.getInstance().getPartialTick();
+        if (lastProgress > progress) {
+            lastProgress -= 160;
+        }
+        lastProgress = Mth.lerp(partialTick, lastProgress, progress);
+        return lastProgress;
     }
 
     public float getProgress() {
         return progress;
+    }
+
+    public LazyOptional<IItemHandler> getItemHandlerLazy() {
+        return itemHandlerLazy;
     }
 }

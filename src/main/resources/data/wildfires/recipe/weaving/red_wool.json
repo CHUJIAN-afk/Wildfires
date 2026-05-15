@@ -1,0 +1,23 @@
+{
+  "type": "wildfires:weaving",
+  "ingredients": [
+    {
+      "item": "minecraft:white_wool"
+    },
+    {
+      "item": "minecraft:red_dye"
+    }
+  ],
+  "results": [
+    {
+      "item": "minecraft:red_wool",
+      "count": 1
+    }
+  ],
+  "color": {
+    "r": 255,
+    "g": 0,
+    "b": 0
+  },
+  "weaving_type": "knitted_cloth"
+}

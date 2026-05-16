@@ -37,6 +37,7 @@
   ],
   "client": [
     "minecraft.EffectRenderingInventoryScreenMixin",
+    "minecraft.LevelRendererMixin",
     "tfc.ClimateScreenMixin"
   ],
   "injectors": {

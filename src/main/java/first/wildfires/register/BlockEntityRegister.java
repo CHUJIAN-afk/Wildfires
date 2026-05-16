@@ -9,6 +9,8 @@ import first.wildfires.Wildfires;
 import first.wildfires.client.renderer.blockEntity.CustomCogWheelBlockEntityRenderer;
 import first.wildfires.client.renderer.blockEntity.CustomCrushingWheelBlockEntityRenderer;
 import first.wildfires.client.renderer.blockEntity.CustomMillstoneBlockEntityRenderer;
+import first.wildfires.kinetic.loom.LoomAuxiliaryBlockEntity;
+import first.wildfires.kinetic.loom.LoomAuxiliaryBlockEntityRenderer;
 import first.wildfires.kinetic.loom.LoomControlBlockEntity;
 import first.wildfires.kinetic.loom.LoomControlBlockEntityRenderer;
 import first.wildfires.kinetic.loom.LoomStructureBlockEntity;
@@ -35,6 +37,13 @@ public class BlockEntityRegister {
             Registrate.blockEntity("loom_structure_block_entity", LoomStructureBlockEntity::new)
                     .validBlock(BlockRegister.LoomStructureBlock)
                     .renderer(() -> LoomStructureBlockEntityRenderer::new)
+                    .register();
+
+    //织布机辅助块
+    public static final BlockEntityEntry<LoomAuxiliaryBlockEntity> LoomAuxiliaryBlockEntity =
+            Registrate.blockEntity("loom_auxiliary_block_entity", LoomAuxiliaryBlockEntity::new)
+                    .validBlock(BlockRegister.LoomAuxiliaryBlock)
+                    .renderer(() -> LoomAuxiliaryBlockEntityRenderer::new)
                     .register();
 
     // 磨石方块实体注册

@@ -1,13 +1,22 @@
 package first.wildfires.kinetic.loom;
 
 import com.simibubi.create.content.equipment.wrench.IWrenchable;
+import first.wildfires.Wildfires;
+import first.wildfires.client.renderer.entity.GeckoSimpleArmorItemRenderer;
 import net.createmod.catnip.outliner.Outliner;
+import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.client.renderer.BlockEntityWithoutLevelRenderer;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -16,11 +25,23 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
+import net.minecraftforge.client.extensions.common.IClientItemExtensions;
+import org.jetbrains.annotations.NotNull;
+import software.bernie.geckolib.animatable.GeoItem;
+import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
+import software.bernie.geckolib.core.animation.AnimatableManager;
+import software.bernie.geckolib.model.DefaultedItemGeoModel;
+import software.bernie.geckolib.model.GeoModel;
+import software.bernie.geckolib.renderer.GeoItemRenderer;
+import software.bernie.geckolib.util.GeckoLibUtil;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
-public class LoomBlockItem extends BlockItem implements IWrenchable {
+public class LoomBlockItem extends BlockItem implements GeoItem {
+
+    private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
 
     public LoomBlockItem(Block block, Properties properties) {
         super(block, properties);
@@ -100,5 +121,53 @@ public class LoomBlockItem extends BlockItem implements IWrenchable {
                 Component.translatable("wildfires.loom.space_insufficient"),
                 true
         );
+    }
+
+    @Override
+    public void registerControllers(AnimatableManager.ControllerRegistrar controllerRegistrar) {
+
+    }
+
+    @Override
+    public void initializeClient(Consumer<IClientItemExtensions> consumer) {
+        consumer.accept(new IClientItemExtensions() {
+
+            private GeoItemRenderer<LoomBlockItem> itemRenderer = null;
+
+            @Override
+            public BlockEntityWithoutLevelRenderer getCustomRenderer() {
+                if (itemRenderer == null) {
+                    itemRenderer = new GeoItemRenderer<>(new GeoModel<>() {
+
+
+                        @Override
+                        public RenderType getRenderType(LoomBlockItem animatable, ResourceLocation texture) {
+                            return RenderType.entityTranslucentCull(texture);
+                        }
+
+                        @Override
+                        public ResourceLocation getModelResource(LoomBlockItem animatable) {
+                            return ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, "geo/block/loom.geo.json");
+                        }
+
+                        @Override
+                        public ResourceLocation getTextureResource(LoomBlockItem animatable) {
+                            return ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, "textures/block/loom_frame.png");
+                        }
+
+                        @Override
+                        public ResourceLocation getAnimationResource(LoomBlockItem animatable) {
+                            return ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, "animations/block/loom.animation.json");
+                        }
+                    });
+                }
+                return itemRenderer;
+            }
+        });
+    }
+
+    @Override
+    public AnimatableInstanceCache getAnimatableInstanceCache() {
+        return cache;
     }
 }

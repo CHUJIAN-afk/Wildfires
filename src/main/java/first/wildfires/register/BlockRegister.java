@@ -9,6 +9,7 @@ import com.tterrag.registrate.util.entry.BlockEntry;
 import first.wildfires.Wildfires;
 import first.wildfires.block.*;
 import first.wildfires.kinetic.loom.LoomBlockItem;
+import first.wildfires.kinetic.loom.LoomAuxiliaryBlock;
 import first.wildfires.kinetic.loom.LoomControlBlock;
 import first.wildfires.kinetic.loom.LoomStructureBlock;
 import net.minecraft.core.registries.Registries;
@@ -40,11 +41,18 @@ public class BlockRegister {
                     .transform(pickaxeOnly())
                     .blockstate((c, p) -> p.simpleBlock(c.getEntry(), AssetLookup.partialBaseModel(c, p)))
                     .item(LoomBlockItem::new)
-                    .transform(customItemModel())
+                    .build()
                     .register();
 
     public static final BlockEntry<LoomStructureBlock> LoomStructureBlock =
             Registrate.block("loom_structure_block", LoomStructureBlock::new)
+                    .initialProperties(SharedProperties::wooden)
+                    .properties(p -> p.mapColor(MapColor.COLOR_BLACK).noOcclusion())
+                    .transform(pickaxeOnly())
+                    .register();
+
+    public static final BlockEntry<LoomAuxiliaryBlock> LoomAuxiliaryBlock =
+            Registrate.block("loom_auxiliary_block", LoomAuxiliaryBlock::new)
                     .initialProperties(SharedProperties::wooden)
                     .properties(p -> p.mapColor(MapColor.COLOR_BLACK).noOcclusion())
                     .transform(pickaxeOnly())

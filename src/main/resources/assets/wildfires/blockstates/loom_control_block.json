@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "wildfires:block/loom_control_block"
+    }
+  }
+}

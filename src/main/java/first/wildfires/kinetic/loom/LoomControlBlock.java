@@ -8,6 +8,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Direction.Axis;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.*;
@@ -43,9 +45,32 @@ public class LoomControlBlock extends Block implements IBE<LoomControlBlockEntit
     @Override
     public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean isMoving) {
         if (!state.is(newState.getBlock())) {
+            // 掉落储存物品
             BlockEntity blockEntity = level.getBlockEntity(pos);
             if (blockEntity instanceof LoomControlBlockEntity loomBE) {
                 loomBE.dropInventory();
+            }
+
+            // 同步摧毁其他三个结构块
+            Direction facing = state.getValue(FACING);
+            Direction right = facing.getClockWise();
+            Direction back = facing.getOpposite();
+
+            BlockPos rightPos = pos.relative(right);
+            BlockPos backPos1 = pos.relative(back);
+            BlockPos backPos2 = backPos1.relative(right);
+
+            // 摧毁右侧辅助块
+            if (level.getBlockState(rightPos).getBlock() instanceof LoomAuxiliaryBlock) {
+                level.destroyBlock(rightPos, false);
+            }
+            // 摧毁正后方结构块
+            if (level.getBlockState(backPos1).getBlock() instanceof LoomStructureBlock) {
+                level.destroyBlock(backPos1, false);
+            }
+            // 摧毁边角结构块
+            if (level.getBlockState(backPos2).getBlock() instanceof LoomStructureBlock) {
+                level.destroyBlock(backPos2, false);
             }
         }
         super.onRemove(state, level, pos, newState, isMoving);
@@ -54,6 +79,8 @@ public class LoomControlBlock extends Block implements IBE<LoomControlBlockEntit
     @Override
     public void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean isMoving) {
         super.onPlace(state, level, pos, oldState, isMoving);
+        // 播放放置音效
+        level.playSound(null, pos, SoundEvents.WOOD_PLACE, SoundSource.BLOCKS, 1.0F, 1.0F);
         if (!level.getBlockTicks().hasScheduledTick(pos, this)) {
             level.scheduleTick(pos, this, 1);
         }
@@ -72,10 +99,9 @@ public class LoomControlBlock extends Block implements IBE<LoomControlBlockEntit
         BlockPos backPos1 = pos.relative(back);       // 正后方结构块，朝向控制块（前）
         BlockPos backPos2 = backPos1.relative(right); // 边角结构块，朝向正后方结构块（前）
 
-        // 右侧结构块：朝向控制块（左方向）
-        BlockState requiredRight = BlockRegister.LoomStructureBlock.getDefaultState()
-                .setValue(LoomStructureBlock.AXIS, rotationAxis)
-                .setValue(LoomStructureBlock.FACING, right.getOpposite()); // 朝向控制块
+        // 右侧辅助块：朝向控制块（左方向），使用辅助块而非普通结构块
+        BlockState requiredRight = BlockRegister.LoomAuxiliaryBlock.getDefaultState()
+                .setValue(LoomAuxiliaryBlock.FACING, right.getOpposite()); // 朝向控制块
 
         // 正后方结构块：朝向控制块（前方向）
         BlockState requiredBack1 = BlockRegister.LoomStructureBlock.getDefaultState()
@@ -117,8 +143,6 @@ public class LoomControlBlock extends Block implements IBE<LoomControlBlockEntit
             level.setBlockAndUpdate(backPos2, requiredBack2);
         }
     }
-
-    // 控制块移除时不主动清理结构块，结构块会通过stillValid检查自行销毁
 
     @Override
     public Class<LoomControlBlockEntity> getBlockEntityClass() {

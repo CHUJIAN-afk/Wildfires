@@ -1,23 +1,27 @@
 package first.wildfires.kinetic.loom;
 
-import com.simibubi.create.api.equipment.goggles.IHaveGoggleInformation;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
+import com.simibubi.create.foundation.utility.CreateLang;
 import first.wildfires.kinetic.loom.recipe.WeavingRecipe;
 import first.wildfires.kinetic.loom.recipe.WeavingRecipeType;
-import first.wildfires.kinetic.loom.recipe.WeavingType;
+import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.client.Minecraft;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import net.minecraftforge.common.util.LazyOptional;
+import net.minecraft.world.phys.AABB;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemStackHandler;
 import software.bernie.geckolib.animatable.GeoBlockEntity;
@@ -29,38 +33,42 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import java.util.List;
 
-public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlockEntity, IHaveGoggleInformation {
+public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlockEntity {
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
     private final LoomItemStackHandler itemStackHandler = new LoomItemStackHandler(4);
     private final LazyOptional<IItemHandler> itemHandlerLazy = LazyOptional.of(() -> itemStackHandler);
+    private float clientTargetProgress = 0;
     private float lastProgress = 0;
     private float progress = 0;
 
     @Nullable
     private WeavingRecipe currentRecipe;
-    private int color = 0xFFFFFF;
-    private WeavingType weavingType = WeavingType.KNITTED_CLOTH;
 
     public LoomControlBlockEntity(BlockEntityType<?> typeIn, BlockPos pos, BlockState state) {
         super(typeIn, pos, state);
     }
 
+    /**
+     * 返回渲染边界框，扩展到包含整个多方块结构
+     * 防止玩家视角不在控制块所在格子时被剔除
+     */
+    @Override
+    public AABB getRenderBoundingBox() {
+        return new AABB(getBlockPos()).inflate(2);
+    }
+
     @Override
     public void tick() {
         super.tick();
-        if (level != null && !level.isClientSide()) {
+        if (level == null) return;
+        if (!level.isClientSide()) {
             float speed = getSpeed();
-
             if (currentRecipe == null) {
                 // 没有正在执行的配方，尝试查找配方
                 WeavingRecipe matchedRecipe = findMatchingRecipe();
                 if (matchedRecipe != null) {
                     currentRecipe = matchedRecipe;
-                    this.color = matchedRecipe.getColor();
-                    this.weavingType = matchedRecipe.getWeavingType();
-                    setChanged();
-                    sendData();
                 }
             } else {
                 // 检查当前物品是否仍然满足配方要求
@@ -68,11 +76,24 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
                     // 物品变化，清空进度和配方
                     currentRecipe = null;
                     progress = 0;
-                    this.color = 0xFFFFFF;
-                    this.weavingType = WeavingType.KNITTED_CLOTH;
                 } else {
                     // 执行配方
-                    progress += speed / 60;
+                    BlockState blockState = level.getBlockState(getBlockPos());
+                    if (blockState.hasProperty(LoomControlBlock.FACING)) {
+                        Direction direction = blockState.getValue(LoomControlBlock.FACING);
+                        // EAST和NORTH朝向：正向为负速度，反向为正速度
+                        // SOUTH和WEST朝向：正向为正速度，反向为负速度
+                        boolean isForward;
+                        if (direction == Direction.EAST || direction == Direction.NORTH) {
+                            isForward = speed < 0;
+                        } else {
+                            isForward = speed > 0;
+                        }
+
+                        if (isForward) {
+                            progress += Math.abs(speed) / 60;
+                        }
+                    }
 
                     // 检查是否完成
                     if (progress > 160) {
@@ -81,9 +102,12 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
                         outputResults();
                     }
                 }
-                setChanged();
-                sendData();
             }
+            setChanged();
+            sendData();
+        } else {
+            lastProgress = progress;
+            progress = clientTargetProgress;
         }
     }
 
@@ -101,10 +125,10 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
     }
 
     private boolean matchesRecipe(WeavingRecipe recipe) {
-        List<net.minecraft.world.item.crafting.Ingredient> ingredients = recipe.getIngredients();
+        List<Ingredient> ingredients = recipe.getIngredients();
         boolean[] used = new boolean[itemStackHandler.getSlots()];
 
-        for (net.minecraft.world.item.crafting.Ingredient ingredient : ingredients) {
+        for (Ingredient ingredient : ingredients) {
             boolean found = false;
             for (int i = 0; i < itemStackHandler.getSlots(); i++) {
                 if (!used[i]) {
@@ -147,10 +171,12 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
         }
 
         // 在方块上方生成产物（不掉入储存空间）
-        BlockPos outputPos = getBlockPos().above();
+        Vec3 blockPos = getBlockPos().getCenter();
+        Vec3 facePos = getBlockPos().relative(getBlockState().getValue(LoomControlBlock.FACING).getClockWise()).getCenter();
+        Vec3 targetPos = blockPos.add(facePos);
         for (ItemStack output : currentRecipe.getOutputs()) {
             ItemStack copy = output.copy();
-            ItemEntity itemEntity = new ItemEntity(level, outputPos.getX() + 0.5, outputPos.getY(), outputPos.getZ() + 0.5, copy);
+            ItemEntity itemEntity = new ItemEntity(level, targetPos.x() / 2, (targetPos.y() / 2) + 0.5f, targetPos.z() / 2, copy);
             level.addFreshEntity(itemEntity);
         }
     }
@@ -180,35 +206,37 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
         super.write(compound, clientPacket);
         compound.putFloat("progress", progress);
         compound.put("inventory", itemStackHandler.serializeNBT());
-        compound.putInt("color", color);
-        compound.putString("weavingType", weavingType.getName());
+        if (currentRecipe != null) {
+            compound.putString("recipe", currentRecipe.getId().toString());
+        }
     }
 
     @Override
     protected void read(CompoundTag compound, boolean clientPacket) {
         super.read(compound, clientPacket);
         if (compound.contains("progress")) {
-            progress = compound.getFloat("progress");
+            clientTargetProgress = compound.getFloat("progress");
         }
         if (compound.contains("inventory")) {
             itemStackHandler.deserializeNBT(compound.getCompound("inventory"));
         }
-        if (compound.contains("color")) {
-            color = compound.getInt("color");
-        }
-        if (compound.contains("weavingType")) {
-            weavingType = WeavingType.fromName(compound.getString("weavingType"));
-        }
-        // 重新查找配方以恢复currentRecipe
-        if (level != null && !level.isClientSide()) {
-            currentRecipe = findMatchingRecipe();
+        if (compound.contains("recipe") && level != null) {
+            List<WeavingRecipe> allRecipesFor = level.getRecipeManager().getAllRecipesFor(WeavingRecipeType.INSTANCE);
+            for (WeavingRecipe weavingRecipe : allRecipesFor) {
+                if (weavingRecipe.getId().toString().equals(compound.getString("recipe"))) {
+                    currentRecipe = weavingRecipe;
+                    break;
+                }
+            }
+        } else {
+            currentRecipe = null;
         }
     }
 
     @Override
     public float getSpeed() {
         BlockState state = getBlockState();
-        if (level != null && !level.isClientSide() && state.hasProperty(LoomControlBlock.FACING)) {
+        if (level != null && state.hasProperty(LoomControlBlock.FACING)) {
             Direction facing = state.getValue(LoomControlBlock.FACING);
             Direction back = facing.getOpposite();
             BlockPos backPos = getBlockPos().relative(back);
@@ -241,23 +269,15 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
     @OnlyIn(Dist.CLIENT)
     public double getRenderTick() {
         float partialTick = Minecraft.getInstance().getPartialTick();
-        if (lastProgress > progress) {
-            lastProgress -= 160;
+        if (lastProgress - progress > 100) {
+            return Mth.lerp(partialTick, lastProgress - 160, progress);
         }
-        lastProgress = Mth.lerp(partialTick, lastProgress, progress);
-        return lastProgress;
+        return Mth.lerp(partialTick, lastProgress, progress);
     }
 
-    public float getProgress() {
-        return progress;
-    }
-
-    public int getColor() {
-        return color;
-    }
-
-    public WeavingType getWeavingType() {
-        return weavingType;
+    @Nullable
+    public WeavingRecipe getCurrentRecipe() {
+        return currentRecipe;
     }
 
     public LazyOptional<IItemHandler> getItemHandlerLazy() {
@@ -297,5 +317,99 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
             }
             return super.insertItem(slot, stack, simulate);
         }
+    }
+
+    @Override
+    public float calculateStressApplied() {
+        BlockState blockState = getBlockState();
+        if (level != null && level.isClientSide() && blockState.hasProperty(LoomControlBlock.FACING)) {
+            BlockEntity blockEntity = level.getBlockEntity(getBlockPos().relative(blockState.getValue(LoomControlBlock.FACING).getOpposite()));
+            if (blockEntity instanceof LoomStructureBlockEntity loomStructureBlockEntity) {
+                return loomStructureBlockEntity.calculateStressApplied();
+            }
+        }
+        return super.calculateStressApplied();
+    }
+
+    @Override
+    public boolean addToGoggleTooltip(List<Component> tooltip, boolean isPlayerSneaking) {
+        // 状态显示
+        CreateLang.text("织布机状态：").style(ChatFormatting.WHITE)
+                .space()
+                .add(CreateLang.text(currentRecipe != null ? "编织中" : "空闲").style(currentRecipe != null ? ChatFormatting.GREEN : ChatFormatting.GRAY))
+                .forGoggles(tooltip);
+
+        // 当前配方信息
+        if (currentRecipe != null) {
+            CreateLang.text("正在编织").style(ChatFormatting.GRAY)
+                    .forGoggles(tooltip, 1);
+            CreateLang.text(currentRecipe.getWeavingType().getDisplayName()).style(ChatFormatting.BLUE)
+                    .forGoggles(tooltip, 2);
+
+            // 进度显示
+            CreateLang.text("编织进度").style(ChatFormatting.GRAY)
+                    .forGoggles(tooltip, 1);
+            int progressPercent = (int) (progress / 160 * 100);
+            CreateLang.number(progressPercent).style(ChatFormatting.GOLD)
+                    .add(CreateLang.text("%").style(ChatFormatting.GOLD))
+                    .forGoggles(tooltip, 2);
+        }
+
+        // 输入槽状态
+        CreateLang.text("输入槽").style(ChatFormatting.GRAY)
+                .forGoggles(tooltip, 1);
+        int filledSlots = 0;
+        for (int i = 0; i < itemStackHandler.getSlots(); i++) {
+            if (!itemStackHandler.getStackInSlot(i).isEmpty()) {
+                filledSlots++;
+            }
+        }
+        CreateLang.number(filledSlots).style(ChatFormatting.YELLOW)
+                .add(CreateLang.text(" / ").style(ChatFormatting.GRAY))
+                .add(CreateLang.number(itemStackHandler.getSlots()).style(ChatFormatting.DARK_GRAY))
+                .add(CreateLang.text(" 格").style(ChatFormatting.DARK_GRAY))
+                .forGoggles(tooltip, 2);
+
+        // 动力状态
+        float speed = getSpeed();
+        if (speed == 0 && currentRecipe != null) {
+            CreateLang.text("缺少动力输入").style(ChatFormatting.RED)
+                    .forGoggles(tooltip, 1);
+        } else if (speed != 0) {
+            CreateLang.text("动力状态").style(ChatFormatting.GRAY)
+                    .forGoggles(tooltip, 1);
+
+            // 根据朝向判定正向/反向
+            BlockState blockState = getBlockState();
+            if (blockState.hasProperty(LoomControlBlock.FACING)) {
+                boolean isForward;
+                Direction direction = blockState.getValue(LoomControlBlock.FACING);
+                if (direction == Direction.EAST || direction == Direction.NORTH) {
+                    isForward = speed < 0;
+                } else {
+                    isForward = speed > 0;
+                }
+                CreateLang.number(Math.abs(speed)).style(ChatFormatting.AQUA)
+                        .add(CreateLang.text(" RPM").style(ChatFormatting.AQUA))
+                        .space()
+                        .add(CreateLang.text(isForward ? "正向运转" : "反向运转").style(ChatFormatting.DARK_GRAY))
+                        .forGoggles(tooltip, 2);
+            }
+        }
+        float stressAtBase = this.calculateStressApplied();
+        if (!Mth.equal(stressAtBase, 0.0F)) {
+            CreateLang.translate("tooltip.stressImpact")
+                    .style(ChatFormatting.GRAY)
+                    .forGoggles(tooltip, 1);
+            float stressTotal = stressAtBase * Math.abs(this.getSpeed());
+            CreateLang.number(stressTotal)
+                    .translate("generic.unit.stress")
+                    .style(ChatFormatting.AQUA)
+                    .space()
+                    .add(CreateLang.translate("gui.goggles.at_current_speed").style(ChatFormatting.DARK_GRAY))
+                    .forGoggles(tooltip, 2);
+
+        }
+        return true;
     }
 }

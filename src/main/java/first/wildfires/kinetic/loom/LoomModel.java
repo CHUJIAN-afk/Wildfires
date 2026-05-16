@@ -19,7 +19,7 @@ public class LoomModel extends GeoModel<LoomControlBlockEntity> {
 
     @Override
     public ResourceLocation getTextureResource(LoomControlBlockEntity animatable) {
-        return ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, "textures/block/loom.png");
+        return ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, "textures/block/loom_frame.png");
     }
 
     @Override

@@ -1,10 +1,10 @@
 package first.wildfires.kinetic.loom;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntityRenderer;
-import com.simibubi.create.foundation.blockEntity.renderer.SafeBlockEntityRenderer;
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
-import first.wildfires.register.BlockRegister;
+import first.wildfires.kinetic.loom.recipe.WeavingRecipe;
 import first.wildfires.register.PartialModelRegister;
 import net.createmod.catnip.render.CachedBuffers;
 import net.createmod.catnip.render.SuperByteBuffer;
@@ -15,11 +15,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraftforge.common.capabilities.ForgeCapabilities;
-import net.minecraftforge.common.util.LazyOptional;
-import net.minecraftforge.items.IItemHandler;
-
-import java.util.Optional;
 
 public class LoomStructureBlockEntityRenderer extends KineticBlockEntityRenderer<LoomStructureBlockEntity> {
 
@@ -29,8 +24,8 @@ public class LoomStructureBlockEntityRenderer extends KineticBlockEntityRenderer
 
     @Override
     protected void renderSafe(LoomStructureBlockEntity be, float partialTicks, PoseStack ms, MultiBufferSource buffer, int light, int overlay) {
-        PartialModel[] models = getModel(be);
-        if (models != null) {
+        RenderContext context = getModel(be);
+        if (context != null) {
             Direction.Axis axis = getRotationAxisOf(be);
             if (axis == Direction.Axis.Z) {
                 axis = Direction.Axis.X;
@@ -41,58 +36,43 @@ public class LoomStructureBlockEntityRenderer extends KineticBlockEntityRenderer
             BlockState blockState = be.getBlockState();
             if (blockState.hasProperty(LoomStructureBlock.FACING)) {
                 Direction face = blockState.getValue(LoomStructureBlock.FACING);
-                if (face == Direction.NORTH) {
-                    ms.translate(-1, 0, 0);
-                }
-                if (face == Direction.WEST) {
-                    ms.translate(0, 0, 1);
-                }
                 if (face == Direction.SOUTH) {
                     facing = facing.getOpposite();
-                    ms.translate(1, 0, 0);
                 }
                 if (face == Direction.EAST) {
                     facing = facing.getOpposite();
-                    ms.translate(0, 0, -1);
                 }
             }
             BlockState state = this.getRenderedBlockState(be);
             RenderType type = this.getRenderType(be, state);
-            PartialModel emptySpool = models[0];
-            renderRotatingBuffer(be, CachedBuffers.partialFacingVertical(emptySpool, blockState, facing), ms, buffer.getBuffer(type), light);
-            if (models.length > 1) {
-                PartialModel spool = models[1];
-                renderRotatingBuffer(be, CachedBuffers.partialFacingVertical(spool, blockState, facing), ms, buffer.getBuffer(type), light);
+            VertexConsumer consumer = buffer.getBuffer(type);
+            renderRotatingBuffer(be, CachedBuffers.partialFacingVertical(PartialModelRegister.EmptySpool, blockState, facing), ms, consumer, light);
+            WeavingRecipe weavingRecipe = context.weavingRecipe();
+            if (weavingRecipe != null) {
+                SuperByteBuffer superBuffer = CachedBuffers.partialFacingVertical(PartialModelRegister.Spool, blockState, facing);
+                int color = weavingRecipe.getColor();
+                renderRotatingBuffer(be, superBuffer, ms, new CorlorVertexConsumer(consumer, color), light);
             }
         }
     }
 
-    private PartialModel[] getModel(LoomStructureBlockEntity be) {
+    private RenderContext getModel(LoomStructureBlockEntity be) {
         BlockPos blockPos = be.getBlockPos();
         Level level = be.getLevel();
         if (level != null) {
             BlockState state = level.getBlockState(blockPos);
             if (state.hasProperty(LoomStructureBlock.FACING)) {
                 BlockPos targetPos = blockPos.relative(state.getValue(LoomStructureBlock.FACING));
-                BlockState blockState = level.getBlockState(targetPos);
-                if (!blockState.is(BlockRegister.LoomControlBlock.get())) {
-                    BlockPos masterRecursive = LoomStructureBlock.findMasterRecursive(level, blockPos, state);
-                    if (masterRecursive != null && level.getBlockEntity(masterRecursive) instanceof LoomControlBlockEntity loomControlBlockEntity) {
-                        IItemHandler iItemHandler = loomControlBlockEntity.getCapability(ForgeCapabilities.ITEM_HANDLER).resolve().orElse(null);
-                        if (iItemHandler != null) {
-                            int slots = iItemHandler.getSlots();
-                            for (int i = 0; i < slots; i++) {
-                                if (!iItemHandler.getStackInSlot(i).isEmpty()) {
-                                    return new PartialModel[]{PartialModelRegister.EmptySpool, PartialModelRegister.Spool};
-                                }
-                            }
-                        }
-                        return new PartialModel[]{PartialModelRegister.EmptySpool};
-                    }
+                if (level.getBlockEntity(targetPos) instanceof LoomControlBlockEntity loomControlBlockEntity) {
+                    WeavingRecipe currentRecipe = loomControlBlockEntity.getCurrentRecipe();
+                    return new RenderContext(currentRecipe);
                 }
             }
         }
         return null;
     }
 
+    private record RenderContext(WeavingRecipe weavingRecipe) {
+
+    }
 }

@@ -169,11 +169,11 @@ dependencies {
     //patchouli
     implementation fg.deobf("curse.maven:patchouli-306770:6164575")
     //jei
-    compileOnly("mezz.jei:jei-1.20.1-forge:15.20.0.116")
+    implementation fg.deobf("curse.maven:jei-238222:7920915")
     //legendarysurvivaloverhaul
     implementation fg.deobf("curse.maven:legendary-survival-overhaul-840254:6286507")
     //jade
-    compileOnly fg.deobf("curse.maven:jade-324717:6855440")
+    implementation fg.deobf("curse.maven:jade-324717:6855440")
     //kjs
     implementation fg.deobf("curse.maven:kubejs-238086:5853326")
     implementation fg.deobf("curse.maven:rhino-416294:6186971")

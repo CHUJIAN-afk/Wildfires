@@ -113,12 +113,12 @@ public class LoomStructureBlock extends RotatedPillarKineticBlock implements IBE
         BlockState targetState = level.getBlockState(targetPos);
 
         // 如果前方是控制块，返回其位置
-        if (targetState.is(BlockRegister.LoomControlBlock.get())) {
+        if (targetState.getBlock() instanceof LoomControlBlock) {
             return targetPos;
         }
 
         // 如果前方是另一个结构块，继续递归
-        if (targetState.is(BlockRegister.LoomStructureBlock.get())) {
+        if (targetState.getBlock() instanceof LoomStructureBlock) {
             return findMasterRecursive(level, targetPos, targetState);
         }
 

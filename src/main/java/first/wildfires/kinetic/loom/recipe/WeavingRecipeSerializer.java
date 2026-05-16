@@ -13,15 +13,20 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.RecipeSerializer;
 import net.minecraftforge.common.crafting.CraftingHelper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 
 public class WeavingRecipeSerializer implements RecipeSerializer<WeavingRecipe> {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger("Wildfires/WeavingRecipe");
+
     public static final WeavingRecipeSerializer INSTANCE = new WeavingRecipeSerializer();
 
     @Override
     public WeavingRecipe fromJson(ResourceLocation recipeId, JsonObject json) {
+        LOGGER.info("Loading weaving recipe: {}", recipeId);
         NonNullList<Ingredient> ingredients = readIngredients(GsonHelper.getAsJsonArray(json, "ingredients"));
         NonNullList<ItemStack> outputs;
         try {

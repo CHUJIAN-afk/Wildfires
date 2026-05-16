@@ -11,11 +11,14 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.*;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition.Builder;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
+
+import javax.annotation.Nullable;
 
 public class LoomControlBlock extends Block implements IBE<LoomControlBlockEntity>, IWrenchable {
 
@@ -34,6 +37,18 @@ public class LoomControlBlock extends Block implements IBE<LoomControlBlockEntit
     @Override
     public RenderShape getRenderShape(BlockState state) {
         return RenderShape.ENTITYBLOCK_ANIMATED;
+    }
+
+    @SuppressWarnings("deprecation")
+    @Override
+    public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean isMoving) {
+        if (!state.is(newState.getBlock())) {
+            BlockEntity blockEntity = level.getBlockEntity(pos);
+            if (blockEntity instanceof LoomControlBlockEntity loomBE) {
+                loomBE.dropInventory();
+            }
+        }
+        super.onRemove(state, level, pos, newState, isMoving);
     }
 
     @Override

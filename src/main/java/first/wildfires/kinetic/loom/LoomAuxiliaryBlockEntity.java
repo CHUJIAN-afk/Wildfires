@@ -1,7 +1,12 @@
 package first.wildfires.kinetic.loom;
 
+import first.wildfires.jei.AnimatedLoom;
+import first.wildfires.kinetic.loom.recipe.WeavingRecipe;
+import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.vehicle.Minecart;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
@@ -18,6 +23,17 @@ import software.bernie.geckolib.util.GeckoLibUtil;
 public class LoomAuxiliaryBlockEntity extends LoomStructureBlockEntity implements GeoBlockEntity {
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
+    @Nullable
+    private WeavingRecipe currentRecipe;
+    private double renderTick = -1;
+
+    public @Nullable WeavingRecipe getCurrentRecipe() {
+        return currentRecipe;
+    }
+
+    public void setCurrentRecipe(@Nullable WeavingRecipe currentRecipe) {
+        this.currentRecipe = currentRecipe;
+    }
 
     public LoomAuxiliaryBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state) {
         super(type, pos, state);
@@ -44,6 +60,9 @@ public class LoomAuxiliaryBlockEntity extends LoomStructureBlockEntity implement
 
     @Override
     public double getTick(Object object) {
+        if (renderTick != -1) {
+            return renderTick;
+        }
         // 从控制块获取动画tick
         if (level != null) {
             BlockPos masterPos = LoomAuxiliaryBlock.findMaster(level, getBlockPos(), getBlockState());
@@ -52,6 +71,10 @@ public class LoomAuxiliaryBlockEntity extends LoomStructureBlockEntity implement
             }
         }
         return 0;
+    }
+
+    public void setRenderTick(double renderTick) {
+        this.renderTick = renderTick;
     }
 
     @Override

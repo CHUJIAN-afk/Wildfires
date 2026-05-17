@@ -46,10 +46,11 @@ public class LoomAuxiliaryBlockEntityRenderer extends GeoBlockRenderer<LoomAuxil
         }
         Level level = animatable.getLevel();
         if (level != null) {
+            WeavingRecipe currentRecipe = null;
             BlockPos master = LoomAuxiliaryBlock.findMaster(level, animatable.getBlockPos(), animatable.getBlockState());
             if (master != null && level.getBlockEntity(master) instanceof LoomControlBlockEntity loomControlBlockEntity) {
                 if (loomControlBlockEntity.getTick(loomControlBlockEntity) > 0) {
-                    WeavingRecipe currentRecipe = loomControlBlockEntity.getCurrentRecipe();
+                    currentRecipe = loomControlBlockEntity.getCurrentRecipe();
                     if (currentRecipe != null) {
                         red = (float) currentRecipe.getRed() / 255;
                         green = (float) currentRecipe.getGreen() / 255;
@@ -57,6 +58,14 @@ public class LoomAuxiliaryBlockEntityRenderer extends GeoBlockRenderer<LoomAuxil
                     }
                     super.actuallyRender(poseStack, animatable, model, renderType, bufferSource, buffer, isReRender, partialTick, packedLight, packedOverlay, red, green, blue, alpha);
                 }
+            } else {
+                currentRecipe = animatable.getCurrentRecipe();
+                if (currentRecipe != null) {
+                    red = (float) currentRecipe.getRed() / 255;
+                    green = (float) currentRecipe.getGreen() / 255;
+                    blue = (float) currentRecipe.getBlue() / 255;
+                }
+                super.actuallyRender(poseStack, animatable, model, renderType, bufferSource, buffer, isReRender, partialTick, packedLight, packedOverlay, red, green, blue, alpha);
             }
         }
     }

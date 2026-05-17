@@ -4,13 +4,19 @@ import com.simibubi.create.api.equipment.goggles.IProxyHoveringInformation;
 import com.simibubi.create.content.equipment.wrench.IWrenchable;
 import com.simibubi.create.content.kinetics.base.RotatedPillarKineticBlock;
 import com.simibubi.create.foundation.block.IBE;
+import first.wildfires.Wildfires;
 import first.wildfires.register.BlockEntityRegister;
 import first.wildfires.register.BlockRegister;
+import first.wildfires.utils.VoxelShapeParser;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Direction.Axis;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
@@ -24,12 +30,31 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
+import net.minecraftforge.items.IItemHandler;
+import net.minecraftforge.items.ItemHandlerHelper;
 import org.jetbrains.annotations.NotNull;
 
 public class LoomStructureBlock extends RotatedPillarKineticBlock implements IBE<LoomStructureBlockEntity>, IProxyHoveringInformation {
 
     // 结构块自身的朝向，指向它应该连接的方向（控制块或前方的结构块）
     public static final DirectionProperty FACING = BlockStateProperties.HORIZONTAL_FACING;
+
+
+    @Override
+    public VoxelShape getShape(BlockState pState, BlockGetter pLevel, BlockPos pPos, CollisionContext pContext) {
+        Block block = pLevel.getBlockState(pPos.relative(pState.getValue(FACING))).getBlock();
+        if (block instanceof LoomAuxiliaryBlock) {
+            return VoxelShapeParser.getOrParse(Wildfires.rl("models/block/loom0"));
+        }
+        if (block instanceof LoomControlBlock) {
+            return VoxelShapeParser.getOrParse(Wildfires.rl("models/block/loom1"));
+        }
+        return super.getShape(pState, pLevel, pPos, pContext);
+    }
 
     public LoomStructureBlock(Properties properties) {
         super(properties);
@@ -139,5 +164,88 @@ public class LoomStructureBlock extends RotatedPillarKineticBlock implements IBE
     @Override
     public BlockPos getInformationSource(Level level, BlockPos blockPos, BlockState blockState) {
         return findMasterRecursive(level, blockPos, blockState);
+    }
+
+    @Override
+    public InteractionResult use(BlockState state, Level level, BlockPos pos, Player player, InteractionHand hand, BlockHitResult hit) {
+        // 找到控制块
+        BlockPos masterPos = findMasterRecursive(level, pos, state);
+        if (masterPos == null) {
+            return InteractionResult.FAIL;
+        }
+
+        if (level.getBlockEntity(masterPos) instanceof LoomControlBlockEntity controlBE) {
+            IItemHandler handler = controlBE.getItemHandlerLazy().resolve().orElse(null);
+            if (handler == null) {
+                return InteractionResult.FAIL;
+            }
+
+            ItemStack heldItem = player.getItemInHand(hand);
+
+            if (!heldItem.isEmpty()) {
+                // 手上有物品，尝试插入
+                return insertItemToHandler(level, player, hand, handler, heldItem);
+            } else {
+                // 手上无物品，尝试取出
+                return extractItemFromHandler(level, player, hand, handler);
+            }
+        }
+
+        return InteractionResult.PASS;
+    }
+
+    /**
+     * 将玩家手中的物品插入到物品处理器
+     */
+    private InteractionResult insertItemToHandler(Level level, Player player, InteractionHand hand, IItemHandler handler, ItemStack heldItem) {
+        // 尝试插入物品
+        ItemStack remaining = ItemHandlerHelper.insertItem(handler, heldItem, false);
+
+        if (remaining.getCount() < heldItem.getCount()) {
+            // 成功插入部分或全部
+            if (remaining.isEmpty()) {
+                player.setItemInHand(hand, ItemStack.EMPTY);
+            } else {
+                player.setItemInHand(hand, remaining);
+            }
+
+            // 挥手动画
+            player.swing(hand);
+
+            // 播放音效
+            if (!level.isClientSide) {
+                level.levelEvent(1000, player.blockPosition(), 0); // 物品拾取音效
+            }
+
+            return InteractionResult.sidedSuccess(level.isClientSide);
+        }
+
+        return InteractionResult.PASS;
+    }
+
+    /**
+     * 从物品处理器取出物品给玩家
+     */
+    private InteractionResult extractItemFromHandler(Level level, Player player, InteractionHand hand, IItemHandler handler) {
+        // 从最后一个槽位开始查找非空物品
+        for (int i = handler.getSlots() - 1; i >= 0; i--) {
+            ItemStack extracted = handler.extractItem(i, 64, false);
+            if (!extracted.isEmpty()) {
+                // 成功取出物品
+                player.setItemInHand(hand, extracted);
+
+                // 挥手动画
+                player.swing(hand);
+
+                // 播放音效
+                if (!level.isClientSide) {
+                    level.levelEvent(1000, player.blockPosition(), 0); // 物品拾取音效
+                }
+
+                return InteractionResult.sidedSuccess(level.isClientSide);
+            }
+        }
+
+        return InteractionResult.PASS;
     }
 }

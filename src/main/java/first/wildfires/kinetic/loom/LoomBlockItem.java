@@ -39,9 +39,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
-public class LoomBlockItem extends BlockItem implements GeoItem {
-
-    private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
+public class LoomBlockItem extends BlockItem {
 
     public LoomBlockItem(Block block, Properties properties) {
         super(block, properties);
@@ -123,51 +121,4 @@ public class LoomBlockItem extends BlockItem implements GeoItem {
         );
     }
 
-    @Override
-    public void registerControllers(AnimatableManager.ControllerRegistrar controllerRegistrar) {
-
-    }
-
-    @Override
-    public void initializeClient(Consumer<IClientItemExtensions> consumer) {
-        consumer.accept(new IClientItemExtensions() {
-
-            private GeoItemRenderer<LoomBlockItem> itemRenderer = null;
-
-            @Override
-            public BlockEntityWithoutLevelRenderer getCustomRenderer() {
-                if (itemRenderer == null) {
-                    itemRenderer = new GeoItemRenderer<>(new GeoModel<>() {
-
-
-                        @Override
-                        public RenderType getRenderType(LoomBlockItem animatable, ResourceLocation texture) {
-                            return RenderType.entityTranslucentCull(texture);
-                        }
-
-                        @Override
-                        public ResourceLocation getModelResource(LoomBlockItem animatable) {
-                            return ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, "geo/block/loom.geo.json");
-                        }
-
-                        @Override
-                        public ResourceLocation getTextureResource(LoomBlockItem animatable) {
-                            return ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, "textures/block/loom_frame.png");
-                        }
-
-                        @Override
-                        public ResourceLocation getAnimationResource(LoomBlockItem animatable) {
-                            return ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, "animations/block/loom.animation.json");
-                        }
-                    });
-                }
-                return itemRenderer;
-            }
-        });
-    }
-
-    @Override
-    public AnimatableInstanceCache getAnimatableInstanceCache() {
-        return cache;
-    }
 }

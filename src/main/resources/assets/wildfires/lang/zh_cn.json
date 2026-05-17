@@ -46,7 +46,7 @@
   "block.wildfires.granite_millstone": "花岗岩石磨",
   "block.wildfires.grass_slab": "草质台阶",
   "block.wildfires.loom_control_block": "织布机",
-  "block.wildfires.loom_structure_block": "织布机结构",
+  "block.wildfires.loom_structure_block": "织布机",
   "wildfires.loom.space_insufficient": "空间不足，无法放置织布机",
   "wildfires.jei.category.weaving": "织布"
 }

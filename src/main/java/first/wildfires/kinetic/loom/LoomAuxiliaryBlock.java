@@ -3,8 +3,10 @@ package first.wildfires.kinetic.loom;
 import com.simibubi.create.api.equipment.goggles.IProxyHoveringInformation;
 import com.simibubi.create.content.equipment.wrench.IWrenchable;
 import com.simibubi.create.foundation.block.IBE;
+import first.wildfires.Wildfires;
 import first.wildfires.register.BlockEntityRegister;
 import first.wildfires.register.BlockRegister;
+import first.wildfires.utils.VoxelShapeParser;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Direction.Axis;
@@ -23,6 +25,8 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.NotNull;
 
 public class LoomAuxiliaryBlock extends Block implements IBE<LoomAuxiliaryBlockEntity>, IWrenchable , IProxyHoveringInformation {
@@ -33,6 +37,11 @@ public class LoomAuxiliaryBlock extends Block implements IBE<LoomAuxiliaryBlockE
     public LoomAuxiliaryBlock(Properties properties) {
         super(properties.noOcclusion());
         registerDefaultState(defaultBlockState().setValue(FACING, Direction.NORTH));
+    }
+
+    @Override
+    public VoxelShape getShape(BlockState pState, BlockGetter pLevel, BlockPos pPos, CollisionContext pContext) {
+        return VoxelShapeParser.getOrParse(Wildfires.rl("models/block/loom2"));
     }
 
     @Override

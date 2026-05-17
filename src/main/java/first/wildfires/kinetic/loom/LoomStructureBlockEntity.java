@@ -24,6 +24,15 @@ public class LoomStructureBlockEntity extends KineticBlockEntity {
         super(type, pos, state);
     }
 
+    /**
+     * 返回渲染边界框，扩展到包含整个多方块结构
+     * 防止玩家视角不在控制块所在格子时被剔除
+     */
+    @Override
+    public AABB getRenderBoundingBox() {
+        return new AABB(getBlockPos()).inflate(2);
+    }
+
     @Override
     public void tick() {
         super.tick();

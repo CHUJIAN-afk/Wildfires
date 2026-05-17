@@ -1,8 +1,10 @@
 package first.wildfires.jei;
 
 import first.wildfires.Wildfires;
+import first.wildfires.kinetic.loom.LoomBlockItem;
 import first.wildfires.kinetic.loom.recipe.WeavingRecipe;
 import first.wildfires.kinetic.loom.recipe.WeavingRecipeType;
+import first.wildfires.register.BlockRegister;
 import mezz.jei.api.IModPlugin;
 import mezz.jei.api.JeiPlugin;
 import mezz.jei.api.registration.IRecipeCatalystRegistration;
@@ -10,6 +12,7 @@ import mezz.jei.api.registration.IRecipeCategoryRegistration;
 import mezz.jei.api.registration.IRecipeRegistration;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -34,7 +37,7 @@ public class WildfiresJEIPlugin implements IModPlugin {
 
     @Override
     public void registerRecipeCatalysts(@NotNull IRecipeCatalystRegistration registration) {
-        registration.addRecipeCatalyst(Items.LOOM.getDefaultInstance(), WeavingRecipeCategory.RECIPE_TYPE);
+        registration.addRecipeCatalyst(BlockRegister.LoomControlBlock.get().asItem(), WeavingRecipeCategory.RECIPE_TYPE);
     }
 
     @Override

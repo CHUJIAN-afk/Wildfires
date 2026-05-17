@@ -41,6 +41,7 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
     private float clientTargetProgress = 0;
     private float lastProgress = 0;
     private float progress = 0;
+    private double renderTick = -1;
 
     @Nullable
     private WeavingRecipe currentRecipe;
@@ -148,6 +149,10 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
     private boolean matchesCurrentRecipe() {
         if (currentRecipe == null) return false;
         return matchesRecipe(currentRecipe);
+    }
+
+    public void setCurrentRecipe(@Nullable WeavingRecipe currentRecipe) {
+        this.currentRecipe = currentRecipe;
     }
 
     private void outputResults() {
@@ -260,10 +265,17 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
 
     @Override
     public double getTick(Object object) {
+        if (renderTick != -1) {
+            return renderTick;
+        }
         if (level != null && level.isClientSide()) {
             return getRenderTick();
         }
         return 0;
+    }
+
+    public void setRenderTick(double renderTick) {
+        this.renderTick = renderTick;
     }
 
     @OnlyIn(Dist.CLIENT)

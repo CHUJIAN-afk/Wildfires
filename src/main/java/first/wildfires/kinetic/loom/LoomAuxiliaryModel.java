@@ -1,8 +1,12 @@
 package first.wildfires.kinetic.loom;
 
 import first.wildfires.Wildfires;
+import first.wildfires.kinetic.loom.recipe.WeavingRecipe;
+import first.wildfires.kinetic.loom.recipe.WeavingType;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.Level;
 import software.bernie.geckolib.model.GeoModel;
 
 public class LoomAuxiliaryModel extends GeoModel<LoomAuxiliaryBlockEntity> {
@@ -20,7 +24,16 @@ public class LoomAuxiliaryModel extends GeoModel<LoomAuxiliaryBlockEntity> {
 
     @Override
     public ResourceLocation getTextureResource(LoomAuxiliaryBlockEntity animatable) {
-        // 使用与控制块相同的材质（后续可修改）
+        Level level = animatable.getLevel();
+        if (level != null) {
+            BlockPos master = LoomAuxiliaryBlock.findMaster(level, animatable.getBlockPos(), animatable.getBlockState());
+            if (master != null && level.getBlockEntity(master) instanceof LoomControlBlockEntity loomControlBlockEntity) {
+                WeavingRecipe currentRecipe = loomControlBlockEntity.getCurrentRecipe();
+                if (currentRecipe != null && currentRecipe.getWeavingType() == WeavingType.WOVEN_BLOCK) {
+                    return ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, "textures/block/loom_fabric.png");
+                }
+            }
+        }
         return ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, "textures/block/loom_silk.png");
     }
 

@@ -2,6 +2,7 @@ package first.wildfires.kinetic.loom;
 
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import com.simibubi.create.foundation.utility.CreateLang;
+import first.wildfires.kinetic.loom.recipe.IngredientWithCount;
 import first.wildfires.kinetic.loom.recipe.WeavingRecipe;
 import first.wildfires.kinetic.loom.recipe.WeavingRecipeType;
 import net.minecraft.ChatFormatting;
@@ -17,6 +18,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.client.Minecraft;
+import net.minecraft.world.level.storage.loot.LootParams;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
@@ -24,6 +26,7 @@ import net.minecraftforge.common.util.LazyOptional;
 import net.minecraft.world.phys.AABB;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemStackHandler;
+import org.jetbrains.annotations.NotNull;
 import software.bernie.geckolib.animatable.GeoBlockEntity;
 import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
 import software.bernie.geckolib.core.animation.*;
@@ -31,6 +34,7 @@ import software.bernie.geckolib.util.GeckoLibUtil;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import java.util.ArrayList;
 import java.util.List;
 
 public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlockEntity {
@@ -126,22 +130,56 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
     }
 
     private boolean matchesRecipe(WeavingRecipe recipe) {
-        List<Ingredient> ingredients = recipe.getIngredients();
-        boolean[] used = new boolean[itemStackHandler.getSlots()];
+        List<IngredientWithCount> ingredientsWithCount = recipe.getIngredientsWithCount();
+        if (ingredientsWithCount.isEmpty()) {
+            // 兼容旧逻辑
+            List<Ingredient> ingredients = recipe.getIngredients();
+            boolean[] used = new boolean[itemStackHandler.getSlots()];
 
-        for (Ingredient ingredient : ingredients) {
-            boolean found = false;
-            for (int i = 0; i < itemStackHandler.getSlots(); i++) {
-                if (!used[i]) {
-                    ItemStack stack = itemStackHandler.getStackInSlot(i);
-                    if (!stack.isEmpty() && ingredient.test(stack)) {
-                        used[i] = true;
-                        found = true;
-                        break;
+            for (Ingredient ingredient : ingredients) {
+                boolean found = false;
+                for (int i = 0; i < itemStackHandler.getSlots(); i++) {
+                    if (!used[i]) {
+                        ItemStack stack = itemStackHandler.getStackInSlot(i);
+                        if (!stack.isEmpty() && ingredient.test(stack)) {
+                            used[i] = true;
+                            found = true;
+                            break;
+                        }
                     }
                 }
+                if (!found) return false;
             }
-            if (!found) return false;
+            return true;
+        }
+
+        // 使用带数量的匹配逻辑
+        // 创建槽位物品的副本用于匹配
+        List<ItemStack> availableItems = new ArrayList<>();
+        for (int i = 0; i < itemStackHandler.getSlots(); i++) {
+            ItemStack stack = itemStackHandler.getStackInSlot(i).copy();
+            if (!stack.isEmpty()) {
+                availableItems.add(stack);
+            }
+        }
+
+        // 检查每个成分需求
+        for (IngredientWithCount iwc : ingredientsWithCount) {
+            int needed = iwc.count();
+            int found = 0;
+
+            for (int i = 0; i < availableItems.size() && found < needed; i++) {
+                ItemStack available = availableItems.get(i);
+                if (!available.isEmpty() && iwc.ingredient().test(available)) {
+                    int canTake = Math.min(available.getCount(), needed - found);
+                    available.shrink(canTake);
+                    found += canTake;
+                }
+            }
+
+            if (found < needed) {
+                return false;
+            }
         }
         return true;
     }
@@ -158,18 +196,38 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
     private void outputResults() {
         if (currentRecipe == null || level == null) return;
 
-        // 消耗输入物品
-        List<net.minecraft.world.item.crafting.Ingredient> ingredients = currentRecipe.getIngredients();
-        boolean[] used = new boolean[itemStackHandler.getSlots()];
+        // 消耗输入物品（使用带数量的逻辑）
+        List<IngredientWithCount> ingredientsWithCount = currentRecipe.getIngredientsWithCount();
 
-        for (net.minecraft.world.item.crafting.Ingredient ingredient : ingredients) {
-            for (int i = 0; i < itemStackHandler.getSlots(); i++) {
-                if (!used[i]) {
+        if (!ingredientsWithCount.isEmpty()) {
+            // 使用带数量的消耗逻辑
+            for (IngredientWithCount iwc : ingredientsWithCount) {
+                int needed = iwc.count();
+                int remaining = needed;
+
+                for (int i = 0; i < itemStackHandler.getSlots() && remaining > 0; i++) {
                     ItemStack stack = itemStackHandler.getStackInSlot(i);
-                    if (!stack.isEmpty() && ingredient.test(stack)) {
-                        stack.shrink(1);
-                        used[i] = true;
-                        break;
+                    if (!stack.isEmpty() && iwc.ingredient().test(stack)) {
+                        int toExtract = Math.min(stack.getCount(), remaining);
+                        stack.shrink(toExtract);
+                        remaining -= toExtract;
+                    }
+                }
+            }
+        } else {
+            // 兼容旧逻辑
+            List<net.minecraft.world.item.crafting.Ingredient> ingredients = currentRecipe.getIngredients();
+            boolean[] used = new boolean[itemStackHandler.getSlots()];
+
+            for (net.minecraft.world.item.crafting.Ingredient ingredient : ingredients) {
+                for (int i = 0; i < itemStackHandler.getSlots(); i++) {
+                    if (!used[i]) {
+                        ItemStack stack = itemStackHandler.getStackInSlot(i);
+                        if (!stack.isEmpty() && ingredient.test(stack)) {
+                            stack.shrink(1);
+                            used[i] = true;
+                            break;
+                        }
                     }
                 }
             }

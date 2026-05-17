@@ -3,8 +3,10 @@ package first.wildfires.jei;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import com.simibubi.create.AllBlocks;
+import dev.engine_room.flywheel.lib.model.baked.PartialModel;
 import first.wildfires.kinetic.loom.*;
 import first.wildfires.kinetic.loom.recipe.WeavingRecipe;
+import first.wildfires.kinetic.loom.recipe.WeavingType;
 import first.wildfires.register.BlockEntityRegister;
 import first.wildfires.register.BlockRegister;
 import first.wildfires.register.PartialModelRegister;
@@ -78,11 +80,11 @@ public class AnimatedLoom {
         poseStack.pushPose();
 
         // 移动到渲染位置（旋转中心）
-        poseStack.translate(x + 60, y + 80, 300);
+        poseStack.translate(x + 36, y + 80, 300);
 
         // 应用等轴视角旋转 - 围绕模型中心旋转
-        poseStack.mulPose(Axis.XP.rotationDegrees(-30));
-        poseStack.mulPose(Axis.YP.rotationDegrees(135));
+        poseStack.mulPose(Axis.XP.rotationDegrees(-15));
+        poseStack.mulPose(Axis.YP.rotationDegrees(120));
 
         poseStack.pushPose();
         poseStack.translate(0, 0, scale);
@@ -132,12 +134,20 @@ public class AnimatedLoom {
         // 如果有配方，渲染带颜色的线轴
         if (recipe != null) {
             int color = recipe.getColor();
-            GuiGameElement.of(PartialModelRegister.Spool)
-                    .rotateBlock(angle, 0, 0)
-                    .scale(scale)
-                    .color(color)
-                    .at(0, 0, 0)
-                    .render(guiGraphics);
+            PartialModel partial;
+            if (recipe.getWeavingType() == WeavingType.KNITTED_CLOTH) {
+                partial = PartialModelRegister.Spool;
+            }else {
+                partial = PartialModelRegister.Fabric;
+            }
+            if (partial != null) {
+                GuiGameElement.of(partial)
+                        .rotateBlock(angle, 0, 0)
+                        .scale(scale)
+                        .color(color)
+                        .at(0, 0, 0)
+                        .render(guiGraphics);
+            }
         }
     }
 

@@ -13,6 +13,9 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.*;
@@ -22,10 +25,13 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition.Builder;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
+import net.minecraft.world.level.storage.loot.LootParams;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import org.jetbrains.annotations.NotNull;
 
 import javax.annotation.Nullable;
+import java.util.List;
 
 public class LoomControlBlock extends Block implements IBE<LoomControlBlockEntity>, IWrenchable {
 
@@ -38,7 +44,33 @@ public class LoomControlBlock extends Block implements IBE<LoomControlBlockEntit
 
     @Override
     public VoxelShape getShape(BlockState pState, BlockGetter pLevel, BlockPos pPos, CollisionContext pContext) {
-        return VoxelShapeParser.getOrParse(Wildfires.rl("models/block/loom2"));
+        Direction facing = pState.getValue(FACING);
+        // 旋转180度
+        Direction rotation = facing.getClockWise().getClockWise();
+        double v = 0.0625;
+        double offsetX = switch (facing) {
+            case EAST -> -v;
+            case WEST -> v;
+            default -> 0;
+        };
+        double offsetZ = switch (facing) {
+            case NORTH -> v;
+            case SOUTH -> -v;
+            default -> 0;
+        };
+        return VoxelShapeParser.getOrParseTransformed(Wildfires.rl("block/loom_hitbox4"), rotation, offsetX, 0, offsetZ);
+    }
+
+    @Override
+    public InteractionResult onWrenched(BlockState state, UseOnContext context) {
+        return InteractionResult.PASS;
+    }
+
+    @Override
+    public List<ItemStack> getDrops(BlockState pState, LootParams.Builder pParams) {
+        List<ItemStack> itemStacks = super.getDrops(pState, pParams);
+        itemStacks.add(BlockRegister.LoomControlBlock.asItem().getDefaultInstance());
+        return itemStacks;
     }
 
     @Override
@@ -51,7 +83,6 @@ public class LoomControlBlock extends Block implements IBE<LoomControlBlockEntit
         return RenderShape.ENTITYBLOCK_ANIMATED;
     }
 
-    @SuppressWarnings("deprecation")
     @Override
     public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean isMoving) {
         if (!state.is(newState.getBlock())) {

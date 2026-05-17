@@ -2,7 +2,8 @@
   "type": "wildfires:weaving",
   "ingredients": [
     {
-      "item": "minecraft:white_wool"
+      "item": "minecraft:white_wool",
+      "count": 8
     },
     {
       "item": "minecraft:blue_dye"
@@ -11,7 +12,7 @@
   "results": [
     {
       "item": "minecraft:blue_wool",
-      "count": 1
+      "count": 8
     }
   ],
   "color": {

@@ -46,7 +46,7 @@ public class LoomAuxiliaryBlockEntityRenderer extends GeoBlockRenderer<LoomAuxil
         }
         Level level = animatable.getLevel();
         if (level != null) {
-            WeavingRecipe currentRecipe = null;
+            WeavingRecipe currentRecipe;
             BlockPos master = LoomAuxiliaryBlock.findMaster(level, animatable.getBlockPos(), animatable.getBlockState());
             if (master != null && level.getBlockEntity(master) instanceof LoomControlBlockEntity loomControlBlockEntity) {
                 if (loomControlBlockEntity.getTick(loomControlBlockEntity) > 0) {

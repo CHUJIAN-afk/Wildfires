@@ -12,7 +12,9 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.Direction.Axis;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelAccessor;
@@ -25,9 +27,13 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
+import net.minecraft.world.level.storage.loot.LootParams;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.List;
 
 public class LoomAuxiliaryBlock extends Block implements IBE<LoomAuxiliaryBlockEntity>, IWrenchable , IProxyHoveringInformation {
 
@@ -40,8 +46,51 @@ public class LoomAuxiliaryBlock extends Block implements IBE<LoomAuxiliaryBlockE
     }
 
     @Override
+    public InteractionResult onWrenched(BlockState state, UseOnContext context) {
+        Level level = context.getLevel();
+        BlockPos pos = context.getClickedPos();
+        BlockPos masterPos = findMaster(level, pos, state);
+        if (masterPos != null) {
+            BlockState blockState = level.getBlockState(masterPos);
+            if (blockState.getBlock() instanceof LoomControlBlock turbineBlock) {
+                context = new UseOnContext(level, context.getPlayer(), context.getHand(), context.getItemInHand(),
+                        new BlockHitResult(context.getClickLocation(), context.getClickedFace(), masterPos, context.isInside()));
+                turbineBlock.onWrenched(blockState, context);
+            }
+        }
+        return InteractionResult.PASS;
+    }
+
+    @Override
+    public InteractionResult onSneakWrenched(BlockState state, UseOnContext context) {
+        BlockPos clickedPos = context.getClickedPos();
+        Level level = context.getLevel();
+        if (stillValid(level, clickedPos, state)) {
+            BlockPos masterPos = findMaster(level, clickedPos, state);
+            context = new UseOnContext(level, context.getPlayer(), context.getHand(), context.getItemInHand(),
+                    new BlockHitResult(context.getClickLocation(), context.getClickedFace(), masterPos, context.isInside()));
+            state = level.getBlockState(masterPos);
+        }
+        return IWrenchable.super.onSneakWrenched(state, context);
+    }
+
+    @Override
     public VoxelShape getShape(BlockState pState, BlockGetter pLevel, BlockPos pPos, CollisionContext pContext) {
-        return VoxelShapeParser.getOrParse(Wildfires.rl("models/block/loom2"));
+        Direction facing = pState.getValue(FACING);
+        // 逆时针旋转后根据朝向偏移
+        Direction rotation = facing.getCounterClockWise();
+        double v = 0.0625;
+        double offsetX = switch (facing) {
+            case NORTH -> -v;
+            case SOUTH -> v;
+            default -> 0;
+        };
+        double offsetZ = switch (facing) {
+            case EAST -> -v;
+            case WEST -> v;
+            default -> 0;
+        };
+        return VoxelShapeParser.getOrParseTransformed(Wildfires.rl("block/loom_hitbox3"), rotation, offsetX, 0, offsetZ);
     }
 
     @Override

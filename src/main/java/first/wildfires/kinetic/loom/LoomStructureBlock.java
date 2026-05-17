@@ -1,8 +1,10 @@
 package first.wildfires.kinetic.loom;
 
+import com.simibubi.create.AllSoundEvents;
 import com.simibubi.create.api.equipment.goggles.IProxyHoveringInformation;
 import com.simibubi.create.content.equipment.wrench.IWrenchable;
 import com.simibubi.create.content.kinetics.base.RotatedPillarKineticBlock;
+import com.simibubi.create.content.logistics.itemHatch.ItemHatchBlock;
 import com.simibubi.create.foundation.block.IBE;
 import first.wildfires.Wildfires;
 import first.wildfires.register.BlockEntityRegister;
@@ -11,6 +13,7 @@ import first.wildfires.utils.VoxelShapeParser;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Direction.Axis;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
@@ -18,6 +21,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelAccessor;
@@ -32,6 +36,7 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.items.IItemHandler;
@@ -43,17 +48,45 @@ public class LoomStructureBlock extends RotatedPillarKineticBlock implements IBE
     // 结构块自身的朝向，指向它应该连接的方向（控制块或前方的结构块）
     public static final DirectionProperty FACING = BlockStateProperties.HORIZONTAL_FACING;
 
+    @Override
+    public InteractionResult onWrenched(BlockState state, UseOnContext context) {
+        Level level = context.getLevel();
+        BlockPos pos = context.getClickedPos();
+        BlockPos masterPos = findMasterRecursive(level, pos, state);
+        if (masterPos != null) {
+            BlockState blockState = level.getBlockState(masterPos);
+            if (blockState.getBlock() instanceof LoomControlBlock turbineBlock) {
+                context = new UseOnContext(level, context.getPlayer(), context.getHand(), context.getItemInHand(),
+                        new BlockHitResult(context.getClickLocation(), context.getClickedFace(), masterPos, context.isInside()));
+                turbineBlock.onWrenched(blockState, context);
+            }
+        }
+        return InteractionResult.PASS;
+    }
+    @Override
+    public InteractionResult onSneakWrenched(BlockState state, UseOnContext context) {
+        BlockPos clickedPos = context.getClickedPos();
+        Level level = context.getLevel();
+        if (stillValid(level, clickedPos, state)) {
+            BlockPos masterPos = findMasterRecursive(level, clickedPos, state);
+            context = new UseOnContext(level, context.getPlayer(), context.getHand(), context.getItemInHand(),
+                    new BlockHitResult(context.getClickLocation(), context.getClickedFace(), masterPos, context.isInside()));
+            state = level.getBlockState(masterPos);
+        }
+        return super.onSneakWrenched(state, context);
+    }
 
     @Override
     public VoxelShape getShape(BlockState pState, BlockGetter pLevel, BlockPos pPos, CollisionContext pContext) {
-        Block block = pLevel.getBlockState(pPos.relative(pState.getValue(FACING))).getBlock();
-        if (block instanceof LoomAuxiliaryBlock) {
-            return VoxelShapeParser.getOrParse(Wildfires.rl("models/block/loom0"));
+        BlockState block = pLevel.getBlockState(pPos.relative(pState.getValue(FACING)));
+        Direction facing = pState.getValue(FACING);
+        Direction rotation = facing.getOpposite();
+        if (block.is(BlockRegister.LoomAuxiliaryBlock.get())) {
+            return VoxelShapeParser.getOrParseTransformed(Wildfires.rl("block/loom_hitbox2"), rotation, 0, 0, 0);
+        } else if (block.is(BlockRegister.LoomControlBlock.get())) {
+            return VoxelShapeParser.getOrParseTransformed(Wildfires.rl("block/loom_hitbox1"), rotation, 0, 0, 0);
         }
-        if (block instanceof LoomControlBlock) {
-            return VoxelShapeParser.getOrParse(Wildfires.rl("models/block/loom1"));
-        }
-        return super.getShape(pState, pLevel, pPos, pContext);
+        return Shapes.block();
     }
 
     public LoomStructureBlock(Properties properties) {
@@ -214,7 +247,7 @@ public class LoomStructureBlock extends RotatedPillarKineticBlock implements IBE
 
             // 播放音效
             if (!level.isClientSide) {
-                level.levelEvent(1000, player.blockPosition(), 0); // 物品拾取音效
+                AllSoundEvents.ITEM_HATCH.playOnServer(level, player.blockPosition());
             }
 
             return InteractionResult.sidedSuccess(level.isClientSide);
@@ -239,7 +272,7 @@ public class LoomStructureBlock extends RotatedPillarKineticBlock implements IBE
 
                 // 播放音效
                 if (!level.isClientSide) {
-                    level.levelEvent(1000, player.blockPosition(), 0); // 物品拾取音效
+                    AllSoundEvents.ITEM_HATCH.playOnServer(level, player.blockPosition());
                 }
 
                 return InteractionResult.sidedSuccess(level.isClientSide);

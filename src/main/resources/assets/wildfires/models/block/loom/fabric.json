@@ -1,0 +1,7 @@
+{
+	"parent": "wildfires:block/loom/spool",
+	"textures": {
+		"0": "wildfires:block/loom_fabric",
+		"particle": "wildfires:block/loom_fabric"
+	}
+}

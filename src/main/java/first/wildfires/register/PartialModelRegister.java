@@ -9,6 +9,7 @@ public class PartialModelRegister {
     public static final PartialModel
             EmptySpool = path("block/loom/empty_spool"),
             Spool = path("block/loom/spool"),
+            Fabric = path("block/loom/fabric"),
 
             StoneCogWheel = block("stone_cogwheel"),
             StoneLargeCogWheel = block("stone_large_cogwheel"),

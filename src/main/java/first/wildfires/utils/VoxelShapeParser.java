@@ -7,10 +7,14 @@ import com.google.gson.JsonParser;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.world.phys.shapes.BooleanOp;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import net.minecraftforge.common.Tags;
+import net.minecraftforge.server.ServerLifecycleHooks;
+import org.checkerframework.checker.units.qual.C;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,6 +36,8 @@ public class VoxelShapeParser {
 
     // 静态缓存：模型路径 -> 体素形状
     private static final ConcurrentHashMap<ResourceLocation, VoxelShape> SHAPE_CACHE = new ConcurrentHashMap<>();
+    // 变换缓存：缓存键 -> 变换后的体素形状
+    private static final ConcurrentHashMap<String, VoxelShape> TRANSFORM_CACHE = new ConcurrentHashMap<>();
 
     /**
      * 从 ResourceLocation 获取或解析体素形状
@@ -40,6 +46,44 @@ public class VoxelShapeParser {
      */
     public static VoxelShape getOrParse(ResourceLocation location) {
         return SHAPE_CACHE.computeIfAbsent(location, VoxelShapeParser::parse);
+    }
+
+    /**
+     * 获取变换后的体素形状（带缓存）
+     * @param location 模型的资源位置
+     * @param rotation 旋转方向（可为null表示不旋转）
+     * @param offsetX X轴偏移（可为0）
+     * @param offsetY Y轴偏移（可为0）
+     * @param offsetZ Z轴偏移（可为0）
+     * @return 变换后的 VoxelShape（已缓存）
+     */
+    public static VoxelShape getOrParseTransformed(ResourceLocation location, Direction rotation, double offsetX, double offsetY, double offsetZ) {
+        String cacheKey = buildCacheKey(location, rotation, offsetX, offsetY, offsetZ);
+        VoxelShape voxelShape = TRANSFORM_CACHE.computeIfAbsent(cacheKey, k -> {
+            VoxelShape shape = getOrParse(location);
+            if (shape == Shapes.block()){
+                return shape;
+            }
+            if (rotation != null) {
+                shape = rotate(shape, rotation);
+            }
+            if (offsetX != 0 || offsetY != 0 || offsetZ != 0) {
+                shape = offset(shape, offsetX, offsetY, offsetZ);
+            }
+            return shape.optimize();
+        });
+        if (voxelShape == Shapes.block()) {
+            SHAPE_CACHE.remove(location);
+            TRANSFORM_CACHE.remove(cacheKey);
+        }
+        return voxelShape;
+    }
+
+    /**
+     * 构建缓存键
+     */
+    private static String buildCacheKey(ResourceLocation location, Direction rotation, double offsetX, double offsetY, double offsetZ) {
+        return location.toString() + "|" + (rotation != null ? rotation.name() : "none") + "|" + offsetX + "|" + offsetY + "|" + offsetZ;
     }
 
     /**
@@ -250,9 +294,10 @@ public class VoxelShapeParser {
                     location.getNamespace(),
                     "models/" + location.getPath() + ".json"
             );
+            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+            if (server == null) return Shapes.block();
 
-            Resource resource = Minecraft.getInstance()
-                    .getResourceManager()
+            Resource resource = server.getResourceManager()
                     .getResource(modelPath)
                     .orElse(null);
 
@@ -292,8 +337,7 @@ public class VoxelShapeParser {
 
     /**
      * 解析单个元素
-     */
-    private static VoxelShape parseElement(JsonObject element) {
+     */private static VoxelShape parseElement(JsonObject element) {
         float[] from = {0, 0, 0};
         if (element.has("from")) {
             JsonArray fromArray = element.getAsJsonArray("from");
@@ -323,10 +367,11 @@ public class VoxelShapeParser {
     // ========== 缓存管理 ==========
 
     /**
-     * 清除缓存
+     * 清除所有缓存
      */
     public static void clearCache() {
         SHAPE_CACHE.clear();
+        TRANSFORM_CACHE.clear();
         LOGGER.debug("VoxelShapeParser cache cleared");
     }
 
@@ -334,6 +379,6 @@ public class VoxelShapeParser {
      * 获取缓存大小
      */
     public static int getCacheSize() {
-        return SHAPE_CACHE.size();
+        return SHAPE_CACHE.size() + TRANSFORM_CACHE.size();
     }
 }

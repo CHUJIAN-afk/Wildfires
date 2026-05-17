@@ -5,6 +5,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntityRenderer;
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
 import first.wildfires.kinetic.loom.recipe.WeavingRecipe;
+import first.wildfires.kinetic.loom.recipe.WeavingType;
 import first.wildfires.register.PartialModelRegister;
 import net.createmod.catnip.render.CachedBuffers;
 import net.createmod.catnip.render.SuperByteBuffer;
@@ -49,7 +50,13 @@ public class LoomStructureBlockEntityRenderer extends KineticBlockEntityRenderer
             renderRotatingBuffer(be, CachedBuffers.partialFacingVertical(PartialModelRegister.EmptySpool, blockState, facing), ms, consumer, light);
             WeavingRecipe weavingRecipe = context.weavingRecipe();
             if (weavingRecipe != null) {
-                SuperByteBuffer superBuffer = CachedBuffers.partialFacingVertical(PartialModelRegister.Spool, blockState, facing);
+                PartialModel partial;
+                if (weavingRecipe.getWeavingType() == WeavingType.KNITTED_CLOTH) {
+                    partial = PartialModelRegister.Spool;
+                } else {
+                    partial = PartialModelRegister.Fabric;
+                }
+                SuperByteBuffer superBuffer = CachedBuffers.partialFacingVertical(partial, blockState, facing);
                 int color = weavingRecipe.getColor();
                 renderRotatingBuffer(be, superBuffer, ms, new CorlorVertexConsumer(consumer, color), light);
             }

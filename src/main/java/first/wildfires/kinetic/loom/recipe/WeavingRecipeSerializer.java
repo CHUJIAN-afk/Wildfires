@@ -17,6 +17,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
+import java.util.ArrayList;
+import java.util.List;
 
 public class WeavingRecipeSerializer implements RecipeSerializer<WeavingRecipe> {
 
@@ -27,7 +29,16 @@ public class WeavingRecipeSerializer implements RecipeSerializer<WeavingRecipe> 
     @Override
     public WeavingRecipe fromJson(ResourceLocation recipeId, JsonObject json) {
         LOGGER.info("Loading weaving recipe: {}", recipeId);
-        NonNullList<Ingredient> ingredients = readIngredients(GsonHelper.getAsJsonArray(json, "ingredients"));
+
+        // 解析成分（支持数量）
+        List<IngredientWithCount> ingredientsWithCount = readIngredientsWithCount(GsonHelper.getAsJsonArray(json, "ingredients"));
+
+        // 同时创建兼容的 NonNullList<Ingredient>
+        NonNullList<Ingredient> ingredients = NonNullList.create();
+        for (IngredientWithCount iwc : ingredientsWithCount) {
+            ingredients.add(iwc.ingredient());
+        }
+
         NonNullList<ItemStack> outputs;
         try {
             outputs = readOutputs(GsonHelper.getAsJsonArray(json, "results"));
@@ -50,7 +61,34 @@ public class WeavingRecipeSerializer implements RecipeSerializer<WeavingRecipe> 
 
         WeavingType weavingType = WeavingType.fromName(GsonHelper.getAsString(json, "weaving_type", "knitted_cloth"));
 
-        return new WeavingRecipe(recipeId, ingredients, outputs, color, weavingType);
+        return new WeavingRecipe(recipeId, ingredients, ingredientsWithCount, outputs, color, weavingType);
+    }
+
+    /**
+     * 解析带数量的成分列表
+     * 支持两种格式：
+     * 1. 简单格式（无数量）：["minecraft:wool"]
+     * 2. 对象格式（带数量）：[{"item": "minecraft:wool", "count": 4}]
+     */
+    private List<IngredientWithCount> readIngredientsWithCount(JsonArray array) {
+        List<IngredientWithCount> ingredients = new ArrayList<>();
+        for (JsonElement element : array) {
+            if (element.isJsonObject()) {
+                JsonObject obj = element.getAsJsonObject();
+                Ingredient ingredient = Ingredient.fromJson(obj);
+                int count = GsonHelper.getAsInt(obj, "count", 1);
+                if (!ingredient.isEmpty() && count > 0) {
+                    ingredients.add(new IngredientWithCount(ingredient, count));
+                }
+            } else {
+                // 简单格式，默认数量为1
+                Ingredient ingredient = Ingredient.fromJson(element);
+                if (!ingredient.isEmpty()) {
+                    ingredients.add(new IngredientWithCount(ingredient, 1));
+                }
+            }
+        }
+        return ingredients;
     }
 
     private NonNullList<Ingredient> readIngredients(JsonArray array) {
@@ -85,8 +123,13 @@ public class WeavingRecipeSerializer implements RecipeSerializer<WeavingRecipe> 
     public WeavingRecipe fromNetwork(ResourceLocation recipeId, FriendlyByteBuf buffer) {
         int ingredientCount = buffer.readVarInt();
         NonNullList<Ingredient> ingredients = NonNullList.withSize(ingredientCount, Ingredient.EMPTY);
+        List<IngredientWithCount> ingredientsWithCount = new ArrayList<>();
+
         for (int i = 0; i < ingredientCount; i++) {
-            ingredients.set(i, Ingredient.fromNetwork(buffer));
+            Ingredient ingredient = Ingredient.fromNetwork(buffer);
+            int count = buffer.readVarInt();
+            ingredients.set(i, ingredient);
+            ingredientsWithCount.add(new IngredientWithCount(ingredient, count));
         }
 
         int outputCount = buffer.readVarInt();
@@ -98,14 +141,19 @@ public class WeavingRecipeSerializer implements RecipeSerializer<WeavingRecipe> 
         int color = buffer.readInt();
         WeavingType weavingType = WeavingType.values()[buffer.readVarInt()];
 
-        return new WeavingRecipe(recipeId, ingredients, outputs, color, weavingType);
+        return new WeavingRecipe(recipeId, ingredients, ingredientsWithCount, outputs, color, weavingType);
     }
 
     @Override
     public void toNetwork(FriendlyByteBuf buffer, WeavingRecipe recipe) {
         buffer.writeVarInt(recipe.getIngredients().size());
-        for (Ingredient ingredient : recipe.getIngredients()) {
-            ingredient.toNetwork(buffer);
+
+        List<IngredientWithCount> iwcList = recipe.getIngredientsWithCount();
+        for (int i = 0; i < recipe.getIngredients().size(); i++) {
+            recipe.getIngredients().get(i).toNetwork(buffer);
+            // 写入数量（如果带数量列表存在且有对应元素）
+            int count = (i < iwcList.size()) ? iwcList.get(i).count() : 1;
+            buffer.writeVarInt(count);
         }
 
         buffer.writeVarInt(recipe.getOutputs().size());

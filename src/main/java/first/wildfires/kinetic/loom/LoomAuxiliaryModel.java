@@ -32,6 +32,11 @@ public class LoomAuxiliaryModel extends GeoModel<LoomAuxiliaryBlockEntity> {
                 if (currentRecipe != null && currentRecipe.getWeavingType() == WeavingType.WOVEN_BLOCK) {
                     return ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, "textures/block/loom_fabric.png");
                 }
+            } else {
+                WeavingRecipe currentRecipe = animatable.getCurrentRecipe();
+                if (currentRecipe != null && currentRecipe.getWeavingType() == WeavingType.WOVEN_BLOCK) {
+                    return ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, "textures/block/loom_fabric.png");
+                }
             }
         }
         return ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, "textures/block/loom_silk.png");

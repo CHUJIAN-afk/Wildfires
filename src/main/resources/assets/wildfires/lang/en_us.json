@@ -1,8 +1,17 @@
 {
   "itemGroup.wildfire_tab": "wildfire",
-  "item.wildfires.dragon_fruit":"dragon_fruit",
+  "item.wildfires.dragon_fruit": "dragon_fruit",
   "block.wildfires.loom_control_block": "Loom",
   "block.wildfires.loom_structure_block": "Loom Structure",
   "wildfires.loom.space_insufficient": "Not enough space to place loom",
-  "wildfires.jei.category.weaving": "Weaving"
+  "wildfires.jei.category.weaving": "Weaving",
+  "wildfires.ponder.loom.header": "织布机",
+  "wildfires.ponder.loom.text_1": "这是一个织布机",
+  "wildfires.ponder.loom.text_2": "织布机的背后有一个线轴",
+  "wildfires.ponder.loom.text_3": "右键点击以填入原料",
+  "wildfires.ponder.loom.text_8": "也可以使用漏斗或仓口来填入",
+  "wildfires.ponder.loom.text_4": "输入旋转力以执行配方",
+  "wildfires.ponder.loom.text_5": "织布机可以并排串联在一起",
+  "wildfires.ponder.loom.text_6": "但旋转方向错误的时候",
+  "wildfires.ponder.loom.text_7": "织布机会卡住"
 }

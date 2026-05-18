@@ -45,28 +45,30 @@ public class LoomAuxiliaryBlockEntityRenderer extends GeoBlockRenderer<LoomAuxil
             }
         }
         Level level = animatable.getLevel();
+        WeavingRecipe currentRecipe = null;
         if (level != null) {
-            WeavingRecipe currentRecipe;
             BlockPos master = LoomAuxiliaryBlock.findMaster(level, animatable.getBlockPos(), animatable.getBlockState());
             if (master != null && level.getBlockEntity(master) instanceof LoomControlBlockEntity loomControlBlockEntity) {
                 if (loomControlBlockEntity.getTick(loomControlBlockEntity) > 0) {
-                    currentRecipe = loomControlBlockEntity.getCurrentRecipe();
-                    if (currentRecipe != null) {
-                        red = (float) currentRecipe.getRed() / 255;
-                        green = (float) currentRecipe.getGreen() / 255;
-                        blue = (float) currentRecipe.getBlue() / 255;
+                    WeavingRecipe recipe = loomControlBlockEntity.getCurrentRecipe();
+                    if (recipe != null) {
+                        currentRecipe = recipe;
+                        animatable.setCurrentRecipe(currentRecipe);
                     }
-                    super.actuallyRender(poseStack, animatable, model, renderType, bufferSource, buffer, isReRender, partialTick, packedLight, packedOverlay, red, green, blue, alpha);
+                    if (currentRecipe == null && animatable.getCurrentRecipe() != null) {
+                        currentRecipe = animatable.getCurrentRecipe();
+                        animatable.setCurrentRecipe(null);
+                    }
+                } else {
+                    currentRecipe = animatable.getCurrentRecipe();
                 }
-            } else {
-                currentRecipe = animatable.getCurrentRecipe();
-                if (currentRecipe != null) {
-                    red = (float) currentRecipe.getRed() / 255;
-                    green = (float) currentRecipe.getGreen() / 255;
-                    blue = (float) currentRecipe.getBlue() / 255;
-                }
-                super.actuallyRender(poseStack, animatable, model, renderType, bufferSource, buffer, isReRender, partialTick, packedLight, packedOverlay, red, green, blue, alpha);
             }
+        }
+        if (currentRecipe != null) {
+            red = (float) currentRecipe.getRed() / 255;
+            green = (float) currentRecipe.getGreen() / 255;
+            blue = (float) currentRecipe.getBlue() / 255;
+            super.actuallyRender(poseStack, animatable, model, renderType, bufferSource, buffer, isReRender, partialTick, packedLight, packedOverlay, red, green, blue, alpha);
         }
     }
 }

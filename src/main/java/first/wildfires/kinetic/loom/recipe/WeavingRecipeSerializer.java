@@ -53,15 +53,48 @@ public class WeavingRecipeSerializer implements RecipeSerializer<WeavingRecipe> 
             throw new JsonParseException("No results for weaving recipe");
         }
 
-        JsonObject colorObj = GsonHelper.getAsJsonObject(json, "color");
-        int r = GsonHelper.getAsInt(colorObj, "r");
-        int g = GsonHelper.getAsInt(colorObj, "g");
-        int b = GsonHelper.getAsInt(colorObj, "b");
-        int color = ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
+        // 解析颜色 - 支持16位RGB格式 (#FFFFFF)
+        int color;
+        if (json.has("color")) {
+            JsonElement colorElement = json.get("color");
+            if (colorElement.isJsonObject()) {
+                // 旧格式：{"r": 255, "g": 255, "b": 255}
+                JsonObject colorObj = colorElement.getAsJsonObject();
+                int r = GsonHelper.getAsInt(colorObj, "r");
+                int g = GsonHelper.getAsInt(colorObj, "g");
+                int b = GsonHelper.getAsInt(colorObj, "b");
+                color = ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
+            } else {
+                // 新格式：16位RGB字符串 "#FFFFFF"
+                String colorStr = colorElement.getAsString();
+                color = parseHexColor(colorStr);
+            }
+        } else {
+            color = 0xFFFFFF; // 默认白色
+        }
 
         WeavingType weavingType = WeavingType.fromName(GsonHelper.getAsString(json, "weaving_type", "knitted_cloth"));
 
         return new WeavingRecipe(recipeId, ingredients, ingredientsWithCount, outputs, color, weavingType);
+    }
+
+    /**
+     * 解析16位RGB颜色字符串
+     * 支持格式：#FFFFFF 或 FFFFFF
+     */
+    private int parseHexColor(String colorStr) {
+        // 移除 # 前缀
+        if (colorStr.startsWith("#")) {
+            colorStr = colorStr.substring(1);
+        }
+
+        // 解析16进制颜色
+        try {
+            return Integer.parseInt(colorStr, 16);
+        } catch (NumberFormatException e) {
+            LOGGER.warn("Invalid color format: {}, using default white", colorStr);
+            return 0xFFFFFF;
+        }
     }
 
     /**

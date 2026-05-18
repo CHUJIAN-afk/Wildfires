@@ -3,8 +3,11 @@ package first.wildfires.event.forgeEvent;
 
 import first.wildfires.Wildfires;
 import first.wildfires.client.renderer.entity.ReplacedBearRenderer;
+import first.wildfires.ponder.WildfiresPonderPlugin;
 import first.wildfires.register.BlockRegister;
 import first.wildfires.register.PartialModelRegister;
+import fr.lucreeper74.createmetallurgy.ponders.CMPonders;
+import net.createmod.ponder.foundation.PonderIndex;
 import net.dries007.tfc.common.entities.TFCEntities;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraftforge.api.distmarker.Dist;
@@ -18,12 +21,12 @@ import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 public class ClientModEvent {
 
     @SubscribeEvent
-    public static void clientSetup(final FMLClientSetupEvent event) {
+    public static void clientSetup(FMLClientSetupEvent event) {
         PartialModelRegister.register();
     }
 
     @SubscribeEvent
-    public static void registerRenderers(final EntityRenderersEvent.RegisterRenderers event) {
+    public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(TFCEntities.BLACK_BEAR.get(), ReplacedBearRenderer::BlackBear);
         event.registerEntityRenderer(TFCEntities.POLAR_BEAR.get(), ReplacedBearRenderer::PolarBear);
         event.registerEntityRenderer(TFCEntities.GRIZZLY_BEAR.get(), ReplacedBearRenderer::GrizzlyBear);

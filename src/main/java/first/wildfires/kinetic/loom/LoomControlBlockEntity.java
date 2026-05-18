@@ -234,12 +234,17 @@ public class LoomControlBlockEntity extends KineticBlockEntity implements GeoBlo
         }
 
         // 在方块上方生成产物（不掉入储存空间）
-        Vec3 blockPos = getBlockPos().getCenter();
-        Vec3 facePos = getBlockPos().relative(getBlockState().getValue(LoomControlBlock.FACING).getClockWise()).getCenter();
-        Vec3 targetPos = blockPos.add(facePos);
+        Direction direction = getBlockState().getValue(LoomControlBlock.FACING);
+        BlockPos relative = getBlockPos().relative(direction);
+        BlockPos relative1 = relative.relative(direction.getClockWise());
+        Vec3 targetPos = relative.getCenter().add(relative1.getCenter());
+        Vec3 directionVec = Vec3.atLowerCornerOf(direction.getNormal());
         for (ItemStack output : currentRecipe.getOutputs()) {
             ItemStack copy = output.copy();
             ItemEntity itemEntity = new ItemEntity(level, targetPos.x() / 2, (targetPos.y() / 2) + 0.5f, targetPos.z() / 2, copy);
+            // 设置加速度向朝向方向，随机加速度大小
+            float speed = (1 + (level.random.nextInt(-2, 2) * 0.1f)) * 0.1f; // 0.1 ~ 0.3 的随机速度
+            itemEntity.setDeltaMovement(directionVec.scale(speed));
             level.addFreshEntity(itemEntity);
         }
     }

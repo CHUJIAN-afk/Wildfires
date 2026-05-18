@@ -48,5 +48,14 @@
   "block.wildfires.loom_control_block": "织布机",
   "block.wildfires.loom_structure_block": "织布机",
   "wildfires.loom.space_insufficient": "空间不足，无法放置织布机",
-  "wildfires.jei.category.weaving": "织布"
+  "wildfires.jei.category.weaving": "织布",
+  "wildfires.ponder.loom.header": "织布机",
+  "wildfires.ponder.loom.text_1": "这是一个织布机",
+  "wildfires.ponder.loom.text_2": "织布机的背后有一个线轴",
+  "wildfires.ponder.loom.text_3": "右键点击以填入原料",
+  "wildfires.ponder.loom.text_4": "也可以使用漏斗或仓口来填入",
+  "wildfires.ponder.loom.text_5": "输入旋转力以执行配方",
+  "wildfires.ponder.loom.text_6": "织布机可以并排串联在一起",
+  "wildfires.ponder.loom.text_7": "但旋转方向错误的时候",
+  "wildfires.ponder.loom.text_8": "织布机不会工作"
 }

@@ -28,7 +28,7 @@ public class LoomPonder {
         CreateSceneBuilder scene = new CreateSceneBuilder(builder);
 
         scene.title("loom", "wildfires.ponder.loom.header");
-        scene.configureBasePlate(0, 0, 7);
+        scene.configureBasePlate(0, 0, 6);
         scene.world().showSection(util.select().layer(0), Direction.UP);
         scene.idle(10);
 

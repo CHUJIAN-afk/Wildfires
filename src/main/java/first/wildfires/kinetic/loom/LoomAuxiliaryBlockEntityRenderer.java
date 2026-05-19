@@ -59,9 +59,9 @@ public class LoomAuxiliaryBlockEntityRenderer extends GeoBlockRenderer<LoomAuxil
                         currentRecipe = animatable.getCurrentRecipe();
                         animatable.setCurrentRecipe(null);
                     }
-                } else {
-                    currentRecipe = animatable.getCurrentRecipe();
                 }
+            } else {
+                currentRecipe = animatable.getCurrentRecipe();
             }
         }
         if (currentRecipe != null) {

@@ -38,7 +38,9 @@
   "client": [
     "minecraft.EffectRenderingInventoryScreenMixin",
     "minecraft.LevelRendererMixin",
-    "tfc.ClimateScreenMixin"
+    "minecraft.ModelMixin",
+    "tfc.ClimateScreenMixin",
+    "tfc.JavelinModelMixin"
   ],
   "injectors": {
     "defaultRequire": 1

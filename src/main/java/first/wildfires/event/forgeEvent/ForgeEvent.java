@@ -15,6 +15,7 @@ import net.dries007.tfc.common.blocks.plant.fruit.Lifecycle;
 import net.dries007.tfc.common.capabilities.food.FoodCapability;
 import net.dries007.tfc.common.capabilities.heat.HeatCapability;
 import net.dries007.tfc.common.capabilities.heat.IHeat;
+import net.dries007.tfc.common.entities.livestock.TFCAnimalProperties;
 import net.dries007.tfc.common.items.TFCItems;
 import net.dries007.tfc.util.Metal;
 import net.minecraft.core.BlockPos;
@@ -174,6 +175,10 @@ public class ForgeEvent {
 						CompoundTag tag = living.getPersistentData();
 						int poopTicks = tag.getInt("MobPoopTicks");
 						if (poopTicks >= ticks) {
+							//如果动物没吃东西就取消拉屎
+							if (Wildfires.TFCLoaded && living instanceof TFCAnimalProperties tfcAnimal && tfcAnimal.isHungry()) {
+								break;
+							}
 							ItemStack itemStack = data.itemStack();
 							if (itemStack!= null) {
 								living.spawnAtLocation(itemStack.copy());

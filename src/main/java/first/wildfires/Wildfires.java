@@ -38,7 +38,7 @@ public class Wildfires {
 		ItemRegister.register(eventBus);
 		SoundRegister.register(eventBus);
 		WeavingRecipeRegister.register(eventBus);
-		MechanicalPistonHeadBlock
+		//MechanicalPistonHeadBlock
 
 
 	}

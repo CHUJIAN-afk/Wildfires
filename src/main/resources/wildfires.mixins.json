@@ -19,6 +19,7 @@
     "legendarysurvivaloverhaul.TemperatureEnumAccessor",
     "legendarysurvivaloverhaul.TemperatureUtilMixin",
     "legendarysurvivaloverhaul.WetnessCapabilityMixin",
+    "minecraft.CreativeModeTabMixin",
     "minecraft.ItemEntityMixin",
     "minecraft.ItemStackMixin",
     "minecraft.LivingEntityMixin",
@@ -36,6 +37,7 @@
     "tfc.SluiceBlockEntityMixin"
   ],
   "client": [
+    "minecraft.CreativeModeInventoryScreenMixin",
     "minecraft.EffectRenderingInventoryScreenMixin",
     "minecraft.LevelRendererMixin",
     "minecraft.ModelMixin",

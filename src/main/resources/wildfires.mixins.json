@@ -19,6 +19,7 @@
     "legendarysurvivaloverhaul.TemperatureEnumAccessor",
     "legendarysurvivaloverhaul.TemperatureUtilMixin",
     "legendarysurvivaloverhaul.WetnessCapabilityMixin",
+    "minecraft.DiggerItemMixin",
     "minecraft.ItemEntityMixin",
     "minecraft.ItemStackMixin",
     "minecraft.LivingEntityMixin",

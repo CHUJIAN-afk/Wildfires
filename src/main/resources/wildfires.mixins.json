@@ -20,6 +20,8 @@
     "legendarysurvivaloverhaul.TemperatureUtilMixin",
     "legendarysurvivaloverhaul.WetnessCapabilityMixin",
     "minecraft.CreativeModeTabMixin",
+    "minecraft.attackspeed.HoeAttackSpeedMixin",
+    "minecraft.attackspeed.ScytheAttackSpeedMixin",
     "minecraft.ItemEntityMixin",
     "minecraft.ItemStackMixin",
     "minecraft.LivingEntityMixin",

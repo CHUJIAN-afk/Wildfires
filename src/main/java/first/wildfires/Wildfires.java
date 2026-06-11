@@ -16,6 +16,7 @@ import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import vectorwing.farmersdelight.common.block.entity.CuttingBoardBlockEntity;
 
 @Mod(Wildfires.MODID)
 public class Wildfires {
@@ -38,9 +39,6 @@ public class Wildfires {
 		ItemRegister.register(eventBus);
 		SoundRegister.register(eventBus);
 		WeavingRecipeRegister.register(eventBus);
-		//MechanicalPistonHeadBlock
-
-
 	}
 
 	public static ResourceLocation rl(String path) {

@@ -360,8 +360,7 @@ public class ForgeEvent {
 	public static void itemModify(ItemAttributeModifierEvent event) {
 		ItemStack itemStack = event.getItemStack();
 		CompoundTag tag = itemStack.getTag();
-
-		if (tag != null && event.getSlotType() == EquipmentSlot.MAINHAND&&itemStack.getTags().anyMatch(itemTagKey -> itemTagKey.location().toString().equals("kubejs:polish"))) {
+		if (tag != null && event.getSlotType() == EquipmentSlot.MAINHAND && itemStack.getTags().anyMatch(itemTagKey -> itemTagKey.location().toString().equals("kubejs:polish"))) {
 			int polish = tag.getInt("Polish");
 			if (polish > 0) {
 				String name = "Polish";

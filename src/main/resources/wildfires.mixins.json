@@ -10,6 +10,7 @@
     "create.CrushingWheelControllerBlockEntityMixin",
     "create.CrushingWheelControllerBlockMixin",
     "create.KineticBlockEntityMixin",
+    "farmersdelight.CuttingBoardRendererMixin",
     "jade.StatusEffectsProviderMixin",
     "kubejs.UtilsJSMixin",
     "legendarysurvivaloverhaul.CapabilityUtilMixin",

@@ -2,13 +2,11 @@ package first.wildfires.event.forgeEvent;
 
 import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
+import dev.latvian.mods.kubejs.item.ItemClickedEventJS;
 import first.wildfires.Wildfires;
 import first.wildfires.api.KineticData;
 import first.wildfires.api.MobPoopData;
 import first.wildfires.api.customEvent.*;
-import first.wildfires.client.AnimInfo;
-import first.wildfires.register.CreativeModeTabRegister;
-import first.wildfires.register.ItemRegister;
 import first.wildfires.register.SoundRegister;
 import first.wildfires.utils.CuriosUtil;
 import first.wildfires.utils.WildfiresUtil;
@@ -19,12 +17,14 @@ import net.dries007.tfc.common.capabilities.food.FoodCapability;
 import net.dries007.tfc.common.capabilities.heat.HeatCapability;
 import net.dries007.tfc.common.capabilities.heat.IHeat;
 import net.dries007.tfc.common.entities.livestock.TFCAnimalProperties;
+import net.dries007.tfc.common.items.IngotItem;
 import net.dries007.tfc.common.items.TFCItems;
 import net.dries007.tfc.util.Metal;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -40,7 +40,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.common.Tags;
 import net.minecraftforge.event.AddReloadListenerEvent;
 import net.minecraftforge.event.ItemAttributeModifierEvent;
 import net.minecraftforge.event.TickEvent;
@@ -64,6 +63,13 @@ import java.util.concurrent.CompletableFuture;
 
 @Mod.EventBusSubscriber(modid = Wildfires.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class ForgeEvent {
+
+	@SubscribeEvent
+	public static void place(PlayerInteractEvent.RightClickItem event) {
+		if (event.getItemStack().getItem() instanceof IngotItem) {
+			event.setCancellationResult(InteractionResult.PASS);
+		}
+	}
 
 	@SubscribeEvent
 	public static void onCurioChange(CurioChangeEvent event) {

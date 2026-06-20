@@ -1,21 +1,22 @@
 package first.wildfires.mixin.farmersdelight;
 
-import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
+import net.minecraft.core.Direction;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.Shadow;
 import vectorwing.farmersdelight.client.renderer.CuttingBoardRenderer;
 
-@Mixin(value = CuttingBoardRenderer.class,remap = false)
-public class CuttingBoardRendererMixin {
+@Mixin(value = CuttingBoardRenderer.class, remap = false)
+public abstract class CuttingBoardRendererMixin {
 
-    @ModifyExpressionValue(
-            method = "render(Lvectorwing/farmersdelight/common/block/entity/CuttingBoardBlockEntity;FLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;II)V",
-            at = @At(
-                    value = "INVOKE",
-                    target = "Lnet/minecraft/client/resources/model/BakedModel;isGui3d()Z"
-            )
-    )
-    private boolean isGui3d(boolean original) {
-        return false;
+    @Shadow
+    public abstract void renderItemLayingDown(PoseStack matrixStackIn, Direction direction, float xOffset, int yIndex, float zOffset);
+
+    @WrapMethod(method = "renderBlock")
+    private void isGui3d(PoseStack matrixStackIn, Direction direction, float xOffset, int yIndex, float zOffset, Operation<Void> original) {
+        this.renderItemLayingDown(matrixStackIn, direction, xOffset, yIndex, zOffset);
     }
 }

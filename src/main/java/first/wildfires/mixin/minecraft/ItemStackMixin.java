@@ -2,6 +2,7 @@ package first.wildfires.mixin.minecraft;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.ItemStack;
+import first.wildfires.utils.ItemDamageContext;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
@@ -28,11 +29,22 @@ public class ItemStackMixin {
                 amount = 0;
             }
             int polish = tag.getInt("Polish");
-            if (polish > 0) {
+            if (polish > 0 && !ItemDamageContext.isInstantBlockBreak()) {
                 tag.putInt("Polish", polish - amount);
             }
             if (polish <= 0) {
                 tag.remove("Polish");
+            }
+            int reinforcement = tag.getInt("Reinforcement");
+            if (amount > 0 && tag.contains("Reinforcement")) {
+                double reinforcementChance = (reinforcement * 5 - 20) / 100.0;
+                if (reinforcementChance < 0) {
+                    if (Math.random() < -reinforcementChance) {
+                        amount++;
+                    }
+                } else if (Math.random() < reinforcementChance) {
+                    amount = 0;
+                }
             }
             int tempDuration = tag.getInt("TempDuration");
             if (tempDuration > 0) {

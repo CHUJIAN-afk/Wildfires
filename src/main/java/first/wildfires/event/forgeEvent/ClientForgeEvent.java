@@ -19,6 +19,7 @@ import first.wildfires.utils.CuriosUtil;
 import net.createmod.ponder.api.registration.PonderPlugin;
 import net.createmod.ponder.foundation.PonderIndex;
 import net.minecraft.ChatFormatting;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -51,9 +52,22 @@ public class ClientForgeEvent {
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onItemTooltip(ItemTooltipEvent event) {
         ItemStack stack = event.getItemStack();
+        Player player = event.getEntity();
+        List<Component> toolTip = event.getToolTip();
+        CompoundTag tag = stack.getTag();
+        if (tag != null && tag.contains("Reinforcement")) {
+            int reinforcement = tag.getInt("Reinforcement");
+            String statusKey = reinforcement >= 6 ? "wildfires.tooltip.reinforcement.firm" : reinforcement >= 4 ? "wildfires.tooltip.reinforcement.bound" : "wildfires.tooltip.reinforcement.loose";
+            ChatFormatting statusColor = reinforcement >= 8 ? ChatFormatting.BLUE : reinforcement >= 6 ? ChatFormatting.WHITE : reinforcement >= 2 ? ChatFormatting.GRAY : ChatFormatting.DARK_GRAY;
+            int reinforcementTooltipIndex = Math.min(1, toolTip.size());
+            toolTip.add(reinforcementTooltipIndex, Component.translatable("wildfires.tooltip.reinforcement.normal", Component.translatable(statusKey).withStyle(statusColor)));
+            if (player != null && player.getAbilities().instabuild) {
+                int noDurabilityDamageChance = reinforcement * 5 - 20;
+                toolTip.add(reinforcementTooltipIndex + 1, Component.translatable("wildfires.tooltip.reinforcement", reinforcement, noDurabilityDamageChance).withStyle(ChatFormatting.GRAY));
+            }
+        }
         BlockEntry<LoomControlBlock> loomControlBlock = BlockRegister.LoomControlBlock;
         if (stack.getItem() == loomControlBlock.asItem()) {
-            List<Component> toolTip = event.getToolTip();
             WildfiresPonderPlugin plugin = WildfiresPonderPlugin.getPlugin();
             if (!plugin.loaded) {
                 plugin.loaded = true;
@@ -65,7 +79,6 @@ public class ClientForgeEvent {
                     .addTo(toolTip);
             CreateLang.translate("tooltip.stressImpact")
                     .style(ChatFormatting.GRAY).addTo(toolTip);
-            Player player = event.getEntity();
             String string = player != null && (player.getItemBySlot(EquipmentSlot.HEAD).getItem() == AllItems.GOGGLES.get() || CuriosUtil.isEquipped(player, AllItems.GOGGLES.get())) ? " 4x RPM" : " 中";
             CreateLang.text(" ██▒" + string)
                     .style(ChatFormatting.GOLD)

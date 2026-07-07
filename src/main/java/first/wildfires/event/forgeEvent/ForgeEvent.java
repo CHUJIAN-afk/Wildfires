@@ -98,6 +98,7 @@ public class ForgeEvent {
 			WildfiresUtil.StructureStageMap.clear();
 			StructureStageModifyEvent structureStageModifyEvent = new StructureStageModifyEvent();
 			WildfiresUtil.post(structureStageModifyEvent);
+			WildfiresUtil.StructureStageMap.putAll(structureStageModifyEvent.getStructureStageMap());
 		}, executor2));
 	}
 

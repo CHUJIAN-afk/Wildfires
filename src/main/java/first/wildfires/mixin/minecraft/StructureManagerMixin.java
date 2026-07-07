@@ -24,9 +24,11 @@ import java.util.Collection;
 import java.util.List;
 
 @Mixin(StructureManager.class)
-public abstract class StructureManagerMixin {
+public class StructureManagerMixin {
 
-    @Shadow @Final private LevelAccessor level;
+    @Shadow
+    @Final
+    private LevelAccessor level;
 
     @Inject(
             method = "startsForStructure(Lnet/minecraft/core/SectionPos;Lnet/minecraft/world/level/levelgen/structure/Structure;)Ljava/util/List;",
@@ -36,9 +38,16 @@ public abstract class StructureManagerMixin {
     private void startsForStructure(SectionPos sectionPos, Structure structure, CallbackInfoReturnable<List<StructureStart>> cir) {
         List<StructureStart> structureStartList = cir.getReturnValue();
         MinecraftServer server = level.getServer();
-        ResourceLocation location = level.registryAccess().registryOrThrow(Registries.STRUCTURE).getKey(structure);
-        if (location != null && !structureStartList.isEmpty() && server != null && WildfiresUtil.StructureStageMap.values().stream().anyMatch(location::equals)) {
-            boolean noneMatch = server.getPlayerList().getPlayers().stream()
+        ResourceLocation location = level.registryAccess()
+                .registryOrThrow(Registries.STRUCTURE)
+                .getKey(structure);
+        if (location != null && !structureStartList.isEmpty() && server != null && WildfiresUtil.StructureStageMap.values()
+                .stream()
+                .anyMatch(location::equals)) {
+            boolean noneMatch = server.getPlayerList()
+                    .getPlayers()
+                    .stream()
+                    .filter(player -> player instanceof PlayerKJS)
                     .map(player -> (PlayerKJS) player)
                     .map(PlayerKJS::kjs$getStages)
                     .map(Stages::getAll)

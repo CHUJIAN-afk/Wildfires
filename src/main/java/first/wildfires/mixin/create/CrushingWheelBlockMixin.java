@@ -31,8 +31,7 @@ public class CrushingWheelBlockMixin {
             at = @At(
                     value = "INVOKE",
                     target = "Lcom/tterrag/registrate/util/entry/BlockEntry;has(Lnet/minecraft/world/level/block/state/BlockState;)Z"
-            ),
-            remap = true
+            )
     )
     public boolean canSurviveCheckInstance(BlockEntry<?> instance, BlockState state, Operation<Boolean> original) {
         if (state.getBlock() instanceof CustomCrushingWheelBlock) {

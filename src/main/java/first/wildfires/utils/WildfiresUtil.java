@@ -35,7 +35,7 @@ public class WildfiresUtil {
     public static final List<KineticData> kineticDataList = new ArrayList<>();
     public static final List<MobPoopData> mobPoopDataList = new ArrayList<>();
     public static final List<EntityType<?>> PoopList = new ArrayList<>();
-    public static final Map<String, List<ResourceLocation>> StructureStageMap = new HashMap<>();
+    public static final Map<String, Set<ResourceLocation>> StructureStageMap = new HashMap<>();
     public static long destroyTime = -1;
 
     public static float stressAppliedModify(KineticBlockEntity blockEntity, float stress) {

@@ -6,7 +6,12 @@
   "refmap": "wildfires.refmap.json",
   "mixins": [
     "aquaculture.FishDataMixin",
+    "create.AllGuiTexturesAccessor",
+    "create.AllGuiTexturesMixin",
     "create.AllMenuTypesMixin",
+    "create.AttributeFilterItemStackMixin",
+    "create.AttributeFilterMenuAccessor",
+    "create.AttributeFilterScreenAccessor",
     "create.CrushingWheelBlockMixin",
     "create.CrushingWheelControllerBlockEntityMixin",
     "create.CrushingWheelControllerBlockMixin",

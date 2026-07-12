@@ -18,9 +18,8 @@ import mezz.jei.api.recipe.category.IRecipeCategory;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.crafting.Ingredient;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
@@ -39,15 +38,16 @@ public class WeavingRecipeCategory implements IRecipeCategory<WeavingRecipe> {
     }
 
     @Override
-    public mezz.jei.api.recipe.RecipeType<WeavingRecipe> getRecipeType() {
+    public mezz.jei.api.recipe.@NotNull RecipeType<WeavingRecipe> getRecipeType() {
         return RECIPE_TYPE;
     }
 
     @Override
-    public Component getTitle() {
+    public @NotNull Component getTitle() {
         return Component.translatable("wildfires.jei.category.weaving");
     }
 
+    @SuppressWarnings("all")
     @Override
     public IDrawable getBackground() {
         return background;
@@ -69,7 +69,7 @@ public class WeavingRecipeCategory implements IRecipeCategory<WeavingRecipe> {
     }
 
     @Override
-    public void setRecipe(IRecipeLayoutBuilder builder, WeavingRecipe recipe, IFocusGroup focuses) {
+    public void setRecipe(@NotNull IRecipeLayoutBuilder builder, WeavingRecipe recipe, @NotNull IFocusGroup focuses) {
         // 输入槽位 (左侧) - 使用带数量的成分
         int inputSlotX = 10;
         int inputSlotY = 45;
@@ -83,7 +83,7 @@ public class WeavingRecipeCategory implements IRecipeCategory<WeavingRecipe> {
                 IngredientWithCount iwc = ingredientsWithCount.get(i);
 
                 // 创建槽位并添加成分
-                var slotBuilder = builder.addSlot(RecipeIngredientRole.INPUT, inputSlotX + col * 18, inputSlotY + row * 18)
+                builder.addSlot(RecipeIngredientRole.INPUT, inputSlotX + col * 18, inputSlotY + row * 18)
                         .addIngredients(iwc.ingredient());
 
                 // 如果数量大于1，需要显示数量提示
@@ -112,7 +112,7 @@ public class WeavingRecipeCategory implements IRecipeCategory<WeavingRecipe> {
     }
 
     @Override
-    public void draw(WeavingRecipe recipe, IRecipeSlotsView recipeSlotsView, GuiGraphics guiGraphics, double mouseX, double mouseY) {
+    public void draw(WeavingRecipe recipe, @NotNull IRecipeSlotsView recipeSlotsView, @NotNull GuiGraphics guiGraphics, double mouseX, double mouseY) {
         // 绘制背景
         background.draw(guiGraphics, 0, 0);
         IDrawable slot = asDrawable(AllGuiTextures.JEI_SLOT);
@@ -198,7 +198,7 @@ public class WeavingRecipeCategory implements IRecipeCategory<WeavingRecipe> {
                 return texture.getHeight();
             }
 
-            public void draw(GuiGraphics graphics, int xOffset, int yOffset) {
+            public void draw(@NotNull GuiGraphics graphics, int xOffset, int yOffset) {
                 texture.render(graphics, xOffset, yOffset);
             }
         };

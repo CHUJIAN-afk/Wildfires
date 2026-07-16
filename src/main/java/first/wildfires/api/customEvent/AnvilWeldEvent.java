@@ -3,6 +3,7 @@ package first.wildfires.api.customEvent;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.eventbus.api.Event;
 
+@Event.HasResult
 public class AnvilWeldEvent extends Event {
 
     private ItemStack left;

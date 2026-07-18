@@ -1,0 +1,4 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": { "layer0": "wildfires:item/rubber_diving_chestplate" }
+}

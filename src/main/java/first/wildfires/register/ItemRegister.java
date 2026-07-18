@@ -3,6 +3,7 @@ package first.wildfires.register;
 import com.github.alexthe666.citadel.server.item.CustomArmorMaterial;
 import first.wildfires.Wildfires;
 import first.wildfires.item.GeckoSimpleArmorItem;
+import first.wildfires.item.HeatResistantArmorItem;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -35,6 +36,56 @@ public class ItemRegister {
 
 
             );
+
+    public static final CustomArmorMaterial RainGearArmorMaterial = new CustomArmorMaterial(
+            "minecraft:leather",
+            60,
+            new int[]{0, 0, 0, 0},
+            0,
+            SoundEvents.ARMOR_EQUIP_LEATHER,
+            0.0F,
+            0.0F
+    );
+    public static final CustomArmorMaterial BambooHatAndCoirRaincoatArmorMaterial = rainGearArmorMaterial("wildfires:bamboo_hat_and_coir_raincoat", 80);
+    public static final CustomArmorMaterial RubberDivingSuitArmorMaterial = rainGearArmorMaterial("wildfires:rubber_diving_suit");
+    public static final CustomArmorMaterial ForgingApronArmorMaterial = rainGearArmorMaterial("wildfires:forging_apron");
+
+    public static final RegistryObject<ArmorItem> UmbrellaHat = rainGear("umbrella_hat", ArmorItem.Type.HELMET);
+    public static final RegistryObject<ArmorItem> WideStrawHat = rainGear("wide_straw_hat", ArmorItem.Type.HELMET);
+    public static final RegistryObject<GeckoSimpleArmorItem> ConicalHat = Register.register("conical_hat", () -> new GeckoSimpleArmorItem(
+            BambooHatAndCoirRaincoatArmorMaterial, ArmorItem.Type.HELMET, new Item.Properties()));
+    public static final RegistryObject<GeckoSimpleArmorItem> StrawRainCape = Register.register("straw_rain_cape", () -> new GeckoSimpleArmorItem(
+            BambooHatAndCoirRaincoatArmorMaterial, ArmorItem.Type.CHESTPLATE, new Item.Properties()));
+    public static final RegistryObject<ArmorItem> LeatherWindbreaker = rainGear("leather_windbreaker", ArmorItem.Type.CHESTPLATE);
+    public static final RegistryObject<ArmorItem> Raincoat = rainGear("raincoat", ArmorItem.Type.CHESTPLATE);
+    public static final RegistryObject<ArmorItem> RubberDivingChestplate = rubberDivingGear("rubber_diving_chestplate", ArmorItem.Type.CHESTPLATE);
+    public static final RegistryObject<ArmorItem> RubberDivingLeggings = rubberDivingGear("rubber_diving_leggings", ArmorItem.Type.LEGGINGS);
+    public static final RegistryObject<HeatResistantArmorItem> ForgingApron = Register.register("forging_apron", () -> new HeatResistantArmorItem(
+            ForgingApronArmorMaterial, ArmorItem.Type.CHESTPLATE, new Item.Properties()));
+
+    private static RegistryObject<ArmorItem> rainGear(String name, ArmorItem.Type type) {
+        return Register.register(name, () -> new ArmorItem(RainGearArmorMaterial, type, new Item.Properties()));
+    }
+
+    private static RegistryObject<ArmorItem> rubberDivingGear(String name, ArmorItem.Type type) {
+        return Register.register(name, () -> new ArmorItem(RubberDivingSuitArmorMaterial, type, new Item.Properties()));
+    }
+
+    private static CustomArmorMaterial rainGearArmorMaterial(String name) {
+        return rainGearArmorMaterial(name, 60);
+    }
+
+    private static CustomArmorMaterial rainGearArmorMaterial(String name, int durability) {
+        return new CustomArmorMaterial(
+                name,
+                durability,
+                new int[]{0, 0, 0, 0},
+                0,
+                SoundEvents.ARMOR_EQUIP_LEATHER,
+                0.0F,
+                0.0F
+        );
+    }
 
 
     public static final RegistryObject<Item> CopperBoltItem =

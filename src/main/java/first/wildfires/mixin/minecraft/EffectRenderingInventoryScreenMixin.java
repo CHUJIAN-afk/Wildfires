@@ -10,9 +10,19 @@ import org.spongepowered.asm.mixin.injection.At;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Set;
 
 @Mixin(EffectRenderingInventoryScreen.class)
 public class EffectRenderingInventoryScreenMixin {
+
+	private static final Set<String> HIDDEN_EFFECTS = Set.of(
+			"effect.xaerominimap.no_cave_maps",
+			"effect.xaerominimap.no_waypoints",
+			"effect.xaerominimap.no_entity_radar",
+			"effect.xaerominimap.no_minimap",
+			"effect.xaeroworldmap.no_cave_maps",
+			"effect.xaeroworldmap.no_world_map"
+	);
 
 	@ModifyExpressionValue(
 			method = "renderEffects",
@@ -22,7 +32,9 @@ public class EffectRenderingInventoryScreenMixin {
 			)
 	)
 	private Collection<MobEffectInstance> renderEffects(Collection<MobEffectInstance> original) {
-		InventoryEffectRenderEvent event = new InventoryEffectRenderEvent(new ArrayList<>(original.stream().toList()));
+		ArrayList<MobEffectInstance> effects = new ArrayList<>(original);
+		effects.removeIf(effect -> HIDDEN_EFFECTS.contains(effect.getEffect().getDescriptionId()));
+		InventoryEffectRenderEvent event = new InventoryEffectRenderEvent(effects);
 		MinecraftForge.EVENT_BUS.post(event);
 		return event.getEffectList();
 	}

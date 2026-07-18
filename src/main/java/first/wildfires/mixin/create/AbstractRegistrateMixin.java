@@ -12,11 +12,14 @@ import net.minecraft.client.gui.screens.inventory.MenuAccess;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import org.spongepowered.asm.mixin.Mixin;
 
-@Mixin(AbstractRegistrate.class)
+@Mixin(value = AbstractRegistrate.class, remap = false)
 public class AbstractRegistrateMixin {
 
     @SuppressWarnings("unchecked")
-    @WrapMethod(method = "menu(Ljava/lang/Object;Ljava/lang/String;Lcom/tterrag/registrate/builders/MenuBuilder$ForgeMenuFactory;Lcom/tterrag/registrate/util/nullness/NonNullSupplier;)Lcom/tterrag/registrate/builders/MenuBuilder;")
+    @WrapMethod(
+            method = "menu(Ljava/lang/Object;Ljava/lang/String;Lcom/tterrag/registrate/builders/MenuBuilder$ForgeMenuFactory;Lcom/tterrag/registrate/util/nullness/NonNullSupplier;)Lcom/tterrag/registrate/builders/MenuBuilder;",
+            remap = false
+    )
     private <T extends AbstractContainerMenu, SC extends Screen & MenuAccess<T>, P> MenuBuilder<T, SC, P> menu(P parent, String name, MenuBuilder.ForgeMenuFactory<T> factory, NonNullSupplier<MenuBuilder.ScreenFactory<T, SC>> screenFactory, Operation<MenuBuilder<T, SC, P>> original) {
         if (name.equals("attribute_filter")) {
             MenuBuilder.ForgeMenuFactory<T> menuFactory = (type, id, inv, extraData) -> (T) (new AttributeFilterMenu(type, id, inv, extraData));

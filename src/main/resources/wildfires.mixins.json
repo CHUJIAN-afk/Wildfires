@@ -6,7 +6,6 @@
   "refmap": "wildfires.refmap.json",
   "mixins": [
     "aquaculture.FishDataMixin",
-    "create.AbstractRegistrateMixin",
     "create.AllGuiTexturesAccessor",
     "create.AllGuiTexturesMixin",
     "create.AttributeFilterItemStackMixin",
@@ -16,8 +15,8 @@
     "create.CrushingWheelControllerBlockEntityMixin",
     "create.CrushingWheelControllerBlockMixin",
     "create.KineticBlockEntityMixin",
+    "farmersdelight.BasketBlockEntityMixin",
     "farmersdelight.CuttingBoardRendererMixin",
-    "jade.StatusEffectsProviderMixin",
     "kubejs.UtilsJSMixin",
     "legendarysurvivaloverhaul.CapabilityUtilMixin",
     "legendarysurvivaloverhaul.CuriosEventsMixin",
@@ -48,12 +47,18 @@
     "tfc.ToolItemMixin"
   ],
   "client": [
+    "create.AbstractRegistrateMixin",
+    "embeddium.BlockRenderContextMixin",
+    "embeddium.BlockRendererMixin",
+    "jade.StatusEffectsProviderMixin",
     "minecraft.CreativeModeInventoryScreenMixin",
     "minecraft.EffectRenderingInventoryScreenMixin",
     "minecraft.LevelRendererMixin",
     "minecraft.ModelMixin",
     "tfc.ClimateScreenMixin",
-    "tfc.JavelinModelMixin"
+    "tfc.FruitTreeLeavesBlockMixin",
+    "tfc.JavelinModelMixin",
+    "tfc.TFCLeavesBlockMixin"
   ],
   "injectors": {
     "defaultRequire": 1

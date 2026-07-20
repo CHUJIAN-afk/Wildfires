@@ -37,18 +37,47 @@ public class CreativeModeTabRegister {
 
     public static void creativeTabBuild(CreativeModeTabRegister.Registers registers) {
         registers.push(new CreativeModeTabRegister.TabSection(0, Wildfires.rl("textures/item/banner/banner.png"), new AnimInfo(18, 3, 8)));
-        registers.put(ItemRegister.CopperBoltItem.get());
-        registers.put(ItemRegister.AirCushion.get());
+        registers.put(
+                ItemRegister.AirCushion.get(),
+                ItemRegister.SimpleAirCushion.get(),
+                ItemRegister.SmallEngine.get(),
+                ItemRegister.RuggedSmallEngine.get(),
+                ItemRegister.SmallSideEngine.get(),
+                ItemRegister.BiplaneEngine.get(),
+                ItemRegister.LargeAirshipEngine.get(),
+                ItemRegister.SmallPropeller.get(),
+                ItemRegister.MediumPropeller.get(),
+                ItemRegister.LargePropeller.get(),
+                ItemRegister.LargeTwinPropeller.get(),
+                ItemRegister.GyrodynePropeller.get(),
+                ItemRegister.DoubleWing.get(),
+                ItemRegister.AirshipSlats.get(),
+                ItemRegister.UnderwaterTurbine.get(),
+                ItemRegister.SubmarineCore.get()
+        );
         registers.pop();
         registers.push(new CreativeModeTabRegister.TabSection(1, Wildfires.rl("textures/item/banner/default_banner.png"), new AnimInfo(18, 1, 1)));
         //没有分类的全部丢进默认分组
         ForgeRegistries.ITEMS.getValues().stream()
                 .filter(item -> {
                     ResourceLocation location = ForgeRegistries.ITEMS.getKey(item);
-                    return location != null && location.getNamespace().equals(Wildfires.MODID);
+                    return location != null
+                            && location.getNamespace().equals(Wildfires.MODID)
+                            && item != ItemRegister.GrassSlab.get()
+                            && !registers.contains(item);
                 })
+                .sorted(Comparator
+                        .comparingInt(CreativeModeTabRegister::creativeTabGroup)
+                        .thenComparing(item -> ForgeRegistries.ITEMS.getKey(item).getPath()))
                 .forEach(registers::put);
         registers.pop();
+    }
+
+    private static int creativeTabGroup(Item item) {
+        String path = ForgeRegistries.ITEMS.getKey(item).getPath();
+        if (path.endsWith("_crushing_wheel")) return 0;
+        if (path.endsWith("_millstone")) return 1;
+        return 2;
     }
 
     public static void register(IEventBus eventBus) {
@@ -58,7 +87,7 @@ public class CreativeModeTabRegister {
     public static void renderBanners(final CreativeModeInventoryScreen screen, final GuiGraphics graphics, int mouseX, int mouseY, float scrollOffs) {
         Registers instance = Registers.getRegisters();
         List<TabSection> sections = instance.sortedEntries();
-        LinkedHashMap<TabSection, HashSet<Item>> map = instance.map;
+        LinkedHashMap<TabSection, LinkedHashSet<Item>> map = instance.map;
 
         int totalRows = 0;
         for (TabSection section : sections) {
@@ -86,11 +115,12 @@ public class CreativeModeTabRegister {
 
     public static void processItems(Consumer<ItemStack> displayItems, Consumer<ItemStack> searchItems) {
         Registers instance = Registers.getRegisters();
+        instance.clear();
         creativeTabBuild(instance);
-        LinkedHashMap<TabSection, HashSet<Item>> map = instance.map;
+        LinkedHashMap<TabSection, LinkedHashSet<Item>> map = instance.map;
         List<TabSection> sortedKeys = instance.sortedEntries();
         for (TabSection key : sortedKeys) {
-            HashSet<Item> items = map.get(key);
+            LinkedHashSet<Item> items = map.get(key);
             List<ItemStack> stacks = new ArrayList<>(items.stream()
                     .map(Item::getDefaultInstance)
                     .toList());
@@ -112,7 +142,7 @@ public class CreativeModeTabRegister {
     public static class Registers {
 
         private final static Registers registers = new Registers();
-        private final LinkedHashMap<TabSection, HashSet<Item>> map = new LinkedHashMap<>();
+        private final LinkedHashMap<TabSection, LinkedHashSet<Item>> map = new LinkedHashMap<>();
         private TabSection tabSection = null;
 
         private Registers() {
@@ -128,8 +158,17 @@ public class CreativeModeTabRegister {
 
         public void put(Item... items) {
             for (Item item : items) {
-                map.computeIfAbsent(tabSection, k -> new HashSet<>()).add(item);
+                map.computeIfAbsent(tabSection, k -> new LinkedHashSet<>()).add(item);
             }
+        }
+
+        public boolean contains(Item item) {
+            return map.values().stream().anyMatch(items -> items.contains(item));
+        }
+
+        public void clear() {
+            map.clear();
+            tabSection = null;
         }
 
         public void pop(){

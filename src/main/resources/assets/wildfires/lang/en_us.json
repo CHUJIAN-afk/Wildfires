@@ -1,6 +1,9 @@
 {
   "itemGroup.wildfire_tab": "wildfire",
   "item.wildfires.dragon_fruit": "dragon_fruit",
+  "item.wildfires.simple_compass": "Simple Compass",
+  "item.wildfires.damaged_compass": "Damaged Compass",
+  "item.wildfires.empty_super_glue": "Empty Super Glue",
   "block.wildfires.loom_control_block": "Loom",
   "block.wildfires.loom_structure_block": "Loom Structure",
   "wildfires.loom.space_insufficient": "Not enough space to place loom",
@@ -9,6 +12,8 @@
   "wildfires.tooltip.reinforcement.loose": "Loose",
   "wildfires.tooltip.reinforcement.bound": "Bound",
   "wildfires.tooltip.reinforcement.firm": "Firm",
+  "attribute.name.wildfires.waterproof": "Waterproof",
+  "attribute.name.wildfires.rainproof": "Rainproof",
   "wildfires.jei.category.weaving": "Weaving",
   "wildfires.ponder.loom.header": "织布机",
   "wildfires.ponder.loom.text_1": "这是一个织布机",

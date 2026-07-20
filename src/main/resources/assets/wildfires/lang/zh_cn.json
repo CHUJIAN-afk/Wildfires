@@ -1,6 +1,9 @@
 {
   "itemGroup.wildfire_tab": "野火",
   "item.wildfires.dragon_fruit": "火龙果",
+  "item.wildfires.simple_compass": "简易指南针",
+  "item.wildfires.damaged_compass": "损坏的指南针",
+  "item.wildfires.empty_super_glue": "空胶水",
   "item.wildfires.umbrella_hat": "伞帽",
   "item.wildfires.wide_straw_hat": "大草帽",
   "item.wildfires.conical_hat": "斗笠",
@@ -62,6 +65,8 @@
   "wildfires.tooltip.reinforcement.loose": "松动",
   "wildfires.tooltip.reinforcement.bound": "绑定",
   "wildfires.tooltip.reinforcement.firm": "牢固",
+  "attribute.name.wildfires.waterproof": "防水",
+  "attribute.name.wildfires.rainproof": "防雨",
   "wildfires.jei.category.weaving": "织布",
   "wildfires.ponder.loom.header": "织布机",
   "wildfires.ponder.loom.text_1": "这是一个织布机",

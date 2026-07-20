@@ -1,6 +1,7 @@
 package first.wildfires;
 
 import com.simibubi.create.foundation.data.CreateRegistrate;
+import first.wildfires.diagnostics.StartupDiagnostics;
 import first.wildfires.register.*;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -18,6 +19,7 @@ public class Wildfires {
 	public static boolean CurioLoaded;
 
 	public Wildfires(FMLJavaModLoadingContext context) {
+		StartupDiagnostics.commonMark("Wildfires constructor");
 		IEventBus eventBus = context.getModEventBus();
 		Registrate.registerEventListeners(eventBus);
 		AttributeRegister.register(eventBus);

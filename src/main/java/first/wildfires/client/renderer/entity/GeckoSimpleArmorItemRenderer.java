@@ -12,10 +12,10 @@ public class GeckoSimpleArmorItemRenderer extends GeoArmorRenderer<GeckoSimpleAr
 
     private final ArmorItem.Type _type;
 
-    public GeckoSimpleArmorItemRenderer(String path, ArmorItem.Type armorType) {
+    public GeckoSimpleArmorItemRenderer(String modelPath, String texturePath, ArmorItem.Type armorType) {
         super(
-            new DefaultedItemGeoModel<GeckoSimpleArmorItem>(getResourceLocation(path, armorType))
-            .withAltTexture(ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, String.format("armor/%s", path)))
+            new DefaultedItemGeoModel<GeckoSimpleArmorItem>(getResourceLocation(modelPath, armorType))
+            .withAltTexture(ResourceLocation.fromNamespaceAndPath(Wildfires.MODID, String.format("armor/%s", texturePath)))
         );
 
         _type =  armorType;

@@ -3,6 +3,7 @@ package first.wildfires.mixin.embeddium;
 import first.wildfires.client.TfcLeavesCulling;
 import first.wildfires.client.EmbeddiumBlockRenderContextAccess;
 import net.dries007.tfc.common.blocks.plant.ShortGrassBlock;
+import net.dries007.tfc.common.blocks.wood.ILeavesBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.BlockGetter;
@@ -62,4 +63,5 @@ public class BlockRendererMixin {
         }
         return true;
     }
+
 }

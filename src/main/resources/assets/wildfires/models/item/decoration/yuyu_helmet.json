@@ -1,6 +1,6 @@
 {
   "parent": "item/generated",
   "textures": {
-    "layer0": "wildfires:item/universal_decoration"
+    "layer0": "wildfires:item/decoration/yuyu_helmet"
   }
 }

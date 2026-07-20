@@ -4,10 +4,13 @@ import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import dev.latvian.mods.kubejs.item.ItemClickedEventJS;
 import first.wildfires.Wildfires;
+import first.wildfires.diagnostics.StartupDiagnostics;
 import first.wildfires.api.KineticData;
 import first.wildfires.api.MobPoopData;
 import first.wildfires.api.customEvent.*;
 import first.wildfires.register.SoundRegister;
+import first.wildfires.register.AttributeRegister;
+import first.wildfires.register.ItemRegister;
 import first.wildfires.utils.CuriosUtil;
 import first.wildfires.utils.WildfiresUtil;
 import net.dries007.tfc.common.blocks.plant.fruit.FruitTreeBranchBlock;
@@ -20,6 +23,7 @@ import net.dries007.tfc.common.entities.livestock.TFCAnimalProperties;
 import net.dries007.tfc.common.items.IngotItem;
 import net.dries007.tfc.common.items.TFCItems;
 import net.dries007.tfc.util.Metal;
+import net.dries007.tfc.util.Drinkable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
@@ -36,11 +40,14 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.AddReloadListenerEvent;
+import net.minecraftforge.event.server.ServerStartedEvent;
+import net.minecraftforge.event.server.ServerStartingEvent;
 import net.minecraftforge.event.ItemAttributeModifierEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingEvent;
@@ -49,8 +56,10 @@ import net.minecraftforge.event.entity.living.MobSpawnEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.items.IItemHandlerModifiable;
+import net.minecraftforge.registries.ForgeRegistries;
 import sfiomn.legendarysurvivaloverhaul.api.temperature.TemperatureEnum;
 import sfiomn.legendarysurvivaloverhaul.common.capabilities.temperature.TemperatureItemCapability;
 import sfiomn.legendarysurvivaloverhaul.util.CapabilityUtil;
@@ -63,6 +72,32 @@ import java.util.concurrent.CompletableFuture;
 
 @Mod.EventBusSubscriber(modid = Wildfires.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class ForgeEvent {
+	private static final int SIMPLE_COMPASS_DECAY_INTERVAL_TICKS = 20;
+
+	private static final Map<String, Integer> RAIN_PROTECTION = Map.of(
+			"wildfires:umbrella_hat", 80,
+			"wildfires:wide_straw_hat", 35,
+			"wildfires:conical_hat", 45,
+			"wildfires:straw_rain_cape", 60,
+			"wildfires:leather_windbreaker", 70,
+			"wildfires:raincoat", 100,
+			"wildfires:rubber_diving_chestplate", 50,
+			"wildfires:rubber_diving_leggings", 50
+	);
+	private static final Map<String, Integer> WATER_PROTECTION = Map.of(
+			"wildfires:rubber_diving_chestplate", 50,
+			"wildfires:rubber_diving_leggings", 50
+	);
+	private static final Map<String, EquipmentSlot> WETNESS_PROTECTION_SLOTS = Map.of(
+			"wildfires:umbrella_hat", EquipmentSlot.HEAD,
+			"wildfires:wide_straw_hat", EquipmentSlot.HEAD,
+			"wildfires:conical_hat", EquipmentSlot.HEAD,
+			"wildfires:straw_rain_cape", EquipmentSlot.CHEST,
+			"wildfires:leather_windbreaker", EquipmentSlot.CHEST,
+			"wildfires:raincoat", EquipmentSlot.CHEST,
+			"wildfires:rubber_diving_chestplate", EquipmentSlot.CHEST,
+			"wildfires:rubber_diving_leggings", EquipmentSlot.LEGS
+	);
 
 	@SubscribeEvent
 	public static void place(PlayerInteractEvent.RightClickItem event) {
@@ -81,7 +116,10 @@ public class ForgeEvent {
 
 	@SubscribeEvent
 	public static void reload(AddReloadListenerEvent event) {
-		event.addListener((preparationBarrier, resourceManager, profilerFiller, profilerFiller2, executor1, executor2) -> CompletableFuture.completedFuture(null).thenCompose(preparationBarrier::wait).thenAcceptAsync(v -> {
+		event.addListener((preparationBarrier, resourceManager, profilerFiller, profilerFiller2, executor1, executor2) -> {
+			long startedAt = StartupDiagnostics.now();
+			StartupDiagnostics.serverMark("data reload listener started");
+			return CompletableFuture.completedFuture(null).thenCompose(preparationBarrier::wait).thenAcceptAsync(v -> {
 			KineticDataModifyEvent kineticDataModifyEvent = new KineticDataModifyEvent();
 			WildfiresUtil.post(kineticDataModifyEvent);
 			WildfiresUtil.kineticDataList.clear();
@@ -99,7 +137,19 @@ public class ForgeEvent {
 			StructureStageModifyEvent structureStageModifyEvent = new StructureStageModifyEvent();
 			WildfiresUtil.post(structureStageModifyEvent);
 			WildfiresUtil.StructureStageMap.putAll(structureStageModifyEvent.getStructureStageMap());
-		}, executor2));
+			StartupDiagnostics.serverCompleted("data reload listener", startedAt);
+		}, executor2);
+		});
+	}
+
+	@SubscribeEvent
+	public static void onServerStarting(ServerStartingEvent event) {
+		StartupDiagnostics.serverMark("starting");
+	}
+
+	@SubscribeEvent
+	public static void onServerStarted(ServerStartedEvent event) {
+		StartupDiagnostics.serverMark("started");
 	}
 
 	@SubscribeEvent
@@ -367,6 +417,7 @@ public class ForgeEvent {
 	public static void itemModify(ItemAttributeModifierEvent event) {
 		ItemStack itemStack = event.getItemStack();
 		CompoundTag tag = itemStack.getTag();
+		addWetnessProtectionModifiers(event, itemStack);
 		if (tag != null && event.getSlotType() == EquipmentSlot.MAINHAND && itemStack.getTags().anyMatch(itemTagKey -> itemTagKey.location().toString().equals("kubejs:polish"))) {
 			int polish = tag.getInt("Polish");
 			if (polish > 0) {
@@ -379,6 +430,33 @@ public class ForgeEvent {
 				);
 				event.addModifier(Attributes.ATTACK_DAMAGE, modifier);
 			}
+		}
+	}
+
+	private static void addWetnessProtectionModifiers(ItemAttributeModifierEvent event, ItemStack itemStack) {
+		String itemId = ForgeRegistries.ITEMS.getKey(itemStack.getItem()).toString();
+		if (event.getSlotType() != WETNESS_PROTECTION_SLOTS.get(itemId)) {
+			return;
+		}
+
+		int waterproof = WATER_PROTECTION.getOrDefault(itemId, 0);
+		if (waterproof > 0) {
+			event.addModifier(AttributeRegister.Waterproof.get(), new AttributeModifier(
+					WildfiresUtil.getUUID("waterproof_" + itemId),
+					"Waterproof",
+					waterproof * 0.1d,
+					AttributeModifier.Operation.ADDITION
+			));
+		}
+
+		int extraRainproof = Math.max(0, RAIN_PROTECTION.getOrDefault(itemId, 0) - waterproof);
+		if (extraRainproof > 0) {
+			event.addModifier(AttributeRegister.Rainproof.get(), new AttributeModifier(
+					WildfiresUtil.getUUID("rainproof_" + itemId),
+					"Rainproof",
+					extraRainproof * 0.1d,
+					AttributeModifier.Operation.ADDITION
+			));
 		}
 	}
 
@@ -399,6 +477,74 @@ public class ForgeEvent {
 					}
 				}
 			}
+		}
+	}
+
+	/**
+	 * Runs before TFC's drinking handler. A damaged compass is restored by a
+	 * water source; a fully repaired compass still allows the normal drink action.
+	 */
+	@SubscribeEvent(priority = EventPriority.HIGHEST)
+	public static void repairCompassInWater(PlayerInteractEvent.RightClickBlock event) {
+		ItemStack heldItem = event.getItemStack();
+		boolean isDamagedCompass = heldItem.is(ItemRegister.DamagedCompass.get());
+		boolean isWornSimpleCompass = heldItem.is(ItemRegister.SimpleCompass.get())
+				&& heldItem.getDamageValue() > 0;
+		if (!isDamagedCompass && !isWornSimpleCompass) {
+			return;
+		}
+
+		FluidState fluid = event.getLevel().getFluidState(event.getPos());
+		if (!fluid.isSource() || Drinkable.get(fluid.getType()) == null) {
+			return;
+		}
+
+		if (!event.getLevel().isClientSide()) {
+			if (isDamagedCompass) {
+				event.getEntity().setItemInHand(event.getHand(), new ItemStack(ItemRegister.SimpleCompass.get()));
+			} else {
+				heldItem.setDamageValue(0);
+			}
+		}
+
+		event.setCancellationResult(InteractionResult.SUCCESS);
+		event.setCanceled(true);
+	}
+
+	/**
+	 * A simple compass loses one of its six durability points every ten seconds
+	 * while it is in a player's main inventory or offhand. This runs only on the
+	 * logical server, so clients cannot consume or duplicate the item locally.
+	 */
+	@SubscribeEvent
+	public static void decaySimpleCompass(TickEvent.PlayerTickEvent event) {
+		if (event.phase != TickEvent.Phase.END) {
+			return;
+		}
+
+		Player player = event.player;
+		if (player.level().isClientSide() || player.tickCount % SIMPLE_COMPASS_DECAY_INTERVAL_TICKS != 0) {
+			return;
+		}
+
+		for (int slot = 0; slot < player.getInventory().items.size(); slot++) {
+			decaySimpleCompass(player.getInventory().items, slot);
+		}
+		for (int slot = 0; slot < player.getInventory().offhand.size(); slot++) {
+			decaySimpleCompass(player.getInventory().offhand, slot);
+		}
+	}
+
+	private static void decaySimpleCompass(java.util.List<ItemStack> inventory, int slot) {
+		ItemStack stack = inventory.get(slot);
+		if (!stack.is(ItemRegister.SimpleCompass.get())) {
+			return;
+		}
+
+		if (stack.getDamageValue() + 1 >= stack.getMaxDamage()) {
+			inventory.set(slot, new ItemStack(ItemRegister.DamagedCompass.get()));
+		} else {
+			stack.setDamageValue(stack.getDamageValue() + 1);
 		}
 	}
 

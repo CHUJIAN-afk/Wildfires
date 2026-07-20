@@ -31,11 +31,17 @@ public class ItemRegister {
 
 
 
-    public static final RegistryObject<Item> COSMETIC =
-            Register.register("cosmetic_tunmou_helmet",() -> new DyeableArmorItem(ArmorMaterials.LEATHER, ArmorItem.Type.HELMET,new Item.Properties())
+    /** A vanilla-style compass that is consumed gradually while carried. */
+    public static final RegistryObject<CompassItem> SimpleCompass =
+            Register.register("simple_compass", () -> new CompassItem(new Item.Properties().durability(60)));
 
+    /** The result left when a simple compass has used all six durability points. */
+    public static final RegistryObject<Item> DamagedCompass =
+            Register.register("damaged_compass", () -> new Item(new Item.Properties()));
 
-            );
+    /** Empty container returned when Create's super glue runs out of durability. */
+    public static final RegistryObject<Item> EmptySuperGlue =
+            Register.register("empty_super_glue", () -> new Item(new Item.Properties()));
 
     public static final CustomArmorMaterial RainGearArmorMaterial = new CustomArmorMaterial(
             "minecraft:leather",
@@ -50,13 +56,10 @@ public class ItemRegister {
     public static final CustomArmorMaterial RubberDivingSuitArmorMaterial = rainGearArmorMaterial("wildfires:rubber_diving_suit");
     public static final CustomArmorMaterial ForgingApronArmorMaterial = rainGearArmorMaterial("wildfires:forging_apron");
 
-    public static final RegistryObject<ArmorItem> UmbrellaHat = rainGear("umbrella_hat", ArmorItem.Type.HELMET);
-    public static final RegistryObject<ArmorItem> WideStrawHat = rainGear("wide_straw_hat", ArmorItem.Type.HELMET);
     public static final RegistryObject<GeckoSimpleArmorItem> ConicalHat = Register.register("conical_hat", () -> new GeckoSimpleArmorItem(
-            BambooHatAndCoirRaincoatArmorMaterial, ArmorItem.Type.HELMET, new Item.Properties()));
+            BambooHatAndCoirRaincoatArmorMaterial, ArmorItem.Type.HELMET, new Item.Properties(), "bamboo_hat", "bamboo_hat_and_coir_raincoat", 3.5D));
     public static final RegistryObject<GeckoSimpleArmorItem> StrawRainCape = Register.register("straw_rain_cape", () -> new GeckoSimpleArmorItem(
-            BambooHatAndCoirRaincoatArmorMaterial, ArmorItem.Type.CHESTPLATE, new Item.Properties()));
-    public static final RegistryObject<ArmorItem> LeatherWindbreaker = rainGear("leather_windbreaker", ArmorItem.Type.CHESTPLATE);
+            BambooHatAndCoirRaincoatArmorMaterial, ArmorItem.Type.CHESTPLATE, new Item.Properties(), "coir_raincoat", "bamboo_hat_and_coir_raincoat", 0D));
     public static final RegistryObject<ArmorItem> Raincoat = rainGear("raincoat", ArmorItem.Type.CHESTPLATE);
     public static final RegistryObject<ArmorItem> RubberDivingChestplate = rubberDivingGear("rubber_diving_chestplate", ArmorItem.Type.CHESTPLATE);
     public static final RegistryObject<ArmorItem> RubberDivingLeggings = rubberDivingGear("rubber_diving_leggings", ArmorItem.Type.LEGGINGS);
@@ -87,9 +90,6 @@ public class ItemRegister {
         );
     }
 
-
-    public static final RegistryObject<Item> CopperBoltItem =
-            Register.register("copper_bolt", () -> new Item(new Item.Properties()));
 
     public static final RegistryObject<Item> GrassSlab = Register.register("grass_slab", () -> new BlockItem(BlockRegister.GrassSlab.get(), new Item.Properties()));
 

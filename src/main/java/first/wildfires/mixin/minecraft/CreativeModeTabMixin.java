@@ -29,8 +29,15 @@ public class CreativeModeTabMixin {
             CreativeModeTabRegister.processItems(displayItems::add, searchItems::add);
             this.displayItems = displayItems;
             this.displayItemsSearchTab = searchItems;
-            return;
+        } else {
+            original.call(parameters);
         }
-        original.call(parameters);
+
+        // Wildfires uses a full empty row as the background for each category banner.
+        if (self != CreativeModeTabRegister.WildfiresTab.get()) {
+            this.displayItems.removeIf(ItemStack::isEmpty);
+            this.displayItemsSearchTab.removeIf(ItemStack::isEmpty);
+        }
+        self.rebuildSearchTree();
     }
 }

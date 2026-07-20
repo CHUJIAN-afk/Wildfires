@@ -13,6 +13,8 @@ public class AttributeRegister {
     private static final DeferredRegister<Attribute> Register = DeferredRegister.create(Registries.ATTRIBUTE, Wildfires.MODID);
 
     public static final RegistryObject<Attribute> ArmorPenetration = Register.register("armor_penetration", () -> new RangedAttribute(Wildfires.rl("armor_penetration").toString(), 0, 0, 1000));
+    public static final RegistryObject<Attribute> Waterproof = Register.register("waterproof", () -> new RangedAttribute("attribute.name.wildfires.waterproof", 0, 0, 1000).setSyncable(true));
+    public static final RegistryObject<Attribute> Rainproof = Register.register("rainproof", () -> new RangedAttribute("attribute.name.wildfires.rainproof", 0, 0, 1000).setSyncable(true));
 
     public static void register(IEventBus eventBus) {
         Register.register(eventBus);

@@ -1,0 +1,17 @@
+{
+  "replace": false,
+  "values": [
+    "wildfires:granite_millstone",
+    "wildfires:diorite_millstone",
+    "wildfires:gabbro_millstone",
+    "wildfires:rhyolite_millstone",
+    "wildfires:basalt_millstone",
+    "wildfires:dacite_millstone",
+    "wildfires:granite_crushing_wheel",
+    "wildfires:diorite_crushing_wheel",
+    "wildfires:gabbro_crushing_wheel",
+    "wildfires:rhyolite_crushing_wheel",
+    "wildfires:basalt_crushing_wheel",
+    "wildfires:dacite_crushing_wheel"
+  ]
+}

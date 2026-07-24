@@ -16,6 +16,7 @@ public class AllGuiTexturesMixin {
             at = @At(value = "TAIL")
     )
     private static void clinit(CallbackInfo ci) {
-        ((AllGuiTexturesAccessor) (Object) AllGuiTextures.ATTRIBUTE_FILTER).wildfires$setLocation(new ResourceLocation("wildfires", "textures/gui/filters.png"));
+        ((AllGuiTexturesAccessor) (Object) AllGuiTextures.ATTRIBUTE_FILTER).wildfires$setLocation(
+                ResourceLocation.fromNamespaceAndPath("wildfires", "textures/gui/filters.png"));
     }
 }

@@ -2,7 +2,9 @@ package first.wildfires.mixin.legendarysurvivaloverhaul;
 
 
 import first.wildfires.utils.CuriosUtil;
+import first.wildfires.thermal.ThermalFieldManager;
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.client.gui.overlay.IGuiOverlay;
 import org.spongepowered.asm.mixin.Final;
@@ -16,6 +18,7 @@ import sfiomn.legendarysurvivaloverhaul.api.temperature.TemperatureDisplayEnum;
 import sfiomn.legendarysurvivaloverhaul.client.render.RenderTemperatureGui;
 import sfiomn.legendarysurvivaloverhaul.config.Config;
 import sfiomn.legendarysurvivaloverhaul.registry.ItemRegistry;
+import sfiomn.legendarysurvivaloverhaul.api.temperature.TemperatureUtil;
 
 import java.util.Objects;
 import java.util.Random;
@@ -37,7 +40,9 @@ public class RenderTemperatureGuiMixin {
     )
     private static void clinit(CallbackInfo ci) {
         TEMPERATURE_GUI = (forgeGui, guiGraphics, partialTicks, width, height) -> {
-            if (Config.Baked.temperatureEnabled && !Minecraft.getInstance().options.hideGui && forgeGui.shouldDrawSurvivalElements()) {
+            if (Config.Baked.temperatureEnabled && !Minecraft.getInstance().options.hideGui
+                    && (forgeGui.shouldDrawSurvivalElements()
+                    || (forgeGui.getMinecraft().player != null && forgeGui.getMinecraft().player.getAbilities().instabuild))) {
                 Player player = forgeGui.getMinecraft().player;
                 if (player != null) {
                     rand.setSeed((long) player.tickCount * 445L);
@@ -48,10 +53,16 @@ public class RenderTemperatureGuiMixin {
                         RenderTemperatureGui.drawTemperatureAsSymbol(guiGraphics, player, width, height);
                         Minecraft.getInstance().getProfiler().pop();
                     }
-                    if (equipped) {
+                    if (equipped && forgeGui.shouldDrawSurvivalElements()) {
                         Minecraft.getInstance().getProfiler().push("body_temperature_gui");
                         RenderTemperatureGui.drawBodyTemperature(guiGraphics, player, width, height);
                         Minecraft.getInstance().getProfiler().pop();
+                    }
+                    if (player.getAbilities().instabuild) {
+                        float radiation = ThermalFieldManager.getTemperatureOffset(player);
+                        float environment = TemperatureUtil.getWorldTemperature(player.level(), player.blockPosition());
+                        String thermalText = String.format("热辐射：%+.1fF  世界温度：%.1f", radiation, environment);
+                        guiGraphics.drawString(Minecraft.getInstance().font, Component.literal(thermalText), 8, 8, 0xFFFFFF, true);
                     }
                 }
             }

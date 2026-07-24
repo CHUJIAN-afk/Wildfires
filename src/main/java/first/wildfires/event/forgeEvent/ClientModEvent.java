@@ -22,8 +22,9 @@ public final class ClientModEvent {
     public static void onClientSetup(FMLClientSetupEvent event) {
         event.enqueueWork(() -> ItemProperties.register(
                 ItemRegister.SimpleCompass.get(),
-                new ResourceLocation("angle"),
-                (ClampedItemPropertyFunction) ItemProperties.getProperty(Items.COMPASS, new ResourceLocation("angle"))
+                ResourceLocation.fromNamespaceAndPath("minecraft", "angle"),
+                (ClampedItemPropertyFunction) ItemProperties.getProperty(Items.COMPASS,
+                        ResourceLocation.fromNamespaceAndPath("minecraft", "angle"))
         ));
     }
 }

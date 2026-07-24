@@ -47,12 +47,6 @@ public class WeavingRecipeCategory implements IRecipeCategory<WeavingRecipe> {
         return Component.translatable("wildfires.jei.category.weaving");
     }
 
-    @SuppressWarnings("all")
-    @Override
-    public IDrawable getBackground() {
-        return background;
-    }
-
     @Override
     public IDrawable getIcon() {
         return helper.createDrawableIngredient(VanillaTypes.ITEM_STACK, new ItemStack(BlockRegister.LoomControlBlock.asItem()));

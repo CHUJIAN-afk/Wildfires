@@ -32,12 +32,21 @@ public class BasketBlockEntityMixin {
         items = NonNullList.withSize(TFC_CHEST_SIZE, ItemStack.EMPTY);
     }
 
-    @Inject(method = "m_6555_", at = @At("HEAD"), cancellable = true, remap = false)
+    @Inject(
+            method = "createMenu(ILnet/minecraft/world/entity/player/Inventory;)Lnet/minecraft/world/inventory/AbstractContainerMenu;",
+            at = @At("HEAD"),
+            cancellable = true,
+            remap = true
+    )
     private void createTfcChestMenu(int containerId, Inventory playerInventory, CallbackInfoReturnable<AbstractContainerMenu> cir) {
         cir.setReturnValue(new ChestMenu(MenuType.GENERIC_9x2, containerId, playerInventory, (BasketBlockEntity) (Object) this, 2));
     }
 
-    @Inject(method = "m_142466_", at = @At("TAIL"), remap = false)
+    @Inject(
+            method = "load(Lnet/minecraft/nbt/CompoundTag;)V",
+            at = @At("TAIL"),
+            remap = true
+    )
     private void dropItemsOutsideTfcChestRules(CompoundTag tag, CallbackInfo ci) {
         BasketBlockEntity basket = (BasketBlockEntity) (Object) this;
         Level level = basket.getLevel();

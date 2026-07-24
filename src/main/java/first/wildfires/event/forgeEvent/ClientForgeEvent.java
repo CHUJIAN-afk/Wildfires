@@ -8,6 +8,7 @@ import com.simibubi.create.foundation.item.TooltipModifier;
 import com.simibubi.create.foundation.utility.CreateLang;
 import com.tterrag.registrate.util.entry.BlockEntry;
 import first.wildfires.Wildfires;
+import first.wildfires.client.ThermalDebugRenderer;
 import first.wildfires.api.customEvent.CreativeTabBuildEvent;
 import first.wildfires.kinetic.loom.LoomControlBlock;
 import first.wildfires.network.PlayerInputPacket;
@@ -19,6 +20,7 @@ import first.wildfires.utils.CuriosUtil;
 import net.createmod.ponder.api.registration.PonderPlugin;
 import net.createmod.ponder.foundation.PonderIndex;
 import net.minecraft.ChatFormatting;
+import net.minecraft.commands.Commands;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -26,6 +28,9 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.MovementInputUpdateEvent;
+import net.minecraftforge.client.event.RegisterClientCommandsEvent;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.client.event.RenderLevelStageEvent;
 import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -46,6 +51,31 @@ public class ClientForgeEvent {
             PlayerInputPacket packet = new PlayerInputPacket();
             packet.sendToServer();
         }
+    }
+
+    @SubscribeEvent
+    public static void renderThermalDebug(RenderLevelStageEvent event) {
+        ThermalDebugRenderer.render(event);
+    }
+
+    @SubscribeEvent
+    public static void tickThermalDebug(TickEvent.ClientTickEvent event) {
+        if (event.phase == TickEvent.Phase.END) {
+            ThermalDebugRenderer.tick();
+        }
+    }
+
+    @SubscribeEvent
+    public static void registerClientCommands(RegisterClientCommandsEvent event) {
+        event.getDispatcher().register(Commands.literal("wildfires")
+                .then(Commands.literal("thermaldebug").executes(context -> {
+                    boolean enabled = ThermalDebugRenderer.toggle();
+                    int sources = enabled ? ThermalDebugRenderer.refreshAndGetSourceCount() : 0;
+                    context.getSource().sendSuccess(() -> Component.literal(enabled
+                            ? "热调试已开启，热源数量：" + sources
+                            : "热调试已关闭"), false);
+                    return 1;
+                })));
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)

@@ -14,7 +14,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 /** Makes KubeJS damageIngredient recipes return an empty glue container on the final use. */
 @Mixin(value = DamageAction.class, remap = false)
 public class DamageActionMixin {
-    private static final ResourceLocation CREATE_SUPER_GLUE_ID = new ResourceLocation("create", "super_glue");
+    private static final ResourceLocation CREATE_SUPER_GLUE_ID = ResourceLocation.fromNamespaceAndPath("create", "super_glue");
 
     @Inject(method = "transform", at = @At("RETURN"), cancellable = true)
     private void returnEmptyGlueWhenExhausted(ItemStack ingredient, int slot, CraftingContainer container,

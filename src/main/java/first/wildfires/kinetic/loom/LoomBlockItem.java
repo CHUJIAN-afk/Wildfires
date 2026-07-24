@@ -95,6 +95,10 @@ public class LoomBlockItem extends BlockItem {
         if (level.setBlockAndUpdate(controlPos, placementState)) {
             // 手动调用onPlace来生成结构块
             this.getBlock().onPlace(placementState, level, controlPos, level.getBlockState(controlPos), false);
+            ItemStack itemStack = context.getItemInHand();
+            if (!itemStack.isEmpty()) {
+                itemStack.shrink(1);
+            }
             return InteractionResult.SUCCESS;
         }
 

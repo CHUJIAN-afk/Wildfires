@@ -5,6 +5,7 @@ import dev.latvian.mods.kubejs.KubeJSPlugin;
 import dev.latvian.mods.kubejs.registry.RegistryInfo;
 import dev.latvian.mods.kubejs.script.BindingsEvent;
 import first.wildfires.compats.kubejs.event.TFCFluidEvents;
+import first.wildfires.compats.kubejs.event.ThermalSourceEvents;
 import first.wildfires.compats.kubejs.spartan.SpartanBindings;
 import first.wildfires.compats.kubejs.spartan.builders.*;
 
@@ -80,5 +81,6 @@ public class WildfiresPlugin extends KubeJSPlugin  {
     @Override
     public void registerEvents() {
         TFCFluidEvents.GROUP.register();
+        ThermalSourceEvents.GROUP.register();
     }
 }

@@ -27,12 +27,15 @@ public class CrushingWheelBlockMixin {
     }
 
     @WrapOperation(
+            // This inherited vanilla method must be remapped through the
+            // refmap: canSurvive in userdev is m_7898_ in the packaged jar.
             method = "canSurvive(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/LevelReader;Lnet/minecraft/core/BlockPos;)Z",
             at = @At(
                     value = "INVOKE",
-                    target = "Lcom/tterrag/registrate/util/entry/BlockEntry;has(Lnet/minecraft/world/level/block/state/BlockState;)Z"
+                    target = "Lcom/tterrag/registrate/util/entry/BlockEntry;has(Lnet/minecraft/world/level/block/state/BlockState;)Z",
+                    remap = false
             ),
-            remap = false
+            remap = true
     )
     public boolean canSurviveCheckInstance(BlockEntry<?> instance, BlockState state, Operation<Boolean> original) {
         if (state.getBlock() instanceof CustomCrushingWheelBlock) {

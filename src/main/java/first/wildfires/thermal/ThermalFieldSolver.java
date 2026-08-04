@@ -10,9 +10,11 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * A bounded, steady-state approximation. It deliberately avoids storing heat
- * over time and only follows connected, passable blocks near the queried position.
+ * Disabled legacy solver. The active implementation uses ThermalGrid and the
+ * section field caches. Keep this source commented until the old algorithm is
+ * either removed permanently or reintroduced deliberately.
  */
+/*
 final class ThermalFieldSolver {
 
     private static final int MAX_SUPPORTED_RADIUS = 24;
@@ -121,3 +123,4 @@ final class ThermalFieldSolver {
     private record SearchNode(BlockPos position, int distance) {
     }
 }
+*/

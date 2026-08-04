@@ -13,6 +13,10 @@ import first.wildfires.kinetic.loom.LoomBlockItem;
 import first.wildfires.kinetic.loom.LoomAuxiliaryBlock;
 import first.wildfires.kinetic.loom.LoomControlBlock;
 import first.wildfires.kinetic.loom.LoomStructureBlock;
+import net.dries007.tfc.common.blockentities.CharcoalForgeBlockEntity;
+import net.dries007.tfc.common.blockentities.TFCBlockEntities;
+import net.dries007.tfc.common.blocks.ExtendedProperties;
+import net.dries007.tfc.common.blocks.devices.CharcoalForgeBlock;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -245,6 +249,19 @@ public class BlockRegister {
             .register();
 
     public static final DeferredRegister<Block> Register = DeferredRegister.create(Registries.BLOCK, Wildfires.MODID);
+
+    public static final RegistryObject<UnrestrictedCharcoalForgeBlock> UnrestrictedCharcoalForge =
+            Register.register("unrestricted_charcoal_forge", () -> new UnrestrictedCharcoalForgeBlock(
+                    ExtendedProperties.of()
+                            .sound(SoundType.STONE)
+                            .strength(3.5F)
+                            .requiresCorrectToolForDrops()
+                            .noOcclusion()
+                            .randomTicks()
+                            .lightLevel(state -> state.getValue(CharcoalForgeBlock.HEAT))
+                            .blockEntity(TFCBlockEntities.CHARCOAL_FORGE)
+                            .serverTicks(UnrestrictedCharcoalForgeBlock::serverTick)
+            ));
 
     public static final RegistryObject<SlabBlock> GrassSlab = Register.register("grass_slab",
             () -> new SlabBlock(BlockBehaviour.Properties.copy(Blocks.GRASS_BLOCK)));

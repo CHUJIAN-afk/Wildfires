@@ -4,6 +4,9 @@ import com.github.alexthe666.citadel.server.item.CustomArmorMaterial;
 import first.wildfires.Wildfires;
 import first.wildfires.item.GeckoSimpleArmorItem;
 import first.wildfires.item.HeatResistantArmorItem;
+import first.wildfires.item.DrainedPulpScoopItem;
+import first.wildfires.item.FilledPulpScoopItem;
+import first.wildfires.item.PulpScoopItem;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -43,6 +46,15 @@ public class ItemRegister {
     public static final RegistryObject<Item> EmptySuperGlue =
             Register.register("empty_super_glue", () -> new Item(new Item.Properties()));
 
+    public static final RegistryObject<Item> PulpScoop =
+            Register.register("pulp_scoop", () -> new PulpScoopItem(new Item.Properties().stacksTo(1)));
+
+    public static final RegistryObject<Item> FilledPulpScoop =
+            Register.register("filled_pulp_scoop", () -> new FilledPulpScoopItem(new Item.Properties().stacksTo(1)));
+
+    public static final RegistryObject<Item> DrainedPulpScoop =
+            Register.register("drained_pulp_scoop", () -> new DrainedPulpScoopItem(new Item.Properties().stacksTo(1)));
+
     public static final CustomArmorMaterial RainGearArmorMaterial = new CustomArmorMaterial(
             "minecraft:leather",
             60,
@@ -52,9 +64,9 @@ public class ItemRegister {
             0.0F,
             0.0F
     );
-    public static final CustomArmorMaterial BambooHatAndCoirRaincoatArmorMaterial = rainGearArmorMaterial("wildfires:bamboo_hat_and_coir_raincoat", 80);
+    public static final CustomArmorMaterial BambooHatAndCoirRaincoatArmorMaterial = rainGearArmorMaterial("wildfires:bamboo_hat_and_coir_raincoat", 240);
     public static final CustomArmorMaterial RubberDivingSuitArmorMaterial = rainGearArmorMaterial("wildfires:rubber_diving_suit");
-    public static final CustomArmorMaterial ForgingApronArmorMaterial = rainGearArmorMaterial("wildfires:forging_apron");
+    public static final CustomArmorMaterial ForgingApronArmorMaterial = rainGearArmorMaterial("wildfires:forging_apron", 210);
 
     public static final RegistryObject<GeckoSimpleArmorItem> ConicalHat = Register.register("conical_hat", () -> new GeckoSimpleArmorItem(
             BambooHatAndCoirRaincoatArmorMaterial, ArmorItem.Type.HELMET, new Item.Properties(), "bamboo_hat", "bamboo_hat_and_coir_raincoat", 3.5D));
@@ -92,6 +104,9 @@ public class ItemRegister {
 
 
     public static final RegistryObject<Item> GrassSlab = Register.register("grass_slab", () -> new BlockItem(BlockRegister.GrassSlab.get(), new Item.Properties()));
+
+    public static final RegistryObject<Item> UnrestrictedCharcoalForge =
+            Register.register("unrestricted_charcoal_forge", () -> new BlockItem(BlockRegister.UnrestrictedCharcoalForge.get(), new Item.Properties()));
 
     public static final RegistryObject<Item> UnderwaterTurbine =
             Register.register("underwater_turbine", () -> new BlockItem(BlockRegister.UnderwaterTurbine.get(), new Item.Properties()));

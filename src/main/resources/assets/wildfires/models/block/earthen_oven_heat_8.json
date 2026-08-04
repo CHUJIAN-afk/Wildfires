@@ -1,0 +1,4 @@
+{
+  "parent": "wildfires:block/earthen_oven",
+  "textures": { "heat": "wildfires:block/earthen_oven_heat_8" }
+}

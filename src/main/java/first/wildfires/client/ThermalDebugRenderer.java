@@ -9,6 +9,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.client.event.RenderLevelStageEvent;
@@ -16,6 +17,7 @@ import net.minecraftforge.client.event.RenderLevelStageEvent;
 import java.util.Locale;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public final class ThermalDebugRenderer {
 
@@ -24,6 +26,7 @@ public final class ThermalDebugRenderer {
     private static final int LABEL_INTERVAL = 1;
     private static final int LABEL_HALF_EXTENT = 12;
     private static final int MAX_LABELS = 8192;
+    private static final int MAX_SOURCE_LABELS = 256;
     private static int lastScanTick = Integer.MIN_VALUE;
     private static int refreshRequestedTick = Integer.MIN_VALUE;
     private static BlockPos lastGridCenter;
@@ -77,6 +80,7 @@ public final class ThermalDebugRenderer {
                 || minecraft.player.tickCount - lastScanTick >= SCAN_INTERVAL_TICKS
                 || refreshReady) {
             SimpleThermalField.get(minecraft.level, minecraft.player.blockPosition());
+            updateSources(minecraft.level, minecraft.player.blockPosition(), minecraft.player.tickCount);
             ThermalGrid.rebuildAround(minecraft.level, minecraft.player.blockPosition());
             lastGridCenter = minecraft.player.blockPosition().immutable();
             refreshRequestedTick = Integer.MIN_VALUE;
@@ -103,6 +107,14 @@ public final class ThermalDebugRenderer {
         MultiBufferSource.BufferSource buffers = minecraft.renderBuffers().bufferSource();
         Font font = minecraft.font;
         BlockPos playerPosition = minecraft.player.blockPosition();
+        int sourceLabels = 0;
+        for (SourceVisual source : SOURCES) {
+            if (sourceLabels >= MAX_SOURCE_LABELS) {
+                break;
+            }
+            renderSourceLabel(poseStack, buffers, font, minecraft, source);
+            sourceLabels++;
+        }
         int labels = 0;
         BlockPos.MutableBlockPos position = new BlockPos.MutableBlockPos();
         for (int distance = 0; distance <= LABEL_HALF_EXTENT && labels < MAX_LABELS; distance++) {
@@ -145,6 +157,31 @@ public final class ThermalDebugRenderer {
         poseStack.popPose();
     }
 
+    private static void renderSourceLabel(PoseStack poseStack, MultiBufferSource.BufferSource buffers, Font font,
+                                          Minecraft minecraft, SourceVisual source) {
+        BlockState state = source.state();
+        String blockName = state.getBlock().getName().getString();
+        String blockId = String.valueOf(BuiltInRegistries.BLOCK.getKey(state.getBlock()));
+        String properties = state.getValues().entrySet().stream()
+                .map(entry -> entry.getKey().getName() + "=" + entry.getValue())
+                .collect(Collectors.joining(", "));
+        String description = properties.isEmpty()
+                ? blockName + " (" + blockId + ")"
+                : blockName + " (" + blockId + ") | " + properties;
+        String temperature = String.format(Locale.ROOT, "%.1f", source.temperature());
+
+        poseStack.pushPose();
+        poseStack.translate(source.position().getX() + 0.5D, source.position().getY() + 1.35D,
+                source.position().getZ() + 0.5D);
+        poseStack.mulPose(minecraft.getEntityRenderDispatcher().cameraOrientation());
+        poseStack.scale(-0.016F, -0.016F, 0.016F);
+        font.drawInBatch(description, -font.width(description) / 2.0F, 0.0F, 0xFFFF8C00, false,
+                poseStack.last().pose(), buffers, Font.DisplayMode.SEE_THROUGH, 0, 0x00F000F0);
+        font.drawInBatch(temperature, -font.width(temperature) / 2.0F, 10.0F, 0xFFFFD900, false,
+                poseStack.last().pose(), buffers, Font.DisplayMode.SEE_THROUGH, 0, 0x00F000F0);
+        poseStack.popPose();
+    }
+
     private static void updateSources(Level level, BlockPos center, int currentTick) {
         SOURCES.clear();
         BlockPos.MutableBlockPos position = new BlockPos.MutableBlockPos();
@@ -156,7 +193,7 @@ public final class ThermalDebugRenderer {
                     ThermalSourceRegistry.ThermalSourceDefinition definition = ThermalSourceRegistry.getDefinition(state);
                     if (definition != null) {
                         SOURCES.add(new SourceVisual(position.immutable(), definition.radiationRadius(),
-                                ThermalSourceRegistry.getRadiationTemperature(level, position, state)));
+                                ThermalSourceRegistry.getRadiationTemperature(level, position, state), state));
                     }
                 }
             }
@@ -176,6 +213,6 @@ public final class ThermalDebugRenderer {
         displayReflectedCells = ThermalGrid.reflectionSnapshot(level);
     }
 
-    private record SourceVisual(BlockPos position, int radius, float temperature) {
+    private record SourceVisual(BlockPos position, int radius, float temperature, BlockState state) {
     }
 }

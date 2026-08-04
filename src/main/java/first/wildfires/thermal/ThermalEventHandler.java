@@ -96,7 +96,7 @@ public final class ThermalEventHandler {
         }
     }
 
-    private static void invalidate(net.minecraft.world.level.LevelAccessor level, BlockPos position) {
+    public static void invalidate(net.minecraft.world.level.LevelAccessor level, BlockPos position) {
         if (level instanceof Level actualLevel) {
             ThermalGrid.clear(actualLevel);
             SimpleThermalField.invalidateAround(actualLevel, position);

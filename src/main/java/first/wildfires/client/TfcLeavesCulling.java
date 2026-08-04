@@ -2,6 +2,11 @@ package first.wildfires.client;
 
 import net.minecraft.client.GraphicsStatus;
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.state.BlockState;
+import net.dries007.tfc.common.blocks.wood.ILeavesBlock;
 
 public final class TfcLeavesCulling {
     private static final String EMBEDDIUM_LEAVES_QUALITY = readEmbeddiumLeavesQuality();
@@ -31,5 +36,24 @@ public final class TfcLeavesCulling {
             return false;
         }
         return Minecraft.getInstance().options.graphicsMode().get() == GraphicsStatus.FAST;
+    }
+
+    /**
+     * Hides a leaf face only when the two blocks beyond that face are also
+     * leaves. This leaves the outer two layers visible in fast mode.
+     */
+    public static boolean shouldCullLeafSide(BlockState state, BlockGetter level, BlockPos pos, Direction direction) {
+        if (!useFastLeaves() || !(state.getBlock() instanceof ILeavesBlock)) {
+            return false;
+        }
+
+        BlockPos.MutableBlockPos scratch = new BlockPos.MutableBlockPos(pos.getX(), pos.getY(), pos.getZ());
+        for (int distance = 1; distance <= 2; distance++) {
+            scratch.move(direction);
+            if (!(level.getBlockState(scratch).getBlock() instanceof ILeavesBlock)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

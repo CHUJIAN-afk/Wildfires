@@ -84,10 +84,16 @@ public final class ComplexThermalField {
             SectionKey sectionKey = SectionKey.of(BlockPos.of(cell.getKey()));
             rebuiltValues.computeIfAbsent(sectionKey, ignored -> new HashMap<>()).put(cell.getKey(), cell.getValue());
         }
+        Map<SectionKey, CachedSection> rebuiltSections = new HashMap<>();
         for (Map.Entry<SectionKey, Map<Long, Float>> entry : rebuiltValues.entrySet()) {
-            sections.put(entry.getKey(), new CachedSection(Map.copyOf(entry.getValue()), false, 0L, 0L));
+            rebuiltSections.put(entry.getKey(), new CachedSection(Map.copyOf(entry.getValue()), false, 0L, 0L));
         }
-        sections.putIfAbsent(targetSection, new CachedSection(Map.of(), false, 0L, 0L));
+        rebuiltSections.putIfAbsent(targetSection, new CachedSection(Map.of(), false, 0L, 0L));
+
+        // ThermalGrid was rebuilt from scratch, so replace the cache as a whole.
+        // Keeping sections that are absent from this snapshot leaves stale heat behind.
+        sections.clear();
+        sections.putAll(rebuiltSections);
     }
 
     private record FieldKey(ResourceKey<Level> dimension, boolean clientSide) {

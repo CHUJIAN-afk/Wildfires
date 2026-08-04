@@ -1,9 +1,13 @@
 {
   "itemGroup.wildfire_tab": "wildfire",
+  "block.wildfires.unrestricted_charcoal_forge": "Charcoal Stove",
   "item.wildfires.dragon_fruit": "dragon_fruit",
   "item.wildfires.simple_compass": "Simple Compass",
   "item.wildfires.damaged_compass": "Damaged Compass",
   "item.wildfires.empty_super_glue": "Empty Super Glue",
+  "item.wildfires.pulp_scoop": "Pulp Scoop",
+  "item.wildfires.filled_pulp_scoop": "Filled Pulp Scoop",
+  "item.wildfires.drained_pulp_scoop": "Drained Pulp Scoop",
   "block.wildfires.loom_control_block": "Loom",
   "block.wildfires.loom_structure_block": "Loom Structure",
   "wildfires.loom.space_insufficient": "Not enough space to place loom",

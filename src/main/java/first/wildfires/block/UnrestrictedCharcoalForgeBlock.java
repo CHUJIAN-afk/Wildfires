@@ -1,0 +1,86 @@
+package first.wildfires.block;
+
+import net.dries007.tfc.common.blockentities.CharcoalForgeBlockEntity;
+import net.dries007.tfc.common.blocks.ExtendedProperties;
+import net.dries007.tfc.common.blocks.devices.CharcoalForgeBlock;
+import net.dries007.tfc.util.Helpers;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LevelAccessor;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.HorizontalDirectionalBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.StateDefinition;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
+import net.minecraft.world.level.block.state.properties.DirectionProperty;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
+
+/** A TFC charcoal forge that does not require an insulation multiblock. */
+public class UnrestrictedCharcoalForgeBlock extends CharcoalForgeBlock {
+
+    public static final BooleanProperty OVERHEATED = BooleanProperty.create("overheated");
+    public static final DirectionProperty FACING = HorizontalDirectionalBlock.FACING;
+    private static final float OVERHEATED_TEMPERATURE = 2300.0F;
+    private static final VoxelShape SHAPE = box(2, 0, 2, 14, 14, 14);
+
+    public UnrestrictedCharcoalForgeBlock(ExtendedProperties properties) {
+        super(properties);
+        registerDefaultState(defaultBlockState()
+                .setValue(OVERHEATED, false)
+                .setValue(FACING, Direction.NORTH));
+    }
+
+    /** Adds the eighth visual heat tier without changing TFC's fixed 0-7 HEAT property. */
+    public static void serverTick(Level level, BlockPos pos, BlockState state, CharcoalForgeBlockEntity blockEntity) {
+        CharcoalForgeBlockEntity.serverTick(level, pos, state, blockEntity);
+
+        BlockState updatedState = level.getBlockState(pos);
+        if (!(updatedState.getBlock() instanceof UnrestrictedCharcoalForgeBlock)) {
+            return;
+        }
+
+        boolean overheated = blockEntity.getTemperature() > OVERHEATED_TEMPERATURE;
+        if (updatedState.getValue(OVERHEATED) != overheated) {
+            level.setBlockAndUpdate(pos, updatedState.setValue(OVERHEATED, overheated));
+        }
+    }
+
+    @Override
+    protected void createBlockStateDefinition(StateDefinition.Builder<net.minecraft.world.level.block.Block, BlockState> builder) {
+        super.createBlockStateDefinition(builder);
+        builder.add(OVERHEATED, FACING);
+    }
+
+    @Override
+    public BlockState getStateForPlacement(BlockPlaceContext context) {
+        return defaultBlockState().setValue(FACING, context.getHorizontalDirection().getOpposite());
+    }
+
+    @Override
+    public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        return SHAPE;
+    }
+
+    @Override
+    public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        return SHAPE;
+    }
+
+    @Override
+    public BlockState updateShape(BlockState state, Direction direction, BlockState neighborState,
+                                  LevelAccessor level, BlockPos pos, BlockPos neighborPos) {
+        return state;
+    }
+
+    @Override
+    public void randomTick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
+        if (state.getValue(HEAT) > 0) {
+            Helpers.fireSpreaderTick(level, pos.above(), random, 3);
+        }
+    }
+}

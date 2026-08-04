@@ -10,9 +10,11 @@ import first.wildfires.api.MobPoopData;
 import first.wildfires.api.customEvent.*;
 import first.wildfires.register.SoundRegister;
 import first.wildfires.register.AttributeRegister;
+import first.wildfires.register.BlockRegister;
 import first.wildfires.register.ItemRegister;
 import first.wildfires.utils.CuriosUtil;
 import first.wildfires.utils.WildfiresUtil;
+import net.dries007.tfc.common.blockentities.CharcoalForgeBlockEntity;
 import net.dries007.tfc.common.blocks.plant.fruit.FruitTreeBranchBlock;
 import net.dries007.tfc.common.blocks.plant.fruit.FruitTreeLeavesBlock;
 import net.dries007.tfc.common.blocks.plant.fruit.Lifecycle;
@@ -24,6 +26,7 @@ import net.dries007.tfc.common.items.IngotItem;
 import net.dries007.tfc.common.items.TFCItems;
 import net.dries007.tfc.util.Metal;
 import net.dries007.tfc.util.Drinkable;
+import net.dries007.tfc.util.events.StartFireEvent;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
@@ -61,7 +64,6 @@ import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.items.IItemHandlerModifiable;
 import net.minecraftforge.registries.ForgeRegistries;
 import sfiomn.legendarysurvivaloverhaul.api.temperature.TemperatureEnum;
-import sfiomn.legendarysurvivaloverhaul.common.capabilities.temperature.TemperatureItemCapability;
 import sfiomn.legendarysurvivaloverhaul.util.CapabilityUtil;
 import top.theillusivec4.curios.api.CuriosApi;
 import top.theillusivec4.curios.api.event.CurioChangeEvent;
@@ -73,6 +75,10 @@ import java.util.concurrent.CompletableFuture;
 @Mod.EventBusSubscriber(modid = Wildfires.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class ForgeEvent {
 	private static final int SIMPLE_COMPASS_DECAY_INTERVAL_TICKS = 20;
+	private static final int ITEM_BODY_TEMPERATURE_INTERVAL_TICKS = 20;
+	private static final int RAIN_GEAR_DAMAGE_INTERVAL_TICKS = 20 * 10;
+	private static final float HOT_WATER_BOTTLE_BODY_TEMPERATURE_SCALE = 0.01f;
+	private static final float OTHER_HEATED_ITEM_BODY_TEMPERATURE_SCALE = 0.0001f;
 
 	private static final Map<String, Integer> RAIN_PROTECTION = Map.of(
 			"wildfires:umbrella_hat", 80,
@@ -103,6 +109,18 @@ public class ForgeEvent {
 	public static void place(PlayerInteractEvent.RightClickItem event) {
 		if (event.getItemStack().getItem() instanceof IngotItem) {
 			event.setCancellationResult(InteractionResult.PASS);
+		}
+	}
+
+	@SubscribeEvent(priority = EventPriority.HIGHEST)
+	public static void lightUnrestrictedCharcoalForge(StartFireEvent event) {
+		if (!event.isStrong() || !event.getState().is(BlockRegister.UnrestrictedCharcoalForge.get())) {
+			return;
+		}
+
+		if (event.getLevel().getBlockEntity(event.getPos()) instanceof CharcoalForgeBlockEntity forge
+				&& forge.light(event.getState())) {
+			event.setCanceled(true);
 		}
 	}
 
@@ -272,43 +290,86 @@ public class ForgeEvent {
 		}
 	}
 
+	/**
+	 * Directly changes current LSO body temperature once per second. TFC remains
+	 * the source of truth for item heat, so the contribution naturally follows
+	 * the item's real cooling curve instead of accumulating in item NBT.
+	 */
 	@SubscribeEvent
-	public static void itemTemperatureModify(ItemTemperatureModifyEvent event) {
-		ItemStack itemStack = event.getItemStack();
-		event.setNewTemperature(event.getNewTemperature() + HeatCapability.getTemperature(itemStack) * 0.1f);
+	public static void applyCarriedItemBodyTemperature(TickEvent.PlayerTickEvent event) {
+		if (event.phase != TickEvent.Phase.END || event.player.level().isClientSide()
+				|| event.player.tickCount % ITEM_BODY_TEMPERATURE_INTERVAL_TICKS != 0) {
+			return;
+		}
+
+		Player player = event.player;
+		float hotWaterBottleDelta = 0f;
+		float otherItemDelta = 0f;
+		for (ItemStack stack : player.getInventory().items) {
+			if (isHotWaterBottle(stack)) hotWaterBottleDelta += carriedItemBodyTemperatureDelta(stack);
+			else otherItemDelta += carriedItemBodyTemperatureDelta(stack);
+		}
+		if (isHotWaterBottle(player.getOffhandItem())) hotWaterBottleDelta += carriedItemBodyTemperatureDelta(player.getOffhandItem());
+		else otherItemDelta += carriedItemBodyTemperatureDelta(player.getOffhandItem());
+
+		if (Wildfires.CurioLoaded) {
+			IItemHandlerModifiable equippedCurios = CuriosApi.getCuriosInventory(player)
+					.resolve()
+					.map(handler -> handler.getEquippedCurios())
+					.orElse(null);
+			if (equippedCurios != null) {
+				for (int slot = 0; slot < equippedCurios.getSlots(); slot++) {
+					ItemStack stack = equippedCurios.getStackInSlot(slot);
+					if (isHotWaterBottle(stack)) hotWaterBottleDelta += carriedItemBodyTemperatureDelta(stack);
+					else otherItemDelta += carriedItemBodyTemperatureDelta(stack);
+				}
+			}
+		}
+
+		if (hotWaterBottleDelta != 0f || otherItemDelta != 0f) {
+			var temperatureCapability = CapabilityUtil.getTempCapability(player);
+			// A hot bag may warm a player into the HOT band, but never into HEAT_STROKE.
+			float heatStrokeBoundary = TemperatureEnum.HEAT_STROKE.getLowerBound() - 0.001f;
+			float allowedHotWaterBottleDelta = Math.max(0f, heatStrokeBoundary - (temperatureCapability.getTemperatureLevel() + otherItemDelta));
+			if (hotWaterBottleDelta > 0f) hotWaterBottleDelta = Math.min(hotWaterBottleDelta, allowedHotWaterBottleDelta);
+			temperatureCapability.addTemperatureLevel(otherItemDelta + hotWaterBottleDelta);
+		}
 	}
 
-	@SubscribeEvent
-	public static void playerTargetTemperatureModify(PlayerTargetTemperatureModifyEvent event) {
-		Player player = event.getPlayer();
-		double temperature = new ArrayList<>(player.getInventory().items).stream()
-				.filter(itemStack -> !player.getMainHandItem().equals(itemStack) && !player.getOffhandItem().equals(itemStack))
-				.filter(itemStack -> !itemStack.isEmpty())
-				.filter(itemStack -> itemStack.getTags().anyMatch(key -> key.location().toString().equals("kubejs:hot_water_bottle")))
-				.map(CapabilityUtil::getTempItemCapability)
-				.map(TemperatureItemCapability::getWorldTemperatureLevel)
-				.map(i -> i - TemperatureEnum.NORMAL.getMiddle())
-				.mapToDouble(Float::floatValue)
-				.sum() * 0.1;
-		List<ItemStack> itemStackList = new ArrayList<>();
-		player.getArmorSlots().forEach(itemStackList::add);
-		if (Wildfires.CurioLoaded) {
-			CuriosApi.getCuriosInventory(player).ifPresent(iCuriosItemHandler -> {
-				IItemHandlerModifiable equippedCurios = iCuriosItemHandler.getEquippedCurios();
-				for (int i = 0; i < equippedCurios.getSlots(); i++) {
-					itemStackList.add(equippedCurios.getStackInSlot(i));
-				}
-			});
+	private static float carriedItemBodyTemperatureDelta(ItemStack stack) {
+		if (stack.isEmpty()) {
+			return 0f;
 		}
-		temperature += itemStackList.stream()
-				.filter(itemStack -> !itemStack.isEmpty())
-				.filter(itemStack -> itemStack.getTags().anyMatch(key -> key.location().toString().equals("kubejs:hot_water_bottle")))
-				.map(CapabilityUtil::getTempItemCapability)
-				.map(TemperatureItemCapability::getWorldTemperatureLevel)
-				.map(i -> i - TemperatureEnum.NORMAL.getMiddle())
-				.mapToDouble(Float::floatValue)
-				.sum();
-		event.setNewTemperature((float) (event.getNewTemperature() + temperature));
+		float scale = isHotWaterBottle(stack)
+				? HOT_WATER_BOTTLE_BODY_TEMPERATURE_SCALE
+				: OTHER_HEATED_ITEM_BODY_TEMPERATURE_SCALE;
+		return HeatCapability.getTemperature(stack) * scale;
+	}
+
+	private static boolean isHotWaterBottle(ItemStack stack) {
+		return !stack.isEmpty() && stack.getTags().anyMatch(key -> key.location().toString().equals("kubejs:hot_water_bottle"));
+	}
+
+	/**
+	 * Rainproof attributes can reduce rain wetness to zero, so this deliberately
+	 * tests physical rain exposure instead of relying on the wetness increment.
+	 */
+	@SubscribeEvent
+	public static void damageRainGearInRain(TickEvent.PlayerTickEvent event) {
+		if (event.phase != TickEvent.Phase.END || event.player.level().isClientSide()
+				|| event.player.tickCount % RAIN_GEAR_DAMAGE_INTERVAL_TICKS != 0
+				|| !event.player.level().isRainingAt(event.player.blockPosition())) {
+			return;
+		}
+		damageRainGear(event.player, EquipmentSlot.HEAD, ItemRegister.ConicalHat.get());
+		damageRainGear(event.player, EquipmentSlot.CHEST, ItemRegister.StrawRainCape.get());
+	}
+
+	private static void damageRainGear(Player player, EquipmentSlot slot, Item gear) {
+		ItemStack stack = player.getItemBySlot(slot);
+		if (stack.is(gear)) {
+			stack.hurtAndBreak(1, player, entity -> entity.broadcastBreakEvent(slot));
+		}
 	}
 
 	@SubscribeEvent
@@ -431,6 +492,25 @@ public class ForgeEvent {
 				event.addModifier(Attributes.ATTACK_DAMAGE, modifier);
 			}
 		}
+	}
+
+	/** Applies equipment rainproof percentage only to wetness caused by rain. */
+	@SubscribeEvent
+	public static void reduceRainWetness(PlayerWetnessEvent.RainIncrease event) {
+		// The attribute is displayed at one tenth of its effective percentage.
+		double rainproofPercent = event.getPlayer().getAttributeValue(AttributeRegister.Rainproof.get()) * 10d;
+		if (rainproofPercent <= 0d) {
+			return;
+		}
+
+		float wetnessChance = (float) Math.max(0d, 1d - rainproofPercent / 100d);
+		int remainingWetness = 0;
+		for (int point = 0; point < event.getWetness(); point++) {
+			if (event.getPlayer().getRandom().nextFloat() < wetnessChance) {
+				remainingWetness++;
+			}
+		}
+		event.setWetness(remainingWetness);
 	}
 
 	private static void addWetnessProtectionModifiers(ItemAttributeModifierEvent event, ItemStack itemStack) {

@@ -7,7 +7,10 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -16,6 +19,7 @@ import java.util.Map;
 public final class ThermalSourceRegistry {
 
     private static final Map<Block, ThermalSourceDefinition> THERMAL_SOURCES = new HashMap<>();
+    private static final Map<Block, List<StateThermalSourceDefinition>> STATE_THERMAL_SOURCES = new HashMap<>();
 
     static {
         /*
@@ -79,7 +83,31 @@ public final class ThermalSourceRegistry {
         THERMAL_SOURCES.put(block, definition);
     }
 
+    public static void unregister(Block block) {
+        THERMAL_SOURCES.remove(block);
+        STATE_THERMAL_SOURCES.remove(block);
+    }
+
+    /** Registers a source that is active only when all listed block-state properties match. */
+    public static void registerState(Block block, Map<String, ?> properties, ThermalSourceDefinition definition) {
+        Map<String, String> expectedProperties = new LinkedHashMap<>();
+        for (Map.Entry<String, ?> entry : properties.entrySet()) {
+            expectedProperties.put(entry.getKey(), String.valueOf(entry.getValue()));
+        }
+        STATE_THERMAL_SOURCES.computeIfAbsent(block, ignored -> new ArrayList<>())
+                .add(new StateThermalSourceDefinition(expectedProperties, definition));
+    }
+
     public static ThermalSourceDefinition getDefinition(BlockState state) {
+        List<StateThermalSourceDefinition> stateDefinitions = STATE_THERMAL_SOURCES.get(state.getBlock());
+        if (stateDefinitions != null) {
+            for (int index = stateDefinitions.size() - 1; index >= 0; index--) {
+                StateThermalSourceDefinition definition = stateDefinitions.get(index);
+                if (definition.matches(state)) {
+                    return definition.definition();
+                }
+            }
+        }
         return THERMAL_SOURCES.get(state.getBlock());
     }
 
@@ -87,15 +115,20 @@ public final class ThermalSourceRegistry {
         return getDefinition(state) != null;
     }
 
+    /** True for blocks whose thermal output may vary when their block state changes. */
+    public static boolean hasStateThermalSource(BlockState state) {
+        return STATE_THERMAL_SOURCES.containsKey(state.getBlock());
+    }
+
     public static int getMaximumRadiationRadius() {
-        return THERMAL_SOURCES.values().stream()
+        return allDefinitions().stream()
                 .mapToInt(ThermalSourceDefinition::radiationRadius)
                 .max()
                 .orElse(0);
     }
 
     public static int getMaximumSimpleRadiationRadius() {
-        return THERMAL_SOURCES.values().stream()
+        return allDefinitions().stream()
                 .filter(ThermalSourceDefinition::simpleHeatSource)
                 .mapToInt(ThermalSourceDefinition::radiationRadius)
                 .max()
@@ -103,7 +136,7 @@ public final class ThermalSourceRegistry {
     }
 
     public static int getMaximumComplexRadiationRadius() {
-        return THERMAL_SOURCES.values().stream()
+        return allDefinitions().stream()
                 .filter(definition -> !definition.simpleHeatSource())
                 .mapToInt(ThermalSourceDefinition::radiationRadius)
                 .max()
@@ -129,6 +162,31 @@ public final class ThermalSourceRegistry {
     private static float clampToSourceLimit(float temperature, float maximumTemperature) {
         float limit = Math.abs(maximumTemperature);
         return Math.max(-limit, Math.min(temperature, limit));
+    }
+
+    private static List<ThermalSourceDefinition> allDefinitions() {
+        List<ThermalSourceDefinition> definitions = new ArrayList<>(THERMAL_SOURCES.values());
+        for (List<StateThermalSourceDefinition> stateDefinitions : STATE_THERMAL_SOURCES.values()) {
+            for (StateThermalSourceDefinition stateDefinition : stateDefinitions) {
+                definitions.add(stateDefinition.definition());
+            }
+        }
+        return definitions;
+    }
+
+    private record StateThermalSourceDefinition(Map<String, String> properties,
+                                                ThermalSourceDefinition definition) {
+        private boolean matches(BlockState state) {
+            for (Map.Entry<String, String> expected : properties.entrySet()) {
+                boolean found = state.getValues().entrySet().stream().anyMatch(actual ->
+                        actual.getKey().getName().equals(expected.getKey())
+                                && String.valueOf(actual.getValue()).equals(expected.getValue()));
+                if (!found) {
+                    return false;
+                }
+            }
+            return true;
+        }
     }
 
     public record ThermalSourceDefinition(

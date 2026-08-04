@@ -1,0 +1,363 @@
+{
+    "multipart":  [
+                      {
+                          "when":  {
+                                       "heat_level":  "0",
+                                       "facing":  "north"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_0"
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "0",
+                                       "facing":  "east"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_0",
+                                        "y":  90
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "0",
+                                       "facing":  "south"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_0",
+                                        "y":  180
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "0",
+                                       "facing":  "west"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_0",
+                                        "y":  270
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "1",
+                                       "facing":  "north"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_1"
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "1",
+                                       "facing":  "east"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_1",
+                                        "y":  90
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "1",
+                                       "facing":  "south"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_1",
+                                        "y":  180
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "1",
+                                       "facing":  "west"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_1",
+                                        "y":  270
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "2",
+                                       "facing":  "north"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_2"
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "2",
+                                       "facing":  "east"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_2",
+                                        "y":  90
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "2",
+                                       "facing":  "south"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_2",
+                                        "y":  180
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "2",
+                                       "facing":  "west"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_2",
+                                        "y":  270
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "3",
+                                       "facing":  "north"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_3"
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "3",
+                                       "facing":  "east"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_3",
+                                        "y":  90
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "3",
+                                       "facing":  "south"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_3",
+                                        "y":  180
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "3",
+                                       "facing":  "west"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_3",
+                                        "y":  270
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "4",
+                                       "facing":  "north"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_4"
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "4",
+                                       "facing":  "east"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_4",
+                                        "y":  90
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "4",
+                                       "facing":  "south"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_4",
+                                        "y":  180
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "4",
+                                       "facing":  "west"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_4",
+                                        "y":  270
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "5",
+                                       "facing":  "north"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_5"
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "5",
+                                       "facing":  "east"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_5",
+                                        "y":  90
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "5",
+                                       "facing":  "south"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_5",
+                                        "y":  180
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "5",
+                                       "facing":  "west"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_5",
+                                        "y":  270
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "6",
+                                       "facing":  "north"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_6"
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "6",
+                                       "facing":  "east"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_6",
+                                        "y":  90
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "6",
+                                       "facing":  "south"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_6",
+                                        "y":  180
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "6",
+                                       "facing":  "west"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_6",
+                                        "y":  270
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "7",
+                                       "overheated":  "false",
+                                       "facing":  "north"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_7"
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "7",
+                                       "overheated":  "false",
+                                       "facing":  "east"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_7",
+                                        "y":  90
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "7",
+                                       "overheated":  "false",
+                                       "facing":  "south"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_7",
+                                        "y":  180
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "7",
+                                       "overheated":  "false",
+                                       "facing":  "west"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_7",
+                                        "y":  270
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "7",
+                                       "overheated":  "true",
+                                       "facing":  "north"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_8"
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "7",
+                                       "overheated":  "true",
+                                       "facing":  "east"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_8",
+                                        "y":  90
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "7",
+                                       "overheated":  "true",
+                                       "facing":  "south"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_8",
+                                        "y":  180
+                                    }
+                      },
+                      {
+                          "when":  {
+                                       "heat_level":  "7",
+                                       "overheated":  "true",
+                                       "facing":  "west"
+                                   },
+                          "apply":  {
+                                        "model":  "wildfires:block/earthen_oven_heat_8",
+                                        "y":  270
+                                    }
+                      }
+                  ]
+}

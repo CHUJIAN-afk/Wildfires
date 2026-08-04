@@ -4,6 +4,7 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Multimap;
 import first.wildfires.client.renderer.entity.GeckoSimpleArmorItemRenderer;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
@@ -20,12 +21,12 @@ import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache
 import software.bernie.geckolib.core.animation.AnimatableManager;
 import software.bernie.geckolib.util.GeckoLibUtil;
 
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.function.Consumer;
 
 public class GeckoSimpleArmorItem extends ArmorItem implements GeoItem {
     private static final ResourceLocation HEAT_RESISTANCE = ResourceLocation.fromNamespaceAndPath("legendarysurvivaloverhaul", "heat_resistance");
-    private static final UUID HEAT_RESISTANCE_UUID = UUID.fromString("0c8d2f18-a0e6-427a-8b1e-e2df7e0cbe24");
 
     private AnimatableInstanceCache _cache;
     private final String modelPath;
@@ -92,7 +93,12 @@ public class GeckoSimpleArmorItem extends ArmorItem implements GeoItem {
 
         return ImmutableMultimap.<Attribute, AttributeModifier>builder()
                 .putAll(super.getDefaultAttributeModifiers(slot))
-                .put(attribute, new AttributeModifier(HEAT_RESISTANCE_UUID, "Conical hat heat resistance", heatResistance, AttributeModifier.Operation.ADDITION))
+                .put(attribute, new AttributeModifier(heatResistanceUuid(), "Wildfires armor heat resistance", heatResistance, AttributeModifier.Operation.ADDITION))
                 .build();
+    }
+
+    private UUID heatResistanceUuid() {
+        String key = BuiltInRegistries.ITEM.getKey(this).toString();
+        return UUID.nameUUIDFromBytes((key + ":heat_resistance").getBytes(StandardCharsets.UTF_8));
     }
 }

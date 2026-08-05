@@ -3,6 +3,7 @@ package first.wildfires.network.base;
 import first.wildfires.register.NetworkPacketRegister;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraftforge.network.NetworkEvent;
+import net.minecraftforge.network.NetworkDirection;
 import net.minecraftforge.network.PacketDistributor;
 
 import java.util.function.Supplier;
@@ -29,7 +30,14 @@ public interface ICustomPacketPayload {
     }
 
     static <T extends ICustomPacketPayload> void register(Class<T> packetClass) {
-        NetworkPacketRegister.Instance.messageBuilder(packetClass, NetworkPacketRegister.id++)
+        register(packetClass, null);
+    }
+
+    static <T extends ICustomPacketPayload> void register(Class<T> packetClass, NetworkDirection direction) {
+        var builder = direction == null
+                ? NetworkPacketRegister.Instance.messageBuilder(packetClass, NetworkPacketRegister.id++)
+                : NetworkPacketRegister.Instance.messageBuilder(packetClass, NetworkPacketRegister.id++, direction);
+        builder
                 .encoder(T::encode)
                 .decoder(buf -> {
                     try {

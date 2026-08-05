@@ -5,6 +5,8 @@ import first.wildfires.compats.kubejs.event.TFCFluidEvents;
 import first.wildfires.compats.kubejs.event.TFCFluidModificationEventJS;
 import first.wildfires.compats.kubejs.event.ThermalSourceEventJS;
 import first.wildfires.compats.kubejs.event.ThermalSourceEvents;
+import first.wildfires.thermal.ThermalBoundaryRegistry;
+import first.wildfires.thermal.ThermalSourceRegistry;
 import net.dries007.tfc.common.fluids.ExtendedFluidType;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.spongepowered.asm.mixin.Mixin;
@@ -17,6 +19,8 @@ public class UtilsJSMixin {
 
     @Inject(method = "postModificationEvents", at = @At("TAIL"), remap = false)
     private static void postModificationEvents(CallbackInfo ci) {
+        ThermalSourceRegistry.resetToBuiltins();
+        ThermalBoundaryRegistry.clearOverrides();
         ThermalSourceEvents.SOURCES.post(new ThermalSourceEventJS());
 
         for (var fluid : ForgeRegistries.FLUIDS.getValues()) {

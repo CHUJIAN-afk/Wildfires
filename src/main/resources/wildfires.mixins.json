@@ -25,6 +25,7 @@
     "legendarysurvivaloverhaul.ResistanceAttributeModifierMixin",
     "legendarysurvivaloverhaul.TemperatureEnumAccessor",
     "legendarysurvivaloverhaul.TemperatureUtilInternalMixin",
+    "legendarysurvivaloverhaul.ThermometerItemMixin",
     "legendarysurvivaloverhaul.WetnessCapabilityMixin",
     "minecraft.ChunkGeneratorMixin",
     "minecraft.BlockEntityTypeAccessor",

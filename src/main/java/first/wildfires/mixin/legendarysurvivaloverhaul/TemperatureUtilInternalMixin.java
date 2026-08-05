@@ -16,12 +16,34 @@ import sfiomn.legendarysurvivaloverhaul.util.internal.TemperatureUtilInternal;
 @Mixin(value = TemperatureUtilInternal.class, remap = false)
 public class TemperatureUtilInternalMixin {
 
+    /** Prevents getWorldTemperature calls nested inside a player query from adding the same field twice. */
+    private static final ThreadLocal<Integer> WILDFIRES_PLAYER_QUERY_DEPTH =
+            ThreadLocal.withInitial(() -> 0);
+
+    @Inject(method = "getPlayerTargetTemperature", at = @At("HEAD"))
+    private void wildfires$beginPlayerThermalQuery(
+            Player player,
+            CallbackInfoReturnable<Float> cir
+    ) {
+        WILDFIRES_PLAYER_QUERY_DEPTH.set(WILDFIRES_PLAYER_QUERY_DEPTH.get() + 1);
+    }
+
     @Inject(method = "getPlayerTargetTemperature", at = @At("RETURN"), cancellable = true)
     private void wildfires$addLocalThermalField(
             Player player,
             CallbackInfoReturnable<Float> cir
     ) {
-        cir.setReturnValue(cir.getReturnValue() + ThermalFieldManager.getTemperatureOffset(player));
+        int depth = WILDFIRES_PLAYER_QUERY_DEPTH.get();
+        try {
+            cir.setReturnValue(cir.getReturnValue()
+                    + ThermalFieldManager.getAppliedPlayerTemperatureOffset(player));
+        } finally {
+            if (depth <= 1) {
+                WILDFIRES_PLAYER_QUERY_DEPTH.remove();
+            } else {
+                WILDFIRES_PLAYER_QUERY_DEPTH.set(depth - 1);
+            }
+        }
     }
 
     @Inject(method = "getWorldTemperature", at = @At("RETURN"), cancellable = true)
@@ -30,6 +52,8 @@ public class TemperatureUtilInternalMixin {
             BlockPos position,
             CallbackInfoReturnable<Float> cir
     ) {
-        cir.setReturnValue(cir.getReturnValue() + ThermalFieldManager.getTemperatureOffset(level, position));
+        if (WILDFIRES_PLAYER_QUERY_DEPTH.get() == 0) {
+            cir.setReturnValue(cir.getReturnValue() + ThermalFieldManager.getTemperatureOffset(level, position));
+        }
     }
 }

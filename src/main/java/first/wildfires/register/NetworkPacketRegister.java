@@ -4,20 +4,25 @@ import first.wildfires.Wildfires;
 import first.wildfires.network.PlayerInputPacket;
 import first.wildfires.network.TemperatureFilterSyncPacket;
 import first.wildfires.network.ThermalOffsetSyncPacket;
+import first.wildfires.network.ThermalDebugRequestPacket;
+import first.wildfires.network.ThermalDebugSnapshotPacket;
 import first.wildfires.network.base.ICustomPacketPayload;
 import net.minecraftforge.network.NetworkRegistry;
+import net.minecraftforge.network.NetworkDirection;
 import net.minecraftforge.network.simple.SimpleChannel;
 
 public class NetworkPacketRegister {
 
-    public static final String Version = "1";
+    public static final String Version = "3";
     public static final SimpleChannel Instance = NetworkRegistry.newSimpleChannel(Wildfires.rl("main"), () -> Version, Version::equals, Version::equals);
     public static int id = 1;
 
     public static void register() {
-        ICustomPacketPayload.register(PlayerInputPacket.class);
-        ICustomPacketPayload.register(TemperatureFilterSyncPacket.class);
-        ICustomPacketPayload.register(ThermalOffsetSyncPacket.class);
+        ICustomPacketPayload.register(PlayerInputPacket.class, NetworkDirection.PLAY_TO_SERVER);
+        ICustomPacketPayload.register(TemperatureFilterSyncPacket.class, NetworkDirection.PLAY_TO_SERVER);
+        ICustomPacketPayload.register(ThermalOffsetSyncPacket.class, NetworkDirection.PLAY_TO_CLIENT);
+        ICustomPacketPayload.register(ThermalDebugRequestPacket.class, NetworkDirection.PLAY_TO_SERVER);
+        ICustomPacketPayload.register(ThermalDebugSnapshotPacket.class, NetworkDirection.PLAY_TO_CLIENT);
     }
 
 }

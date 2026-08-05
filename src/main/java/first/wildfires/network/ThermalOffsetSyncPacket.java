@@ -7,20 +7,24 @@ import net.minecraftforge.network.NetworkEvent;
 
 import java.util.function.Supplier;
 
-/** Sends the server-calculated local thermal offset to one client. */
-public record ThermalOffsetSyncPacket(float offset) implements ICustomPacketPayload {
+/** Synchronizes local air, radiation, and combined thermal values to one client. */
+public record ThermalOffsetSyncPacket(float airTemperature, float radiationOffset,
+                                      float effectiveTemperature) implements ICustomPacketPayload {
 
     public ThermalOffsetSyncPacket(FriendlyByteBuf buffer) {
-        this(buffer.readFloat());
+        this(buffer.readFloat(), buffer.readFloat(), buffer.readFloat());
     }
 
     @Override
     public void encode(FriendlyByteBuf buffer) {
-        buffer.writeFloat(offset);
+        buffer.writeFloat(airTemperature);
+        buffer.writeFloat(radiationOffset);
+        buffer.writeFloat(effectiveTemperature);
     }
 
     @Override
     public void handle(Supplier<NetworkEvent.Context> context) {
-        context.get().enqueueWork(() -> ClientThermalState.setLocalOffset(offset));
+        context.get().enqueueWork(() ->
+                ClientThermalState.setTargets(airTemperature, radiationOffset, effectiveTemperature));
     }
 }

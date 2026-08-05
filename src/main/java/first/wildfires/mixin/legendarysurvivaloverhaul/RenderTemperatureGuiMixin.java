@@ -59,9 +59,12 @@ public class RenderTemperatureGuiMixin {
                         Minecraft.getInstance().getProfiler().pop();
                     }
                     if (player.getAbilities().instabuild) {
-                        float radiation = ThermalFieldManager.getTemperatureOffset(player);
+                        float air = ThermalFieldManager.getClientAirTemperature();
+                        float radiation = ThermalFieldManager.getClientRadiationOffset();
+                        float effective = ThermalFieldManager.getTemperatureOffset(player);
                         float environment = TemperatureUtil.getWorldTemperature(player.level(), player.blockPosition());
-                        String thermalText = String.format("热辐射：%+.1fF  世界温度：%.1f", radiation, environment);
+                        String thermalText = String.format("空气：%+.1f  辐射：%+.1f  合成：%+.1f  世界：%.1f",
+                                air, radiation, effective, environment);
                         guiGraphics.drawString(Minecraft.getInstance().font, Component.literal(thermalText), 8, 8, 0xFFFFFF, true);
                     }
                 }

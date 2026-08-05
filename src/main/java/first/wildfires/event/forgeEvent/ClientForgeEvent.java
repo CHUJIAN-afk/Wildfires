@@ -67,15 +67,28 @@ public class ClientForgeEvent {
 
     @SubscribeEvent
     public static void registerClientCommands(RegisterClientCommandsEvent event) {
-        event.getDispatcher().register(Commands.literal("wildfires")
-                .then(Commands.literal("thermaldebug").executes(context -> {
+        var thermalDebug = Commands.literal("thermaldebug")
+                .executes(context -> {
                     boolean enabled = ThermalDebugRenderer.toggle();
                     int sources = enabled ? ThermalDebugRenderer.refreshAndGetSourceCount() : 0;
                     context.getSource().sendSuccess(() -> Component.literal(enabled
                             ? "热调试已开启，热源数量：" + sources
                             : "热调试已关闭"), false);
                     return 1;
-                })));
+                })
+                .then(Commands.literal("hidden").executes(context -> {
+                    boolean enabled = ThermalDebugRenderer.toggleHidden();
+                    context.getSource().sendSuccess(() -> Component.literal(enabled
+                            ? "隐藏热场调试已开启（绿色）"
+                            : "隐藏热场调试已关闭"), false);
+                    return 1;
+                }))
+                .then(Commands.literal("stats").executes(context -> {
+                    context.getSource().sendSuccess(() -> Component.literal(
+                            ThermalDebugRenderer.diagnosticsSummary()), false);
+                    return 1;
+                }));
+        event.getDispatcher().register(Commands.literal("wildfires").then(thermalDebug));
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)

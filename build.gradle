@@ -148,6 +148,7 @@ repositories {
     maven { url = "https://maven.ithundxr.dev/mirror" } // Registrate
     maven { url = "https://raw.githubusercontent.com/Fuzss/modresources/main/maven/" } // ForgeConfigAPIPort
     maven { url = "https://maven.bawnorton.com/releases" }
+    maven { url = "https://api.modrinth.com/maven" }
 }
 
 dependencies {
@@ -186,6 +187,9 @@ dependencies {
     implementation fg.deobf("curse.maven:spartan-weaponry-278141:5597663")
     //irons-spells
     compileOnly fg.deobf("curse.maven:irons-spells-n-spellbooks-855414:6054196")
+    runtimeOnly fg.deobf("curse.maven:irons-spells-n-spellbooks-855414:6054196")
+    runtimeOnly fg.deobf("maven.modrinth:caelus:3.2.0+1.20.1")
+    runtimeOnly fg.deobf("maven.modrinth:playeranimator:1.0.2-rc1+1.20-forge")
     //kubejs-tfc
     implementation fg.deobf("curse.maven:kubejs-tfc-841001:6201323")
     //create-metallurgy

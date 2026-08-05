@@ -3,6 +3,7 @@ package first.wildfires;
 import com.simibubi.create.foundation.data.CreateRegistrate;
 import first.wildfires.diagnostics.StartupDiagnostics;
 import first.wildfires.register.*;
+import first.wildfires.thermal.ThermalConfig;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.common.Mod;
@@ -20,6 +21,7 @@ public class Wildfires {
 
 	public Wildfires(FMLJavaModLoadingContext context) {
 		StartupDiagnostics.commonMark("Wildfires constructor");
+		ThermalConfig.register();
 		IEventBus eventBus = context.getModEventBus();
 		Registrate.registerEventListeners(eventBus);
 		AttributeRegister.register(eventBus);

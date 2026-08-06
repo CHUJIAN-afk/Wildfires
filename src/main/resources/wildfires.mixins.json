@@ -15,6 +15,7 @@
     "create.CrushingWheelControllerBlockEntityMixin",
     "create.CrushingWheelControllerBlockMixin",
     "create.KineticBlockEntityMixin",
+    "create.ProcessingRecipeMixin",
     "farmersdelight.BasketBlockEntityMixin",
     "farmersdelight.CuttingBoardRendererMixin",
     "kubejs.UtilsJSMixin",

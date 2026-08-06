@@ -14,9 +14,11 @@ import first.wildfires.kinetic.loom.LoomAuxiliaryBlock;
 import first.wildfires.kinetic.loom.LoomControlBlock;
 import first.wildfires.kinetic.loom.LoomStructureBlock;
 import net.dries007.tfc.common.blockentities.CharcoalForgeBlockEntity;
+import net.dries007.tfc.common.blockentities.CrucibleBlockEntity;
 import net.dries007.tfc.common.blockentities.TFCBlockEntities;
 import net.dries007.tfc.common.blocks.ExtendedProperties;
 import net.dries007.tfc.common.blocks.devices.CharcoalForgeBlock;
+import net.dries007.tfc.common.blocks.devices.CrucibleBlock;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -262,6 +264,22 @@ public class BlockRegister {
                             .blockEntity(TFCBlockEntities.CHARCOAL_FORGE)
                             .serverTicks(UnrestrictedCharcoalForgeBlock::serverTick)
             ));
+
+    public static final RegistryObject<CrucibleBlock> Crucible = Register.register("crucible", () -> new CrucibleBlock(
+            ExtendedProperties.of(MapColor.METAL)
+                    .strength(3.0F)
+                    .sound(SoundType.METAL)
+                    .blockEntity(TFCBlockEntities.CRUCIBLE)
+                    .serverTicks(CrucibleBlockEntity::serverTick)
+    ));
+
+    public static final RegistryObject<DecorativeCrucibleBlock> DecorativeCrucible = Register.register(
+            "decorative_crucible",
+            () -> new DecorativeCrucibleBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.METAL)
+                    .strength(3.0F)
+                    .sound(SoundType.METAL))
+    );
 
     public static final RegistryObject<SlabBlock> GrassSlab = Register.register("grass_slab",
             () -> new SlabBlock(BlockBehaviour.Properties.copy(Blocks.GRASS_BLOCK)));

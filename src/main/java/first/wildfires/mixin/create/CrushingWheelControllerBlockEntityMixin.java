@@ -6,10 +6,7 @@ import com.simibubi.create.content.kinetics.crusher.CrushingWheelControllerBlock
 import com.simibubi.create.content.processing.recipe.ProcessingOutput;
 import com.simibubi.create.content.processing.recipe.ProcessingRecipe;
 import first.wildfires.utils.WildfiresUtil;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.AABB;
 import net.minecraftforge.items.wrapper.RecipeWrapper;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -18,31 +15,27 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-@Mixin(value = CrushingWheelControllerBlockEntity.class,remap = false)
-public class CrushingWheelControllerBlockEntityMixin {
+@Mixin(value = CrushingWheelControllerBlockEntity.class, remap = false)
+public abstract class CrushingWheelControllerBlockEntityMixin {
 
     @ModifyExpressionValue(
             method = "applyRecipe",
             at = @At(
                     value = "INVOKE",
-                    target = "Lcom/simibubi/create/content/processing/recipe/ProcessingRecipe;rollResults()Ljava/util/List;")
+                    target = "Lcom/simibubi/create/content/processing/recipe/ProcessingRecipe;rollResults()Ljava/util/List;"
+            )
     )
-    private List<ItemStack> applyRecipe(List<ItemStack> original, @Local(name = "recipe") Optional<ProcessingRecipe<RecipeWrapper>> recipe) {
-        if (recipe.isPresent()) {
-            ProcessingRecipe<RecipeWrapper> processingRecipe = recipe.get();
-            List<ProcessingOutput> outputList = new ArrayList<>();
-            for (ProcessingOutput result : processingRecipe.getRollableResults()) {
-                float chance = result.getChance();
-                CrushingWheelControllerBlockEntity entity = (CrushingWheelControllerBlockEntity) (Object) this;
-                Level level = entity.getLevel();
-                if (level != null) {
-                    chance *= (1 + WildfiresUtil.getLuck(level, Player.class, new AABB(entity.getBlockPos()).inflate(32)) * 0.1f);
-                }
-                outputList.add(new ProcessingOutput(result.getStack(), chance));
-            }
-            return processingRecipe.rollResults(outputList);
+    private List<ItemStack> wildfires$modifyRandomOutputChances(
+            List<ItemStack> original,
+            @Local(name = "recipe") Optional<ProcessingRecipe<RecipeWrapper>> recipe) {
+        if (recipe.isEmpty()) {
+            return original;
         }
-        return original;
-    }
 
+        CrushingWheelControllerBlockEntity entity = (CrushingWheelControllerBlockEntity) (Object) this;
+        ProcessingRecipe<RecipeWrapper> processingRecipe = recipe.get();
+        List<ProcessingOutput> modifiedOutputs = WildfiresUtil.modifyProcessingOutputs(
+                new ArrayList<>(processingRecipe.getRollableResults()), entity.getLevel(), entity.getBlockPos());
+        return processingRecipe.rollResults(modifiedOutputs);
+    }
 }

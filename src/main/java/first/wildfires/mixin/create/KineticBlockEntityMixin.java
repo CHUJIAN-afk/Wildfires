@@ -2,6 +2,7 @@ package first.wildfires.mixin.create;
 
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import first.wildfires.api.customEvent.KineticBlockEntityTickEvent;
+import first.wildfires.utils.WildfiresUtil;
 import net.minecraftforge.common.MinecraftForge;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -36,7 +37,9 @@ public abstract class KineticBlockEntityMixin {
 		MinecraftForge.EVENT_BUS.post(event);
 		if (event.isCanceled()) {
 			ci.cancel();
+			return;
 		}
+		WildfiresUtil.beginKineticTick(blockEntity);
 	}
 
 	@Inject(

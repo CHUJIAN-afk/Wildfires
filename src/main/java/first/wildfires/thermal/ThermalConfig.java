@@ -54,8 +54,8 @@ public final class ThermalConfig {
                 .comment("Absolute WTU below which the hidden thermal solver discards numerical temperature. Lower values preserve a wider low-temperature tail at higher memory and solver cost.")
                 .defineInRange("hiddenTemperatureCutoff", 0.05D, 0.01D, 1.0D);
         ForgeConfigSpec.IntValue cellBudgetPerTick = builder
-                .comment("Soft maximum number of air-cell substep updates processed per level tick.")
-                .defineInRange("cellBudgetPerTick", 10000, 1000, 200000);
+                .comment("Soft target for air-cell substep work admitted to one asynchronous epoch. The scheduler may admit at least one Section per thermal worker so spare CPU cores remain usable.")
+                .defineInRange("cellBudgetPerTick", 20000, 1000, 200000);
         builder.pop();
         return new ThermalValues(laplacianEnabled, laplacianCoefficient, buoyancyCoefficient,
                 coldSinkingCoefficient, radiationEnabled, defaultSolidLoss, airTemperatureCutoff,

@@ -1,5 +1,11 @@
 package first.wildfires.thermal;
 
+import com.mojang.logging.LogUtils;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
@@ -31,10 +37,17 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.WeakHashMap;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.slf4j.Logger;
 
 /** Server-authoritative sparse Section air field, source-face index, scheduler, and persistence facade. */
 public final class ThermalWorldManager {
 
+    private static final Logger LOGGER = LogUtils.getLogger();
     public static final float SAVE_THRESHOLD = 0.1F;
     public static final float WAKE_THRESHOLD = 0.01F;
     public static final float STABLE_THRESHOLD = 0.005F;
@@ -42,10 +55,7 @@ public final class ThermalWorldManager {
     public static final String CHUNK_DATA_KEY = "wildfires_thermal";
 
     private static final float STANDARD_STEP_SECONDS = 0.125F;
-    private static final float AIR_HEAT_CAPACITY = 1.0F;
-    private static final float MAX_PASSIVE_COEFFICIENT = 0.95F;
     private static final Direction[] DIRECTIONS = Direction.values();
-    private static final float MAX_ABSOLUTE_TEMPERATURE = 3276.7F;
     private static final int NEAR_INTERVAL = 10;
     private static final int RECENT_INTERVAL = 20;
     private static final int IDLE_INTERVAL = 100;
@@ -55,9 +65,13 @@ public final class ThermalWorldManager {
     private static final int PLAYER_SAMPLE_INTERVAL = 10;
     private static final int RESIDUAL_SWEEP_INTERVAL = 100;
     private static final int MAX_PATCH_SPAN = 4;
+    private static final int SIMULATION_PARALLELISM = Math.max(1,
+            Math.min(4, Runtime.getRuntime().availableProcessors() - 2));
+    private static final AtomicInteger SIMULATION_WORKER_IDS = new AtomicInteger();
     private static final Map<ServerLevel, ThermalWorldManager> INSTANCES = new WeakHashMap<>();
 
     private final ServerLevel level;
+    private final ForkJoinPool simulationPool;
     private final Map<Long, ThermalSection> sections = new HashMap<>();
     private final Map<Long, SourceRecord> sources = new HashMap<>();
     private final Map<Long, Integer> sourceCountsBySection = new HashMap<>();
@@ -82,9 +96,21 @@ public final class ThermalWorldManager {
     private float lastDefaultSolidLoss;
     private float lastAirTemperatureCutoff;
     private float lastHiddenTemperatureCutoff;
+    private long simulationRevision;
+    @Nullable
+    private ForkJoinTask<ThermalSimulationEngine.BatchResult> inFlightSimulation;
+    @Nullable
+    private ThermalSimulationEngine.CancellationToken inFlightCancellation;
+    private boolean closed;
 
     private ThermalWorldManager(ServerLevel level) {
         this.level = level;
+        this.simulationPool = new ForkJoinPool(SIMULATION_PARALLELISM, pool -> {
+            var worker = ForkJoinPool.defaultForkJoinWorkerThreadFactory.newThread(pool);
+            worker.setName("Wildfires-Thermal-" + SIMULATION_WORKER_IDS.incrementAndGet());
+            worker.setDaemon(true);
+            return worker;
+        }, (thread, throwable) -> LOGGER.error("Uncaught asynchronous thermal simulation failure", throwable), true);
         lastLaplacianEnabled = ThermalConfig.laplacianEnabled();
         lastLaplacianCoefficient = ThermalConfig.laplacianCoefficient();
         lastBuoyancyCoefficient = ThermalConfig.buoyancyCoefficient();
@@ -100,7 +126,10 @@ public final class ThermalWorldManager {
     }
 
     public static synchronized void clear(ServerLevel level) {
-        INSTANCES.remove(level);
+        ThermalWorldManager manager = INSTANCES.remove(level);
+        if (manager != null) {
+            manager.close();
+        }
         ThermalRadiationSolver.clear(level);
     }
 
@@ -109,12 +138,18 @@ public final class ThermalWorldManager {
     }
 
     public void tick() {
+        if (closed) {
+            return;
+        }
         long gameTick = level.getGameTime();
         processPendingChunkLoads();
         refreshAfterConfigChanges();
         if (gameTick - lastDynamicSourcePoll >= DYNAMIC_SOURCE_INTERVAL) {
             pollDynamicSources();
             lastDynamicSourcePoll = gameTick;
+        }
+        if (!commitCompletedSimulation()) {
+            return;
         }
         float airTemperatureCutoff = ThermalConfig.airTemperatureCutoff();
         float hiddenTemperatureCutoff = ThermalConfig.hiddenTemperatureCutoff();
@@ -141,7 +176,8 @@ public final class ThermalWorldManager {
             int desiredSubsteps = Math.max(1, (int) Math.ceil(elapsedSeconds / STANDARD_STEP_SECONDS));
             int substeps = Math.min(scheduling.maximumSubsteps(), desiredSubsteps);
             float stepSeconds = elapsedSeconds / substeps;
-            int estimatedWork = Math.max(1, expandedActiveCount(section)) * substeps;
+            int estimatedWork = Math.max(1, ThermalSimulationEngine.expandedActiveCells(section.active).cardinality())
+                    * substeps;
             double urgency = section.forceDue
                     ? 1_000_000.0D + elapsedTicks
                     : elapsedTicks / (double) scheduling.intervalTicks();
@@ -154,59 +190,291 @@ public final class ThermalWorldManager {
         List<SimulationJob> selected = new ArrayList<>();
         lastDeferredSections = 0;
         for (SimulationJob job : dueJobs) {
-            if (job.estimatedWork() > remainingBudget && !selected.isEmpty()) {
+            if (job.estimatedWork() > remainingBudget && selected.size() >= SIMULATION_PARALLELISM) {
                 lastDeferredSections++;
                 continue;
             }
             selected.add(job);
             remainingBudget = Math.max(0, remainingBudget - job.estimatedWork());
-            job.section().forceDue = false;
         }
-
-        lastProcessedCells = 0;
-        int maximumSubsteps = 0;
+        if (!selected.isEmpty()) {
+            ThermalSimulationEngine.CancellationToken cancellationToken =
+                    new ThermalSimulationEngine.CancellationToken();
+            ThermalSimulationEngine.BatchInput batch = createSimulationBatch(selected, gameTick, cancellationToken);
+            inFlightCancellation = cancellationToken;
+            inFlightSimulation = simulationPool.submit(() -> ThermalSimulationEngine.solve(batch));
+        }
+        Set<Long> submittedSections = new HashSet<>();
         for (SimulationJob job : selected) {
+            submittedSections.add(job.section().sectionKey);
+        }
+        pruneEmptySections(submittedSections);
+    }
+
+    /** Commits only a complete result produced from the current world revision. */
+    private boolean commitCompletedSimulation() {
+        ForkJoinTask<ThermalSimulationEngine.BatchResult> task = inFlightSimulation;
+        if (task == null) {
+            return true;
+        }
+        if (!task.isDone()) {
+            return false;
+        }
+        inFlightSimulation = null;
+        inFlightCancellation = null;
+        ThermalSimulationEngine.BatchResult batch;
+        try {
+            batch = task.get();
+        } catch (CancellationException ignored) {
+            return true;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException exception) {
+            LOGGER.error("Asynchronous thermal simulation failed; preserving the last committed field", exception.getCause());
+            return true;
+        }
+        if (closed || batch.revision() != simulationRevision) {
+            return true;
+        }
+        for (long sectionKey : batch.sections().keySet()) {
+            if (!sections.containsKey(sectionKey)) {
+                invalidateSimulation();
+                return true;
+            }
+        }
+        for (ThermalSimulationEngine.SectionResult result : batch.sections().values()) {
+            ThermalSection section = sections.get(result.sectionKey());
+            section.replaceSimulationState(result.visible(), result.hidden(), result.hiddenCount(),
+                    result.active(), result.stableCycles(), result.forceDue());
+            section.lastSimulationTick = batch.simulationTick();
+            if (result.storageChanged()) {
+                markChunkUnsaved(section);
+            }
+        }
+        for (ThermalSimulationEngine.CellRef activation : batch.externalActivations()) {
+            BlockPos position = positionAt(activation.sectionKey(), activation.localIndex());
+            if (isLoadedAirMedium(position)) {
+                ensureSection(position).wake(activation.localIndex());
+            }
+        }
+        lastProcessedCells = batch.processedCells();
+        return true;
+    }
+
+    private ThermalSimulationEngine.BatchInput createSimulationBatch(List<SimulationJob> selected,
+                                                                      long simulationTick,
+                                                                      ThermalSimulationEngine.CancellationToken cancellationToken) {
+        LongSet selectedKeys = new LongOpenHashSet(selected.size());
+        Long2ObjectOpenHashMap<BitSet> prepared = new Long2ObjectOpenHashMap<>(selected.size());
+        int maximumSubsteps = 1;
+        for (SimulationJob job : selected) {
+            long key = job.section().sectionKey;
+            selectedKeys.add(key);
+            prepared.put(key, (BitSet) job.section().active.clone());
             maximumSubsteps = Math.max(maximumSubsteps, job.substeps());
         }
-        for (int substep = 0; substep < maximumSubsteps; substep++) {
-            Map<Long, BitSet> updateMasks = new HashMap<>();
-            for (SimulationJob job : selected) {
-                if (substep >= job.substeps()) {
-                    continue;
-                }
-                BitSet mask = expandedActiveCells(job.section());
-                updateMasks.put(job.section().sectionKey, mask);
-            }
-            List<SimulationResult> results = new ArrayList<>(updateMasks.size());
-            for (SimulationJob job : selected) {
-                if (substep < job.substeps()) {
-                    SimulationResult result = computeSection(job.section(), job.stepSeconds(), updateMasks);
-                    results.add(result);
-                    lastProcessedCells += result.updateSet().cardinality();
-                }
-            }
-            Set<Long> cellsToActivate = new HashSet<>();
-            for (SimulationResult result : results) {
-                commitSimulation(result);
-                cellsToActivate.addAll(result.cellsToActivate());
-            }
-            for (long packedPosition : cellsToActivate) {
-                BlockPos position = BlockPos.of(packedPosition);
-                if (!isLoadedAirMedium(position)) {
-                    continue;
-                }
-                ThermalSection target = ensureSection(position);
-                if (updateMasks.containsKey(target.sectionKey)) {
-                    target.activate(localIndex(position));
-                } else {
-                    target.wake(localIndex(position));
+        // One substep expands active cells once and a representation change can wake one further
+        // shell. Radius 2*n includes every cell that can be updated plus its read-only halo.
+        for (int round = 0; round < maximumSubsteps * 2; round++) {
+            prepared = expandPreparedMasks(prepared);
+        }
+
+        Long2ObjectOpenHashMap<BitSet> airCells = new Long2ObjectOpenHashMap<>();
+        LongSet snapshotKeys = new LongOpenHashSet(selectedKeys);
+        for (Long2ObjectMap.Entry<BitSet> entry : prepared.long2ObjectEntrySet()) {
+            long sectionKey = entry.getLongKey();
+            BitSet preparedCells = entry.getValue();
+            for (int index = preparedCells.nextSetBit(0); index >= 0;
+                 index = preparedCells.nextSetBit(index + 1)) {
+                snapshotAirCell(sectionKey, index, airCells, snapshotKeys);
+                for (int direction = 0; direction < ThermalSimulationEngine.DIRECTION_COUNT; direction++) {
+                    int neighborCode = ThermalSimulationEngine.neighborCode(index, direction);
+                    long neighborSectionKey = (neighborCode & ThermalSimulationEngine.CROSS_SECTION_FLAG) == 0
+                            ? sectionKey : offsetSectionKey(sectionKey, direction);
+                    snapshotAirCell(neighborSectionKey,
+                            neighborCode & ThermalSimulationEngine.LOCAL_INDEX_MASK, airCells, snapshotKeys);
                 }
             }
         }
+
+        Map<Long, ThermalSimulationEngine.SectionInput> sectionInputs = new HashMap<>(snapshotKeys.size());
+        for (LongIterator keys = snapshotKeys.iterator(); keys.hasNext(); ) {
+            long key = keys.nextLong();
+            ThermalSection stored = sections.get(key);
+            float[] visible = stored == null ? new float[ThermalSection.VOLUME] : stored.current.clone();
+            float[] hidden = stored == null ? new float[ThermalSection.VOLUME] : stored.hiddenSnapshot();
+            BitSet active = stored == null ? new BitSet(ThermalSection.VOLUME) : (BitSet) stored.active.clone();
+            BitSet preparedCells = prepared.get(key);
+            if (preparedCells == null) {
+                preparedCells = new BitSet(ThermalSection.VOLUME);
+            }
+            BitSet snapshotAirCells = airCells.get(key);
+            if (snapshotAirCells == null) {
+                snapshotAirCells = new BitSet(ThermalSection.VOLUME);
+            }
+            ThermalSimulationEngine.BoundaryTerm[][] boundaries = new ThermalSimulationEngine.BoundaryTerm[ThermalSection.VOLUME][];
+            ThermalSimulationEngine.HeatSource[][] heatSources = new ThermalSimulationEngine.HeatSource[ThermalSection.VOLUME][];
+            if (selectedKeys.contains(key)) {
+                for (int index = preparedCells.nextSetBit(0); index >= 0;
+                     index = preparedCells.nextSetBit(index + 1)) {
+                    if (!snapshotAirCells.get(index)) {
+                        continue;
+                    }
+                    BlockPos position = positionAt(key, index);
+                    boundaries[index] = snapshotBoundaryTerms(position);
+                    heatSources[index] = snapshotHeatSources(position);
+                }
+            }
+            sectionInputs.put(key, ThermalSimulationEngine.SectionInput.owned(key, visible, hidden,
+                    snapshotAirCells, preparedCells, active, stored == null ? 0 : stored.stableCycles,
+                    stored != null && stored.forceDue, neighborSectionKeys(key), boundaries, heatSources));
+        }
+
+        List<ThermalSimulationEngine.JobInput> jobs = new ArrayList<>(selected.size());
         for (SimulationJob job : selected) {
-            job.section().lastSimulationTick = gameTick;
+            jobs.add(new ThermalSimulationEngine.JobInput(job.section().sectionKey,
+                    job.substeps(), job.stepSeconds()));
         }
-        pruneEmptySections();
+        ThermalSimulationEngine.Settings settings = new ThermalSimulationEngine.Settings(
+                ThermalConfig.laplacianEnabled(), ThermalConfig.laplacianCoefficient(),
+                ThermalConfig.buoyancyCoefficient(), ThermalConfig.coldSinkingCoefficient(),
+                ThermalConfig.airTemperatureCutoff(), ThermalConfig.hiddenTemperatureCutoff());
+        return new ThermalSimulationEngine.BatchInput(simulationRevision, simulationTick, settings,
+                jobs, sectionInputs, cancellationToken);
+    }
+
+    private void snapshotAirCell(long sectionKey, int localIndex,
+                                 Long2ObjectOpenHashMap<BitSet> airCells, LongSet snapshotKeys) {
+        BlockPos position = positionAt(sectionKey, localIndex);
+        if (cachedAirMedium(position)) {
+            snapshotKeys.add(sectionKey);
+            airCells.computeIfAbsent(sectionKey, ignored -> new BitSet(ThermalSection.VOLUME))
+                    .set(localIndex);
+        }
+    }
+
+    private boolean cachedAirMedium(BlockPos position) {
+        if (level.isOutsideBuildHeight(position) || !level.hasChunkAt(position)) {
+            return false;
+        }
+        ThermalSection section = ensureSection(position);
+        int index = localIndex(position);
+        if (!section.airCacheKnown.get(index)) {
+            if (isAirMedium(position)) {
+                section.airCells.set(index);
+            } else {
+                section.airCells.clear(index);
+            }
+            section.airCacheKnown.set(index);
+        }
+        return section.airCells.get(index);
+    }
+
+    private ThermalSimulationEngine.BoundaryTerm[] snapshotBoundaryTerms(BlockPos position) {
+        long positionKey = position.asLong();
+        ThermalSection section = sections.get(sectionKey(position));
+        int index = localIndex(position);
+        boolean cacheKnown = section != null && section.boundaryCacheKnown.get(index);
+        List<BoundaryContact> contacts = boundaryContactCache.get(positionKey);
+        if (!cacheKnown) {
+            contacts = buildBoundaryContacts(position);
+            if (contacts.isEmpty()) {
+                boundaryContactCache.remove(positionKey);
+            } else {
+                boundaryContactCache.put(positionKey, contacts);
+            }
+            if (section != null) {
+                section.boundaryCacheKnown.set(index);
+            }
+        } else if (contacts == null) {
+            contacts = List.of();
+        }
+        List<ThermalSimulationEngine.BoundaryTerm> terms = new ArrayList<>();
+        for (BoundaryContact contact : contacts) {
+            if (!isActiveSourceFace(contact.solidPosition())) {
+                terms.add(new ThermalSimulationEngine.BoundaryTerm(
+                        ThermalBoundaryRegistry.getLoss(contact.solidState()), contact.area()));
+            }
+        }
+        return terms.isEmpty() ? null : terms.toArray(ThermalSimulationEngine.BoundaryTerm[]::new);
+    }
+
+    private ThermalSimulationEngine.HeatSource[] snapshotHeatSources(BlockPos position) {
+        List<ThermalFace> faces = heatingFacesByTarget.get(position.asLong());
+        if (faces == null || faces.isEmpty()) {
+            return null;
+        }
+        ThermalSimulationEngine.HeatSource[] result = new ThermalSimulationEngine.HeatSource[faces.size()];
+        for (int index = 0; index < faces.size(); index++) {
+            ThermalFace face = faces.get(index);
+            result[index] = new ThermalSimulationEngine.HeatSource(face.surfaceTemperature(),
+                    face.faceHeatingRate(), face.area());
+        }
+        return result;
+    }
+
+    private static Long2ObjectOpenHashMap<BitSet> expandPreparedMasks(Long2ObjectMap<BitSet> previous) {
+        Long2ObjectOpenHashMap<BitSet> expanded = new Long2ObjectOpenHashMap<>(previous.size());
+        for (Long2ObjectMap.Entry<BitSet> entry : previous.long2ObjectEntrySet()) {
+            expanded.put(entry.getLongKey(), (BitSet) entry.getValue().clone());
+        }
+        for (Long2ObjectMap.Entry<BitSet> entry : previous.long2ObjectEntrySet()) {
+            long sectionKey = entry.getLongKey();
+            BitSet localExpanded = expanded.get(sectionKey);
+            BitSet[] neighborExpanded = new BitSet[ThermalSimulationEngine.DIRECTION_COUNT];
+            for (int direction = 0; direction < ThermalSimulationEngine.DIRECTION_COUNT; direction++) {
+                neighborExpanded[direction] = expanded.get(offsetSectionKey(sectionKey, direction));
+            }
+            ThermalSimulationEngine.expandPreparedMask(entry.getValue(), localExpanded, neighborExpanded);
+        }
+        return expanded;
+    }
+
+    private static long offsetSectionKey(long sectionKey, int direction) {
+        return switch (direction) {
+            case ThermalSimulationEngine.WEST -> offsetSectionKey(sectionKey, -1, 0, 0);
+            case ThermalSimulationEngine.EAST -> offsetSectionKey(sectionKey, 1, 0, 0);
+            case ThermalSimulationEngine.DOWN -> offsetSectionKey(sectionKey, 0, -1, 0);
+            case ThermalSimulationEngine.UP -> offsetSectionKey(sectionKey, 0, 1, 0);
+            case ThermalSimulationEngine.NORTH -> offsetSectionKey(sectionKey, 0, 0, -1);
+            case ThermalSimulationEngine.SOUTH -> offsetSectionKey(sectionKey, 0, 0, 1);
+            default -> throw new IllegalArgumentException("Unknown direction " + direction);
+        };
+    }
+
+    private static long offsetSectionKey(long key, int offsetX, int offsetY, int offsetZ) {
+        return SectionPos.asLong(SectionPos.x(key) + offsetX, SectionPos.y(key) + offsetY,
+                SectionPos.z(key) + offsetZ);
+    }
+
+    private static long[] neighborSectionKeys(long key) {
+        int x = SectionPos.x(key);
+        int y = SectionPos.y(key);
+        int z = SectionPos.z(key);
+        return new long[]{SectionPos.asLong(x - 1, y, z), SectionPos.asLong(x + 1, y, z),
+                SectionPos.asLong(x, y - 1, z), SectionPos.asLong(x, y + 1, z),
+                SectionPos.asLong(x, y, z - 1), SectionPos.asLong(x, y, z + 1)};
+    }
+
+    private void invalidateSimulation() {
+        simulationRevision++;
+        if (inFlightCancellation != null) {
+            inFlightCancellation.cancel();
+        }
+        if (inFlightSimulation != null) {
+            inFlightSimulation.cancel(true);
+        }
+    }
+
+    private void close() {
+        closed = true;
+        invalidateSimulation();
+        inFlightSimulation = null;
+        inFlightCancellation = null;
+        simulationPool.shutdownNow();
+        playerSamples.clear();
+        pendingChunkLoads.clear();
     }
 
     private void refreshAfterConfigChanges() {
@@ -230,6 +498,7 @@ public final class ThermalWorldManager {
                 || Float.floatToIntBits(solidLoss) != Float.floatToIntBits(lastDefaultSolidLoss)
                 || cutoffChanged;
         if (solverChanged) {
+            invalidateSimulation();
             for (ThermalSection section : sections.values()) {
                 for (int index = 0; index < section.current.length; index++) {
                     if (Math.abs(section.current[index]) >= 0.0001F
@@ -263,12 +532,6 @@ public final class ThermalWorldManager {
         return section == null ? 0.0F : section.get(localIndex(position));
     }
 
-    /** Solver-only temperature, including values hidden below the gameplay visibility threshold. */
-    private float getSolverTemperature(BlockPos position) {
-        ThermalSection section = sections.get(sectionKey(position));
-        return section == null ? 0.0F : section.getSolverTemperature(localIndex(position));
-    }
-
     public ThermalSample sample(ServerPlayer player) {
         CachedPlayerSample cached = playerSamples.get(player.getUUID());
         long gameTick = level.getGameTime();
@@ -290,8 +553,13 @@ public final class ThermalWorldManager {
     }
 
     public void onBlockChanged(BlockPos position) {
+        invalidateSimulation();
         playerSamples.clear();
         invalidateBoundaryContacts(position);
+        ThermalSection cachedSection = sections.get(sectionKey(position));
+        if (cachedSection != null) {
+            cachedSection.invalidateAirCache(localIndex(position));
+        }
         boolean airRelevant = sections.containsKey(sectionKey(position));
         boolean radiationRelevant = false;
         refreshSourceAt(position);
@@ -312,7 +580,6 @@ public final class ThermalWorldManager {
             boolean persistedTemperatureRemoved = changedSection.current[index] != 0.0F;
             persistedTemperatureRemoved |= changedSection.getHiddenTemperature(index) != 0.0F;
             changedSection.current[index] = 0.0F;
-            changedSection.pending[index] = 0.0F;
             changedSection.clearHiddenTemperature(index);
             changedSection.active.clear(index);
             if (persistedTemperatureRemoved) {
@@ -328,8 +595,15 @@ public final class ThermalWorldManager {
     }
 
     public void loadChunk(LevelChunk chunk) {
+        invalidateSimulation();
         playerSamples.clear();
         clearBoundaryContactCache();
+        for (ThermalSection section : sections.values()) {
+            if (SectionPos.x(section.sectionKey) == chunk.getPos().x
+                    && SectionPos.z(section.sectionKey) == chunk.getPos().z) {
+                section.clearAirCache();
+            }
+        }
         LevelChunkSection[] chunkSections = chunk.getSections();
         for (int sectionIndex = 0; sectionIndex < chunkSections.length; sectionIndex++) {
             LevelChunkSection chunkSection = chunkSections[sectionIndex];
@@ -380,6 +654,7 @@ public final class ThermalWorldManager {
     }
 
     public void unloadChunk(ChunkPos chunkPos) {
+        invalidateSimulation();
         pendingChunkLoads.remove(chunkPos.toLong());
         playerSamples.clear();
         clearBoundaryContactCache();
@@ -433,6 +708,7 @@ public final class ThermalWorldManager {
     }
 
     public void loadChunkData(ChunkPos chunkPos, CompoundTag root) {
+        invalidateSimulation();
         CompoundTag pending = pendingUnloadedChunkData.remove(chunkPos.toLong());
         if (pending != null) {
             root = pending;
@@ -454,9 +730,9 @@ public final class ThermalWorldManager {
             long key = SectionPos.asLong(chunkPos.x, sectionY, chunkPos.z);
             ThermalSection section = sections.computeIfAbsent(key, ignored -> new ThermalSection(key, currentTick));
             java.util.Arrays.fill(section.current, 0.0F);
-            java.util.Arrays.fill(section.pending, 0.0F);
             section.clearHiddenTemperatures();
             section.active.clear();
+            section.clearAirCache();
             section.boundaryCacheKnown.clear();
             int[] packed = sectionTag.getIntArray("Cells");
             for (int value : packed) {
@@ -692,191 +968,6 @@ public final class ThermalWorldManager {
         }
     }
 
-    private SimulationResult computeSection(ThermalSection section, float dtSeconds,
-                                            Map<Long, BitSet> updateMasks) {
-        BitSet updateSet = updateMasks.getOrDefault(section.sectionKey, new BitSet(ThermalSection.VOLUME));
-        System.arraycopy(section.current, 0, section.pending, 0, ThermalSection.VOLUME);
-        section.beginHiddenUpdate();
-        BitSet nextActive = new BitSet(ThermalSection.VOLUME);
-        Set<Long> cellsToActivate = new HashSet<>();
-        float maximumStorageChange = 0.0F;
-        float maximumSolverChange = 0.0F;
-
-        int baseX = SectionPos.sectionToBlockCoord(SectionPos.x(section.sectionKey));
-        int baseY = SectionPos.sectionToBlockCoord(SectionPos.y(section.sectionKey));
-        int baseZ = SectionPos.sectionToBlockCoord(SectionPos.z(section.sectionKey));
-        float diffusion = normalizedCoefficient(ThermalConfig.laplacianCoefficient(), dtSeconds);
-        float hotBuoyancy = normalizedConservativePairCoefficient(ThermalConfig.buoyancyCoefficient(), dtSeconds);
-        float coldSinking = normalizedConservativePairCoefficient(ThermalConfig.coldSinkingCoefficient(), dtSeconds);
-        float visibleCutoff = ThermalConfig.airTemperatureCutoff();
-        float hiddenCutoff = ThermalConfig.hiddenTemperatureCutoff();
-        if (!ThermalConfig.laplacianEnabled()) {
-            diffusion = 0.0F;
-        }
-        // A cell can exchange with all six Laplacian neighbors and both vertical buoyancy
-        // neighbors in the same coarse IDLE step. Bound their combined row weight so the
-        // passive update remains a convex combination instead of overshooting and oscillating.
-        float maximumCombinedTransfer = diffusion + 2.0F * Math.max(hotBuoyancy, coldSinking);
-        if (maximumCombinedTransfer > MAX_PASSIVE_COEFFICIENT) {
-            float scale = MAX_PASSIVE_COEFFICIENT / maximumCombinedTransfer;
-            diffusion *= scale;
-            hotBuoyancy *= scale;
-            coldSinking *= scale;
-        }
-        BlockPos.MutableBlockPos position = new BlockPos.MutableBlockPos();
-
-        for (int index = updateSet.nextSetBit(0); index >= 0; index = updateSet.nextSetBit(index + 1)) {
-            position.set(baseX + (index & 15), baseY + ((index >>> 8) & 15), baseZ + ((index >>> 4) & 15));
-            float oldVisibleTemperature = section.current[index];
-            float oldHiddenTemperature = section.getHiddenTemperature(index);
-            float oldSolverTemperature = oldVisibleTemperature != 0.0F
-                    ? oldVisibleTemperature : oldHiddenTemperature;
-            if (!isAirMedium(position)) {
-                section.pending[index] = 0.0F;
-                section.setPendingHiddenTemperature(index, 0.0F);
-                maximumStorageChange = Math.max(maximumStorageChange,
-                        Math.max(Math.abs(oldVisibleTemperature), Math.abs(oldHiddenTemperature)));
-                maximumSolverChange = Math.max(maximumSolverChange, Math.abs(oldSolverTemperature));
-                if (oldSolverTemperature != 0.0F) {
-                    queueLoadedAirNeighbors(position, cellsToActivate);
-                }
-                continue;
-            }
-            float workingTemperature = oldSolverTemperature;
-            float passiveDelta = 0.0F;
-
-            if (diffusion > 0.0F) {
-                float neighborDifference = 0.0F;
-                for (Direction direction : DIRECTIONS) {
-                    BlockPos neighbor = position.relative(direction);
-                    if (isLoadedAirMedium(neighbor)) {
-                        float neighborTemperature = getSolverTemperature(neighbor);
-                        neighborDifference += neighborTemperature - workingTemperature;
-                        if (!isCellScheduled(updateMasks, neighbor)
-                                && Math.abs(neighborTemperature - workingTemperature) >= WAKE_THRESHOLD) {
-                            cellsToActivate.add(neighbor.asLong());
-                        }
-                    }
-                }
-                // Unloaded/solid neighbors remain no-flux. A loaded air cell in a deferred Section
-                // is instead a frozen old-snapshot sample: treating it as no-flux would turn every
-                // scheduler partition into an artificial insulating wall. The bounded row weight
-                // keeps this asynchronous boundary update stable, and waking the other side makes
-                // both Sections return to the normal synchronous path as budget becomes available.
-                passiveDelta += diffusion * neighborDifference / DIRECTIONS.length;
-            }
-
-            passiveDelta += buoyancyDelta(position, workingTemperature, hotBuoyancy, coldSinking,
-                    updateMasks, cellsToActivate);
-            float passiveTemperature = clampTemperature(workingTemperature + passiveDelta);
-            float boundaryTemperature = clampTemperature(passiveTemperature
-                    + boundaryLoss(position, passiveTemperature, dtSeconds));
-            float candidate = clampTemperature(boundaryTemperature
-                    + sourceExchange(position, boundaryTemperature, dtSeconds));
-            float newVisibleTemperature = 0.0F;
-            float newHiddenTemperature = 0.0F;
-            if (Math.abs(candidate) >= hiddenCutoff) {
-                if (visibleCutoff <= 0.0F || Math.abs(candidate) >= visibleCutoff) {
-                    newVisibleTemperature = candidate;
-                } else {
-                    newHiddenTemperature = candidate;
-                }
-            }
-
-            section.pending[index] = newVisibleTemperature;
-            section.setPendingHiddenTemperature(index, newHiddenTemperature);
-            float newSolverTemperature = newVisibleTemperature != 0.0F
-                    ? newVisibleTemperature : newHiddenTemperature;
-            float visibleChange = Math.abs(newVisibleTemperature - oldVisibleTemperature);
-            float hiddenChange = Math.abs(newHiddenTemperature - oldHiddenTemperature);
-            float solverChange = Math.abs(newSolverTemperature - oldSolverTemperature);
-            maximumStorageChange = Math.max(maximumStorageChange, Math.max(visibleChange, hiddenChange));
-            maximumSolverChange = Math.max(maximumSolverChange, solverChange);
-            boolean becameSolverCell = oldSolverTemperature == 0.0F && newSolverTemperature != 0.0F;
-            boolean clearedSolverCell = oldSolverTemperature != 0.0F && newSolverTemperature == 0.0F;
-            if (newSolverTemperature != 0.0F && solverChange >= STABLE_THRESHOLD) {
-                nextActive.set(index);
-            }
-            if (becameSolverCell || clearedSolverCell) {
-                queueLoadedAirNeighbors(position, cellsToActivate);
-            }
-        }
-        return new SimulationResult(section, updateSet, nextActive, cellsToActivate,
-                maximumStorageChange, maximumSolverChange);
-    }
-
-    private void commitSimulation(SimulationResult result) {
-        ThermalSection section = result.section();
-        float[] swap = section.current;
-        section.current = section.pending;
-        section.pending = swap;
-        section.commitHiddenUpdate();
-        if (result.maximumStorageChange() > 0.0F) {
-            markChunkUnsaved(section);
-        }
-        if (result.maximumSolverChange() < STABLE_THRESHOLD) {
-            section.stableCycles++;
-            if (section.stableCycles < 4) {
-                result.nextActive().or(result.updateSet());
-            } else {
-                result.nextActive().clear();
-            }
-        } else {
-            section.stableCycles = 0;
-        }
-        section.replaceActive(result.nextActive());
-    }
-
-    private float sourceExchange(BlockPos position, float airTemperature, float dtSeconds) {
-        List<ThermalFace> faces = heatingFacesByTarget.get(position.asLong());
-        if (faces == null) {
-            return 0.0F;
-        }
-        float delta = 0.0F;
-        float positiveLimit = 0.0F;
-        float negativeLimit = 0.0F;
-        for (ThermalFace face : faces) {
-            float maximumChange = face.faceHeatingRate() * dtSeconds * face.area() / AIR_HEAT_CAPACITY;
-            float difference = face.surfaceTemperature() - airTemperature;
-            delta += Math.max(-maximumChange, Math.min(maximumChange, difference));
-            positiveLimit = Math.max(positiveLimit, difference);
-            negativeLimit = Math.min(negativeLimit, difference);
-        }
-        return Math.max(negativeLimit, Math.min(positiveLimit, delta));
-    }
-
-    private float boundaryLoss(BlockPos position, float temperature, float dtSeconds) {
-        float change = 0.0F;
-        long positionKey = position.asLong();
-        ThermalSection section = sections.get(sectionKey(position));
-        int localIndex = localIndex(position);
-        boolean cacheKnown = section != null && section.boundaryCacheKnown.get(localIndex);
-        List<BoundaryContact> contacts = boundaryContactCache.get(positionKey);
-        if (!cacheKnown) {
-            contacts = buildBoundaryContacts(position);
-            if (!contacts.isEmpty()) {
-                boundaryContactCache.put(positionKey, contacts);
-            } else {
-                boundaryContactCache.remove(positionKey);
-            }
-            if (section != null) {
-                section.boundaryCacheKnown.set(localIndex);
-            }
-        } else if (contacts == null) {
-            contacts = List.of();
-        }
-        for (BoundaryContact contact : contacts) {
-            BlockPos neighbor = contact.solidPosition();
-            if (isActiveSourceFace(neighbor)) {
-                continue;
-            }
-            float loss = normalizedCoefficient(ThermalBoundaryRegistry.getLoss(contact.solidState()), dtSeconds);
-            change += -temperature * loss * contact.area();
-        }
-        float maximum = Math.abs(temperature);
-        return Math.max(-maximum, Math.min(maximum, change));
-    }
-
     private List<BoundaryContact> buildBoundaryContacts(BlockPos position) {
         List<BoundaryContact> contacts = new ArrayList<>();
         for (Direction direction : DIRECTIONS) {
@@ -913,75 +1004,6 @@ public final class ThermalWorldManager {
         if (section != null) {
             section.boundaryCacheKnown.clear(localIndex(airPosition));
         }
-    }
-
-    private float buoyancyDelta(BlockPos position, float temperature,
-                                float hotCoefficient, float coldCoefficient,
-                                Map<Long, BitSet> updateMasks, Set<Long> cellsToActivate) {
-        if (hotCoefficient <= 0.0F && coldCoefficient <= 0.0F) {
-            return 0.0F;
-        }
-        float delta = 0.0F;
-        BlockPos above = position.above();
-        BlockPos below = position.below();
-        float aboveTemperature = scheduledAirTemperature(above, temperature, updateMasks, cellsToActivate);
-        float belowTemperature = scheduledAirTemperature(below, temperature, updateMasks, cellsToActivate);
-        if (temperature > aboveTemperature && (temperature > 0.0F || aboveTemperature < 0.0F)) {
-            float coefficient = buoyancyPairCoefficient(temperature, aboveTemperature,
-                    hotCoefficient, coldCoefficient);
-            delta -= (temperature - aboveTemperature) * coefficient;
-        }
-        if (belowTemperature > temperature && (belowTemperature > 0.0F || temperature < 0.0F)) {
-            float coefficient = buoyancyPairCoefficient(belowTemperature, temperature,
-                    hotCoefficient, coldCoefficient);
-            delta += (belowTemperature - temperature) * coefficient;
-        }
-        return delta;
-    }
-
-    /** Returns one shared conservative coefficient for the lower/upper pair, including mixed signs. */
-    private static float buoyancyPairCoefficient(float lowerTemperature, float upperTemperature,
-                                                  float hotCoefficient, float coldCoefficient) {
-        float difference = lowerTemperature - upperTemperature;
-        if (difference <= 0.0F) {
-            return 0.0F;
-        }
-        float hotDifference = Math.max(lowerTemperature, 0.0F) - Math.max(upperTemperature, 0.0F);
-        float coldDifference = Math.max(-upperTemperature, 0.0F) - Math.max(-lowerTemperature, 0.0F);
-        return (hotDifference * hotCoefficient + coldDifference * coldCoefficient) / difference;
-    }
-
-    private float scheduledAirTemperature(BlockPos neighbor, float fallback,
-                                          Map<Long, BitSet> updateMasks,
-                                          Set<Long> cellsToActivate) {
-        if (!isLoadedAirMedium(neighbor)) {
-            return fallback;
-        }
-        float temperature = getSolverTemperature(neighbor);
-        if (isCellScheduled(updateMasks, neighbor)) {
-            return temperature;
-        }
-        if (Math.abs(temperature - fallback) >= WAKE_THRESHOLD) {
-            cellsToActivate.add(neighbor.asLong());
-        }
-        // Loaded deferred neighbors remain valid frozen samples. Returning fallback here made
-        // vertical Section boundaries suppress buoyancy completely whenever the budget selected
-        // only one side.
-        return temperature;
-    }
-
-    private void queueLoadedAirNeighbors(BlockPos position, Set<Long> cellsToActivate) {
-        for (Direction direction : DIRECTIONS) {
-            BlockPos neighbor = position.relative(direction);
-            if (isLoadedAirMedium(neighbor)) {
-                cellsToActivate.add(neighbor.asLong());
-            }
-        }
-    }
-
-    private static boolean isCellScheduled(Map<Long, BitSet> updateMasks, BlockPos position) {
-        BitSet mask = updateMasks.get(sectionKey(position));
-        return mask != null && mask.get(localIndex(position));
     }
 
     private float solidContactArea(BlockPos solidPosition, BlockState state, Direction faceTowardAir) {
@@ -1131,17 +1153,19 @@ public final class ThermalWorldManager {
                 changed.add(record.position());
             }
         }
-        for (BlockPos position : changed) {
-            refreshSourceAt(position);
-            wakeAround(position);
-        }
         if (!changed.isEmpty()) {
+            invalidateSimulation();
+            for (BlockPos position : changed) {
+                refreshSourceAt(position);
+                wakeAround(position);
+            }
             playerSamples.clear();
             ThermalRadiationSolver.invalidate(level);
         }
     }
 
     public void refreshChunkBorders(ChunkPos chunkPos) {
+        invalidateSimulation();
         int minX = chunkPos.getMinBlockX();
         int maxX = chunkPos.getMaxBlockX();
         int minZ = chunkPos.getMinBlockZ();
@@ -1287,7 +1311,11 @@ public final class ThermalWorldManager {
                     || visibleCutoff > 0.0F && Math.abs(visible) < visibleCutoff);
             boolean invalidHidden = hidden != 0.0F && (Math.abs(hidden) < hiddenCutoff
                     || visibleCutoff <= 0.0F || Math.abs(hidden) >= visibleCutoff);
-            if (!isLoadedAirMedium(position) || visible != 0.0F && hidden != 0.0F
+            boolean loadedAir = isLoadedAirMedium(position);
+            if (!loadedAir) {
+                section.invalidateAirCache(index);
+            }
+            if (!loadedAir || visible != 0.0F && hidden != 0.0F
                     || invalidVisible || invalidHidden) {
                 section.wake(index);
             }
@@ -1305,45 +1333,12 @@ public final class ThermalWorldManager {
         return new Scheduling(IDLE_INTERVAL, 1);
     }
 
-    /** Every active solver cell schedules one local neighbor shell for physical hidden diffusion. */
-    private BitSet expandedActiveCells(ThermalSection section) {
-        BitSet cells = (BitSet) section.active.clone();
-        BitSet original = (BitSet) section.active.clone();
-        for (int index = original.nextSetBit(0); index >= 0; index = original.nextSetBit(index + 1)) {
-            int x = index & 15;
-            int z = (index >>> 4) & 15;
-            int y = (index >>> 8) & 15;
-            if (x > 0) {
-                cells.set(index - 1);
-            }
-            if (x < 15) {
-                cells.set(index + 1);
-            }
-            if (z > 0) {
-                cells.set(index - 16);
-            }
-            if (z < 15) {
-                cells.set(index + 16);
-            }
-            if (y > 0) {
-                cells.set(index - 256);
-            }
-            if (y < 15) {
-                cells.set(index + 256);
-            }
-        }
-        return cells;
-    }
-
-    private int expandedActiveCount(ThermalSection section) {
-        return expandedActiveCells(section).cardinality();
-    }
-
-    private void pruneEmptySections() {
+    private void pruneEmptySections(Set<Long> protectedSections) {
         Set<Long> removed = new HashSet<>();
         sections.entrySet().removeIf(entry -> {
             ThermalSection section = entry.getValue();
-            boolean remove = !section.hasSource && section.active.isEmpty()
+            boolean remove = !protectedSections.contains(entry.getKey())
+                    && !section.hasSource && section.active.isEmpty()
                     && !section.hasSavedTemperature(ThermalConfig.hiddenTemperatureCutoff())
                     && !section.hasHiddenTemperatures();
             if (remove) {
@@ -1383,43 +1378,12 @@ public final class ThermalWorldManager {
         return sections.computeIfAbsent(key, ignored -> new ThermalSection(key, level.getGameTime()));
     }
 
-    private float normalizedCoefficient(float baseCoefficient, float dtSeconds) {
-        if (baseCoefficient <= 0.0F) {
-            return 0.0F;
-        }
-        if (baseCoefficient >= 1.0F) {
-            return 1.0F;
-        }
-        return 1.0F - (float) Math.pow(1.0F - baseCoefficient, dtSeconds / STANDARD_STEP_SECONDS);
-    }
-
-    /**
-     * Time-normalizes a conservative two-cell transfer. Moving {@code c} of the difference from one
-     * cell to the other reduces their difference by {@code 2c}, so the stable closed form approaches
-     * one half rather than one.
-     */
-    private float normalizedConservativePairCoefficient(float baseCoefficient, float dtSeconds) {
-        if (baseCoefficient <= 0.0F) {
-            return 0.0F;
-        }
-        float bounded = Math.min(0.5F, baseCoefficient);
-        if (bounded >= 0.5F) {
-            return 0.5F;
-        }
-        return 0.5F * (1.0F - (float) Math.pow(1.0F - 2.0F * bounded,
-                dtSeconds / STANDARD_STEP_SECONDS));
-    }
-
     private void markChunkUnsaved(ThermalSection section) {
         LevelChunk chunk = level.getChunkSource().getChunkNow(SectionPos.x(section.sectionKey),
                 SectionPos.z(section.sectionKey));
         if (chunk != null) {
             chunk.setUnsaved(true);
         }
-    }
-
-    private static float clampTemperature(float value) {
-        return Math.max(-MAX_ABSOLUTE_TEMPERATURE, Math.min(MAX_ABSOLUTE_TEMPERATURE, value));
     }
 
     private static long sectionKey(BlockPos position) {
@@ -1436,6 +1400,12 @@ public final class ThermalWorldManager {
     private static BlockPos positionAt(int baseX, int baseY, int baseZ, int index) {
         return new BlockPos(baseX + (index & 15), baseY + ((index >>> 8) & 15),
                 baseZ + ((index >>> 4) & 15));
+    }
+
+    private static BlockPos positionAt(long sectionKey, int index) {
+        return positionAt(SectionPos.sectionToBlockCoord(SectionPos.x(sectionKey)),
+                SectionPos.sectionToBlockCoord(SectionPos.y(sectionKey)),
+                SectionPos.sectionToBlockCoord(SectionPos.z(sectionKey)), index);
     }
 
     private static void loadTemperature(ThermalSection section, int index, float temperature,
@@ -1546,11 +1516,6 @@ public final class ThermalWorldManager {
 
     private record SimulationJob(ThermalSection section, int substeps, float stepSeconds,
                                  int estimatedWork, double urgency) {
-    }
-
-    private record SimulationResult(ThermalSection section, BitSet updateSet, BitSet nextActive,
-                                    Set<Long> cellsToActivate, float maximumStorageChange,
-                                    float maximumSolverChange) {
     }
 
     private record CachedPlayerSample(long tick, ThermalSample sample) {

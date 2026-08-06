@@ -91,7 +91,7 @@ public final class ThermalDebugRenderer {
 
     public static String diagnosticsSummary() {
         return String.format(Locale.ROOT,
-                "Section:%d  源:%d  暴露面:%d  Patch:%d  活跃格:%d  本tick格:%d  顺延Section:%d  射线:%d  命中:%d  旧缓存:%d  顺延射线:%d",
+                "Section:%d  源:%d  暴露面:%d  Patch:%d  活跃格:%d  最近epoch格:%d  顺延Section:%d  射线:%d  命中:%d  旧缓存:%d  顺延射线:%d",
                 diagnostics.sectionCount(), diagnostics.sourceCount(), diagnostics.exposedFaceCount(),
                 diagnostics.radiantPatchCount(), diagnostics.activeCellCount(),
                 diagnostics.processedCellsLastTick(), diagnostics.deferredSectionsLastTick(),

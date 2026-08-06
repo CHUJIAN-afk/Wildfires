@@ -1,6 +1,5 @@
 package first.wildfires.thermal;
 
-import java.util.Arrays;
 import java.util.BitSet;
 
 /** Mutable 16x16x16 air-temperature storage owned by one server-level manager. */
@@ -11,12 +10,11 @@ final class ThermalSection {
 
     final long sectionKey;
     float[] current = new float[VOLUME];
-    float[] pending = new float[VOLUME];
     private float[] hiddenCurrent;
-    private float[] hiddenPending;
     private int hiddenCount;
-    private int pendingHiddenCount;
     final BitSet active = new BitSet(VOLUME);
+    final BitSet airCacheKnown = new BitSet(VOLUME);
+    final BitSet airCells = new BitSet(VOLUME);
     final BitSet boundaryCacheKnown = new BitSet(VOLUME);
     long lastSimulationTick;
     long lastNearTick = Long.MIN_VALUE;
@@ -32,13 +30,6 @@ final class ThermalSection {
 
     float get(int index) {
         return current[index];
-    }
-
-    void set(int index, float temperature) {
-        current[index] = temperature;
-        clearHiddenTemperature(index);
-        active.set(index);
-        forceDue = true;
     }
 
     float getHiddenTemperature(int index) {
@@ -65,46 +56,6 @@ final class ThermalSection {
         hiddenCurrent[index] = temperature;
     }
 
-    void beginHiddenUpdate() {
-        if (hiddenCurrent == null) {
-            if (hiddenPending != null) {
-                Arrays.fill(hiddenPending, 0.0F);
-            }
-            pendingHiddenCount = 0;
-        } else {
-            if (hiddenPending == null) {
-                hiddenPending = new float[VOLUME];
-            }
-            System.arraycopy(hiddenCurrent, 0, hiddenPending, 0, VOLUME);
-            pendingHiddenCount = hiddenCount;
-        }
-    }
-
-    void setPendingHiddenTemperature(int index, float temperature) {
-        if (hiddenPending == null) {
-            if (Math.abs(temperature) < 0.0001F) {
-                return;
-            }
-            hiddenPending = new float[VOLUME];
-        }
-        float previous = hiddenPending[index];
-        float stored = Math.abs(temperature) < 0.0001F ? 0.0F : temperature;
-        if (previous == 0.0F && stored != 0.0F) {
-            pendingHiddenCount++;
-        } else if (previous != 0.0F && stored == 0.0F) {
-            pendingHiddenCount--;
-        }
-        hiddenPending[index] = stored;
-    }
-
-    void commitHiddenUpdate() {
-        float[] oldCurrent = hiddenCurrent;
-        hiddenCurrent = pendingHiddenCount == 0 ? null : hiddenPending;
-        hiddenCount = pendingHiddenCount;
-        hiddenPending = oldCurrent;
-        pendingHiddenCount = 0;
-    }
-
     void clearHiddenTemperature(int index) {
         if (hiddenCurrent == null || hiddenCurrent[index] == 0.0F) {
             return;
@@ -118,24 +69,44 @@ final class ThermalSection {
 
     void clearHiddenTemperatures() {
         hiddenCurrent = null;
-        hiddenPending = null;
         hiddenCount = 0;
-        pendingHiddenCount = 0;
     }
 
     boolean hasHiddenTemperatures() {
         return hiddenCount > 0;
     }
 
+    float[] hiddenSnapshot() {
+        return hiddenCurrent == null ? new float[VOLUME] : hiddenCurrent.clone();
+    }
+
+    void replaceSimulationState(float[] visible, float[] hidden, int newHiddenCount,
+                                BitSet nextActive, int nextStableCycles, boolean nextForceDue) {
+        if (visible.length != VOLUME || hidden != null && hidden.length != VOLUME) {
+            throw new IllegalArgumentException("Invalid thermal Section buffer length");
+        }
+        current = visible;
+        hiddenCurrent = newHiddenCount == 0 ? null : hidden;
+        hiddenCount = newHiddenCount;
+        replaceActive(nextActive);
+        stableCycles = nextStableCycles;
+        forceDue = nextForceDue;
+    }
+
+    void invalidateAirCache(int index) {
+        airCacheKnown.clear(index);
+        airCells.clear(index);
+    }
+
+    void clearAirCache() {
+        airCacheKnown.clear();
+        airCells.clear();
+    }
+
     void wake(int index) {
         active.set(index);
         stableCycles = 0;
         forceDue = true;
-    }
-
-    void activate(int index) {
-        active.set(index);
-        stableCycles = 0;
     }
 
     void replaceActive(BitSet nextActive) {

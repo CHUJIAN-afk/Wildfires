@@ -1,6 +1,7 @@
 package first.wildfires.utils;
 
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
+import com.simibubi.create.content.processing.recipe.ProcessingOutput;
 import first.wildfires.api.KineticData;
 import first.wildfires.api.MobPoopData;
 import first.wildfires.api.customEvent.StressAppliedModifyEvent;
@@ -19,6 +20,7 @@ import net.minecraft.world.level.storage.loot.LootParams;
 import net.minecraft.world.phys.AABB;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.eventbus.api.Event;
+import org.jetbrains.annotations.Nullable;
 import top.theillusivec4.curios.api.CuriosApi;
 import top.theillusivec4.curios.api.type.capability.ICuriosItemHandler;
 
@@ -27,9 +29,73 @@ import java.util.*;
 public class WildfiresUtil {
 
     private static final ThreadLocal<Random> ThreadLocalRandom = ThreadLocal.withInitial(Random::new);
+    private static final ThreadLocal<KineticBlockEntity> KineticTickContext = new ThreadLocal<>();
 
     public static Random random() {
         return ThreadLocalRandom.get();
+    }
+
+    public static void beginKineticTick(KineticBlockEntity blockEntity) {
+        KineticTickContext.set(blockEntity);
+    }
+
+    @Nullable
+    public static KineticBlockEntity getKineticTickContext() {
+        KineticBlockEntity blockEntity = KineticTickContext.get();
+        if (blockEntity == null) {
+            return null;
+        }
+
+        // A kinetic subclass may do its processing after super.tick() returns.
+        // Keep the context for that call, but reject unrelated recipe queries.
+        ClassLoader classLoader = WildfiresUtil.class.getClassLoader();
+        for (StackTraceElement element : Thread.currentThread().getStackTrace()) {
+            try {
+                Class<?> caller = Class.forName(element.getClassName(), false, classLoader);
+                if ("tick".equals(element.getMethodName())
+                        && KineticBlockEntity.class.isAssignableFrom(caller)) {
+                    return blockEntity;
+                }
+            } catch (ClassNotFoundException | LinkageError ignored) {
+                // Stack frames can belong to classes unavailable to this loader.
+            }
+        }
+        return null;
+    }
+
+    public static List<ProcessingOutput> modifyProcessingOutputs(List<ProcessingOutput> outputs,
+                                                                  @Nullable KineticBlockEntity blockEntity) {
+        if (blockEntity == null) {
+            return outputs;
+        }
+        return modifyProcessingOutputs(outputs, blockEntity.getLevel(), blockEntity.getBlockPos());
+    }
+
+    public static List<ProcessingOutput> modifyProcessingOutputs(List<ProcessingOutput> outputs,
+                                                                  @Nullable Level level,
+                                                                  BlockPos blockPos) {
+        if (level == null || outputs.isEmpty()) {
+            return outputs;
+        }
+
+        float luck = getLuck(level, Player.class, new AABB(blockPos).inflate(32));
+        if (luck == 0) {
+            return outputs;
+        }
+
+        float multiplier = 1 + luck * 0.1f;
+        List<ProcessingOutput> modified = new ArrayList<>(outputs.size());
+        for (ProcessingOutput output : outputs) {
+            float chance = output.getChance();
+            if (chance <= 0 || chance >= 1) {
+                modified.add(output);
+                continue;
+            }
+
+            float adjustedChance = Math.max(0, Math.min(1, chance * multiplier));
+            modified.add(new ProcessingOutput(output.getStack(), adjustedChance));
+        }
+        return modified;
     }
 
     public static final List<KineticData> kineticDataList = new ArrayList<>();

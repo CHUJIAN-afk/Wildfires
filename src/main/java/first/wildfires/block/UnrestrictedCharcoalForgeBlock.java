@@ -44,7 +44,7 @@ public class UnrestrictedCharcoalForgeBlock extends CharcoalForgeBlock {
             return;
         }
 
-        boolean overheated = blockEntity.getTemperature() > OVERHEATED_TEMPERATURE;
+        boolean overheated = blockEntity.getTemperature() >= OVERHEATED_TEMPERATURE;
         if (updatedState.getValue(OVERHEATED) != overheated) {
             level.setBlockAndUpdate(pos, updatedState.setValue(OVERHEATED, overheated));
         }

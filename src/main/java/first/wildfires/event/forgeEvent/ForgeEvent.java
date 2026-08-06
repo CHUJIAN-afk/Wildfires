@@ -15,6 +15,7 @@ import first.wildfires.register.ItemRegister;
 import first.wildfires.utils.CuriosUtil;
 import first.wildfires.utils.WildfiresUtil;
 import net.dries007.tfc.common.blockentities.CharcoalForgeBlockEntity;
+import net.dries007.tfc.common.TFCTags;
 import net.dries007.tfc.common.blocks.plant.fruit.FruitTreeBranchBlock;
 import net.dries007.tfc.common.blocks.plant.fruit.FruitTreeLeavesBlock;
 import net.dries007.tfc.common.blocks.plant.fruit.Lifecycle;
@@ -25,7 +26,7 @@ import net.dries007.tfc.common.entities.livestock.TFCAnimalProperties;
 import net.dries007.tfc.common.items.IngotItem;
 import net.dries007.tfc.common.items.TFCItems;
 import net.dries007.tfc.util.Metal;
-import net.dries007.tfc.util.Drinkable;
+import net.dries007.tfc.util.Helpers;
 import net.dries007.tfc.util.events.StartFireEvent;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -39,14 +40,19 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.AddReloadListenerEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
@@ -75,6 +81,7 @@ import java.util.concurrent.CompletableFuture;
 @Mod.EventBusSubscriber(modid = Wildfires.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class ForgeEvent {
 	private static final int SIMPLE_COMPASS_DECAY_INTERVAL_TICKS = 20;
+	private static final int SIMPLE_COMPASS_RAIN_REPAIR_INTERVAL_TICKS = 20 * 10;
 	private static final int ITEM_BODY_TEMPERATURE_INTERVAL_TICKS = 20;
 	private static final int RAIN_GEAR_DAMAGE_INTERVAL_TICKS = 20 * 10;
 	private static final float HOT_WATER_BOTTLE_BODY_TEMPERATURE_SCALE = 0.01f;
@@ -564,27 +571,12 @@ public class ForgeEvent {
 	 * Runs before TFC's drinking handler. A damaged compass is restored by a
 	 * water source; a fully repaired compass still allows the normal drink action.
 	 */
-	@SubscribeEvent(priority = EventPriority.HIGHEST)
+	@SubscribeEvent(priority = EventPriority.HIGHEST, receiveCanceled = true)
 	public static void repairCompassInWater(PlayerInteractEvent.RightClickBlock event) {
 		ItemStack heldItem = event.getItemStack();
-		boolean isDamagedCompass = heldItem.is(ItemRegister.DamagedCompass.get());
-		boolean isWornSimpleCompass = heldItem.is(ItemRegister.SimpleCompass.get())
-				&& heldItem.getDamageValue() > 0;
-		if (!isDamagedCompass && !isWornSimpleCompass) {
-			return;
-		}
-
 		FluidState fluid = event.getLevel().getFluidState(event.getPos());
-		if (!fluid.isSource() || Drinkable.get(fluid.getType()) == null) {
+		if (!repairCompassInWater(event.getEntity(), event.getHand(), heldItem, event.getLevel(), fluid)) {
 			return;
-		}
-
-		if (!event.getLevel().isClientSide()) {
-			if (isDamagedCompass) {
-				event.getEntity().setItemInHand(event.getHand(), new ItemStack(ItemRegister.SimpleCompass.get()));
-			} else {
-				heldItem.setDamageValue(0);
-			}
 		}
 
 		event.setCancellationResult(InteractionResult.SUCCESS);
@@ -592,9 +584,55 @@ public class ForgeEvent {
 	}
 
 	/**
-	 * A simple compass loses one of its six durability points every ten seconds
-	 * while it is in a player's main inventory or offhand. This runs only on the
-	 * logical server, so clients cannot consume or duplicate the item locally.
+	 * TFC can handle drinking through the item-use path when the target is a fluid
+	 * source, so also catch that path and resolve the source with TFC's ray trace.
+	 */
+	@SubscribeEvent(priority = EventPriority.HIGHEST, receiveCanceled = true)
+	public static void repairCompassInWater(PlayerInteractEvent.RightClickItem event) {
+		ItemStack heldItem = event.getItemStack();
+		BlockHitResult hit = Helpers.rayTracePlayer(event.getLevel(), event.getEntity(), ClipContext.Fluid.SOURCE_ONLY);
+		if (hit.getType() != HitResult.Type.BLOCK) {
+			return;
+		}
+
+		FluidState fluid = event.getLevel().getFluidState(hit.getBlockPos());
+		if (!repairCompassInWater(event.getEntity(), event.getHand(), heldItem, event.getLevel(), fluid)) {
+			return;
+		}
+
+		event.setCancellationResult(InteractionResult.SUCCESS);
+		event.setCanceled(true);
+	}
+
+	private static boolean repairCompassInWater(Player player, InteractionHand hand, ItemStack heldItem, Level level, FluidState fluid) {
+		boolean isDamagedCompass = heldItem.is(ItemRegister.DamagedCompass.get());
+		boolean isWornSimpleCompass = heldItem.is(ItemRegister.SimpleCompass.get())
+				&& heldItem.getDamageValue() > 0;
+		if ((!isDamagedCompass && !isWornSimpleCompass) || !isWaterSource(fluid)) {
+			return false;
+		}
+
+		if (!level.isClientSide()) {
+			if (isDamagedCompass) {
+				player.setItemInHand(hand, new ItemStack(ItemRegister.SimpleCompass.get()));
+			} else {
+				heldItem.setDamageValue(0);
+			}
+		}
+
+		return true;
+	}
+
+	private static boolean isWaterSource(FluidState fluid) {
+		return fluid.isSource()
+				&& (fluid.getType().is(FluidTags.WATER)
+				|| fluid.getType().is(TFCTags.Fluids.ANY_FRESH_WATER)
+				|| fluid.getType().is(TFCTags.Fluids.ANY_WATER));
+	}
+
+	/**
+	 * A simple compass loses durability while carried. A compass held in either
+	 * hand is protected from that loss in rain and slowly repairs instead.
 	 */
 	@SubscribeEvent
 	public static void decaySimpleCompass(TickEvent.PlayerTickEvent event) {
@@ -607,17 +645,31 @@ public class ForgeEvent {
 			return;
 		}
 
+		boolean raining = player.level().isRainingAt(player.blockPosition());
+		ItemStack mainHand = player.getMainHandItem();
+		ItemStack offhand = player.getOffhandItem();
+		if (raining && player.tickCount % SIMPLE_COMPASS_RAIN_REPAIR_INTERVAL_TICKS == 0) {
+			repairRainSoakedCompass(mainHand);
+			repairRainSoakedCompass(offhand);
+		}
+
 		for (int slot = 0; slot < player.getInventory().items.size(); slot++) {
-			decaySimpleCompass(player.getInventory().items, slot);
+			decaySimpleCompass(player.getInventory().items, slot, raining ? mainHand : null, raining ? offhand : null);
 		}
 		for (int slot = 0; slot < player.getInventory().offhand.size(); slot++) {
-			decaySimpleCompass(player.getInventory().offhand, slot);
+			decaySimpleCompass(player.getInventory().offhand, slot, raining ? mainHand : null, raining ? offhand : null);
 		}
 	}
 
-	private static void decaySimpleCompass(java.util.List<ItemStack> inventory, int slot) {
+	private static void repairRainSoakedCompass(ItemStack stack) {
+		if (stack.is(ItemRegister.SimpleCompass.get()) && stack.getDamageValue() > 0) {
+			stack.setDamageValue(stack.getDamageValue() - 1);
+		}
+	}
+
+	private static void decaySimpleCompass(java.util.List<ItemStack> inventory, int slot, ItemStack protectedMainHand, ItemStack protectedOffhand) {
 		ItemStack stack = inventory.get(slot);
-		if (!stack.is(ItemRegister.SimpleCompass.get())) {
+		if (!stack.is(ItemRegister.SimpleCompass.get()) || stack == protectedMainHand || stack == protectedOffhand) {
 			return;
 		}
 

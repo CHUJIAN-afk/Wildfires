@@ -7,6 +7,7 @@ import first.wildfires.item.HeatResistantArmorItem;
 import first.wildfires.item.DrainedPulpScoopItem;
 import first.wildfires.item.FilledPulpScoopItem;
 import first.wildfires.item.PulpScoopItem;
+import net.dries007.tfc.util.Metal;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -67,6 +68,8 @@ public class ItemRegister {
     public static final CustomArmorMaterial BambooHatAndCoirRaincoatArmorMaterial = rainGearArmorMaterial("wildfires:bamboo_hat_and_coir_raincoat", 240);
     public static final CustomArmorMaterial RubberDivingSuitArmorMaterial = rainGearArmorMaterial("wildfires:rubber_diving_suit");
     public static final CustomArmorMaterial ForgingApronArmorMaterial = rainGearArmorMaterial("wildfires:forging_apron", 210);
+    public static final ArmorMaterial ForgedIronGuardArmorMaterial = Metal.Default.WROUGHT_IRON.armorTier();
+    public static final ArmorMaterial ChainGuardArmorMaterial = ArmorMaterials.CHAIN;
 
     public static final RegistryObject<GeckoSimpleArmorItem> ConicalHat = Register.register("conical_hat", () -> new GeckoSimpleArmorItem(
             BambooHatAndCoirRaincoatArmorMaterial, ArmorItem.Type.HELMET, new Item.Properties(), "bamboo_hat", "bamboo_hat_and_coir_raincoat", 3.5D));
@@ -77,6 +80,70 @@ public class ItemRegister {
     public static final RegistryObject<ArmorItem> RubberDivingLeggings = rubberDivingGear("rubber_diving_leggings", ArmorItem.Type.LEGGINGS);
     public static final RegistryObject<HeatResistantArmorItem> ForgingApron = Register.register("forging_apron", () -> new HeatResistantArmorItem(
             ForgingApronArmorMaterial, ArmorItem.Type.CHESTPLATE, new Item.Properties()));
+    public static final RegistryObject<GeckoSimpleArmorItem> ForgedIronGuardClothHelmet =
+            Register.register("forged_iron_guard_cloth_covered_knight_helmet", () -> new GeckoSimpleArmorItem(
+                    ForgedIronGuardArmorMaterial, ArmorItem.Type.HELMET, new Item.Properties(),
+                    "forged_iron_guard_cloth_helmet", "forged_iron_guard", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> ForgedIronGuardHeavyArmor =
+            Register.register("forged_iron_guard_knight_heavy_helmet", () -> new GeckoSimpleArmorItem(
+                    ForgedIronGuardArmorMaterial, ArmorItem.Type.CHESTPLATE, new Item.Properties(),
+                    "forged_iron_guard_expanded", "forged_iron_guard", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> ForgedIronGuardKneeGuards =
+            Register.register("forged_iron_guard_knight_knee_guard", () -> new GeckoSimpleArmorItem(
+                    ForgedIronGuardArmorMaterial, ArmorItem.Type.LEGGINGS, new Item.Properties(),
+                    "forged_iron_guard_expanded", "forged_iron_guard", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> ForgedIronGuardFootArmor =
+            Register.register("forged_iron_guard_knight_foot_armor", () -> new GeckoSimpleArmorItem(
+                    ForgedIronGuardArmorMaterial, ArmorItem.Type.BOOTS, new Item.Properties(),
+                    "forged_iron_guard_expanded", "forged_iron_guard", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> ForgedIronGuardSquareHelmet =
+            Register.register("forged_iron_guard_square_helmet", () -> new GeckoSimpleArmorItem(
+                    ForgedIronGuardArmorMaterial, ArmorItem.Type.HELMET, new Item.Properties(),
+                    "forged_iron_guard_square_helmet", "forged_iron_guard_square_helmet", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> ChainGuardHelmet =
+            Register.register("chain_guard_helmet", () -> new GeckoSimpleArmorItem(
+                    ChainGuardArmorMaterial, ArmorItem.Type.HELMET, new Item.Properties(),
+                    "forged_iron_guard_chain_helmet", "chain_guard", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> ChainGuardChestplate =
+            Register.register("chain_guard_chestplate", () -> new GeckoSimpleArmorItem(
+                    ChainGuardArmorMaterial, ArmorItem.Type.CHESTPLATE, new Item.Properties(),
+                    "forged_iron_guard_expanded", "chain_guard", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> ChainGuardLeggings =
+            Register.register("chain_guard_leggings", () -> new GeckoSimpleArmorItem(
+                    ChainGuardArmorMaterial, ArmorItem.Type.LEGGINGS, new Item.Properties(),
+                    "forged_iron_guard_expanded", "chain_guard", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> ChainGuardBoots =
+            Register.register("chain_guard_boots", () -> new GeckoSimpleArmorItem(
+                    ChainGuardArmorMaterial, ArmorItem.Type.BOOTS, new Item.Properties(),
+                    "forged_iron_guard_expanded", "chain_guard", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> BucketGuardHelmet =
+            Register.register("forged_iron_guard_bucket_helmet", () -> new GeckoSimpleArmorItem(
+                    ForgedIronGuardArmorMaterial, ArmorItem.Type.HELMET, new Item.Properties(),
+                    "forged_iron_guard_bucket_helmet", "forged_iron_guard_plain", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> BucketGuardChestplate =
+            Register.register("forged_iron_guard_bucket_chestplate", () -> new GeckoSimpleArmorItem(
+                    ForgedIronGuardArmorMaterial, ArmorItem.Type.CHESTPLATE, new Item.Properties(),
+                    "forged_iron_guard_expanded", "forged_iron_guard_plain", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> BucketGuardLeggings =
+            Register.register("forged_iron_guard_bucket_leggings", () -> new GeckoSimpleArmorItem(
+                    ForgedIronGuardArmorMaterial, ArmorItem.Type.LEGGINGS, new Item.Properties(),
+                    "forged_iron_guard_expanded", "forged_iron_guard_plain", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> BucketGuardBoots =
+            Register.register("forged_iron_guard_bucket_boots", () -> new GeckoSimpleArmorItem(
+                    ForgedIronGuardArmorMaterial, ArmorItem.Type.BOOTS, new Item.Properties(),
+                    "forged_iron_guard_expanded", "forged_iron_guard_plain", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> SquareGuardChestplate =
+            Register.register("forged_iron_guard_square_chestplate", () -> new GeckoSimpleArmorItem(
+                    ForgedIronGuardArmorMaterial, ArmorItem.Type.CHESTPLATE, new Item.Properties(),
+                    "forged_iron_guard_expanded", "forged_iron_guard_square_armor", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> SquareGuardLeggings =
+            Register.register("forged_iron_guard_square_leggings", () -> new GeckoSimpleArmorItem(
+                    ForgedIronGuardArmorMaterial, ArmorItem.Type.LEGGINGS, new Item.Properties(),
+                    "forged_iron_guard_expanded", "forged_iron_guard_square_armor", 0D));
+    public static final RegistryObject<GeckoSimpleArmorItem> SquareGuardBoots =
+            Register.register("forged_iron_guard_square_boots", () -> new GeckoSimpleArmorItem(
+                    ForgedIronGuardArmorMaterial, ArmorItem.Type.BOOTS, new Item.Properties(),
+                    "forged_iron_guard_expanded", "forged_iron_guard_square_armor", 0D));
 
     private static RegistryObject<ArmorItem> rainGear(String name, ArmorItem.Type type) {
         return Register.register(name, () -> new ArmorItem(RainGearArmorMaterial, type, new Item.Properties()));
@@ -107,6 +174,12 @@ public class ItemRegister {
 
     public static final RegistryObject<Item> UnrestrictedCharcoalForge =
             Register.register("unrestricted_charcoal_forge", () -> new BlockItem(BlockRegister.UnrestrictedCharcoalForge.get(), new Item.Properties()));
+
+    public static final RegistryObject<Item> Crucible =
+            Register.register("crucible", () -> new BlockItem(BlockRegister.Crucible.get(), new Item.Properties()));
+
+    public static final RegistryObject<Item> DecorativeCrucible =
+            Register.register("decorative_crucible", () -> new BlockItem(BlockRegister.DecorativeCrucible.get(), new Item.Properties()));
 
     public static final RegistryObject<Item> UnderwaterTurbine =
             Register.register("underwater_turbine", () -> new BlockItem(BlockRegister.UnderwaterTurbine.get(), new Item.Properties()));

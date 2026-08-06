@@ -25,6 +25,9 @@ base {
     archivesName = mod_id
 }
 
+def tfeVersion = '1.1.3'
+def tfeLocalJar = file("run/mods/Wildfire_TerraFirmaEarth-1.20.1-forge-${tfeVersion}.jar")
+
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(17)
 }
@@ -132,6 +135,10 @@ mixin {
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
+    flatDir {
+        name = "Local TerraFirmaEarth"
+        dirs "run/mods"
+    }
     maven {
         // location of the maven that hosts JEI files since January 2023
         name = "Jared's maven"
@@ -167,6 +174,9 @@ dependencies {
     implementation("io.github.llamalad7:mixinextras-forge:0.4.1")
     //tfc
     implementation fg.deobf("curse.maven:terrafirmacraft-302973:7442504")
+    // TerraFirmaEarth is a local-only development dependency. Use its named dev jar; production @Overwrite methods cannot be remapped safely by fg.deobf.
+    compileOnly "local.tfe:Wildfire_TerraFirmaEarth-1.20.1-forge:${tfeVersion}"
+    runtimeOnly "local.tfe:Wildfire_TerraFirmaEarth-1.20.1-forge:${tfeVersion}"
     //patchouli
     implementation fg.deobf("curse.maven:patchouli-306770:6164575")
     //jei
@@ -242,4 +252,26 @@ tasks.named('jar', Jar).configure {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8' // Use the UTF-8 charset for Java compilation
+}
+
+tasks.withType(JavaExec).configureEach {
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+tasks.register('verifyTfeRuntime') {
+    group = 'verification'
+    description = "Require the local TerraFirmaEarth ${tfeVersion} jar before starting runClient."
+    inputs.file(tfeLocalJar).optional()
+
+    doLast {
+        if (!tfeLocalJar.isFile()) {
+            throw new GradleException("Missing required TerraFirmaEarth ${tfeVersion} runtime jar: ${tfeLocalJar}")
+        }
+    }
+}
+
+tasks.matching { it.name == 'runClient' }.configureEach {
+    dependsOn tasks.named('verifyTfeRuntime')
 }

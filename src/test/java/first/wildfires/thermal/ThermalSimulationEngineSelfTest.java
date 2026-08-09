@@ -26,6 +26,7 @@ public final class ThermalSimulationEngineSelfTest {
         sectionInputDefensivelyCopiesCallerData();
         crossSectionBarrierIsDeterministic();
         cancelledBatchCannotProduceAResult();
+        GreedyPatchMergerSelfTest.runAll();
         System.out.println("ThermalSimulationEngineSelfTest: all checks passed");
     }
 

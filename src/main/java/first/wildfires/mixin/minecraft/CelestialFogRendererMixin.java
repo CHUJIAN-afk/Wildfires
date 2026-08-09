@@ -1,0 +1,51 @@
+package first.wildfires.mixin.minecraft;
+
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import first.wildfires.api.celestial.CelestialState;
+import first.wildfires.client.celestial.CelestialClientStateCache;
+import first.wildfires.client.celestial.CelestialClientTime;
+import net.minecraft.client.Camera;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.renderer.FogRenderer;
+import org.joml.Vector3f;
+import org.joml.Vector3fc;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Redirect;
+
+/** Aligns clear-air fog brightness and dawn direction with the unified local sun. */
+@Mixin(FogRenderer.class)
+public abstract class CelestialFogRendererMixin {
+
+    @ModifyExpressionValue(
+            method = "setupColor",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/multiplayer/ClientLevel;getTimeOfDay(F)F")
+    )
+    private static float wildfires$localFogTime(float original, Camera camera, float partialTick,
+                                                 ClientLevel level, int renderDistanceChunks,
+                                                 float bossColorModifier) {
+        return CelestialClientStateCache.state(level, camera.getPosition(), partialTick)
+                .map(state -> CelestialClientTime.visualCelestialAngle(
+                        state.daylight().apparentDayTime(), state.solarEclipse(), original)).orElse(original);
+    }
+
+    @Redirect(
+            method = "setupColor",
+            at = @At(value = "INVOKE", target = "Lorg/joml/Vector3f;dot(Lorg/joml/Vector3fc;)F", remap = false)
+    )
+    private static float wildfires$localSunriseDirection(Vector3f look, Vector3fc original,
+                                                          Camera camera, float partialTick, ClientLevel level,
+                                                          int renderDistanceChunks, float bossColorModifier) {
+        CelestialState state = CelestialClientStateCache.state(level, camera.getPosition(), partialTick).orElse(null);
+        if (state == null) {
+            return look.dot(original);
+        }
+        double x = state.sun().observerDirection().x();
+        double z = -state.sun().observerDirection().z();
+        double length = Math.sqrt(x * x + z * z);
+        if (length < 1.0E-9D) {
+            return 0.0F;
+        }
+        return look.dot((float) (x / length), 0.0F, (float) (z / length));
+    }
+}

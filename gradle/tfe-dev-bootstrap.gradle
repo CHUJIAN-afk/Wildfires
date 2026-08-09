@@ -1,0 +1,283 @@
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
+import java.util.jar.JarFile
+
+def tfeVersion = project.ext.tfeVersion.toString()
+def tfeSourceCommit = project.ext.tfeSourceCommit.toString()
+def tfeSourceRepository = project.ext.tfeSourceRepository.toString()
+def tfeLocalJar = project.ext.tfeLocalJar as File
+def tfeMarker = file('run/mods/.wildfires-tfe-dev.properties')
+def tfeSourceDir = file(".wildfires-cache/tfe-${tfeVersion}-${tfeSourceCommit.take(12)}")
+def tfeBuiltJar = new File(tfeSourceDir, "build/libs/Wildfire_TerraFirmaEarth-1.20.1-forge-${tfeVersion}.jar")
+def tfeNamedProbeEntry = 'com/newterraearth/tfe/mixin/client/ClimateScreenMixin.class'
+def windows = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('windows')
+def tfeRefresh = providers.gradleProperty('tfeRefresh')
+    .map { it.toBoolean() }
+    .orElse(false)
+def java21Launcher = javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(21)
+}
+
+def sha256 = { File input ->
+    MessageDigest digest = MessageDigest.getInstance('SHA-256')
+    input.withInputStream { stream ->
+        byte[] buffer = new byte[1024 * 128]
+        int count
+        while ((count = stream.read(buffer)) >= 0) {
+            if (count > 0) {
+                digest.update(buffer, 0, count)
+            }
+        }
+    }
+    digest.digest().collect { String.format('%02X', it & 0xFF) }.join()
+}
+
+def inspectTfeJar = { File candidate ->
+    if (!candidate.isFile()) {
+        return [valid: false, reason: "missing JAR ${candidate}"]
+    }
+
+    try {
+        new JarFile(candidate).withCloseable { jar ->
+            def implementationVersion = jar.manifest?.mainAttributes?.getValue('Implementation-Version')
+            if (implementationVersion != tfeVersion) {
+                return [valid: false, reason: "Implementation-Version is ${implementationVersion ?: 'missing'}, expected ${tfeVersion}"]
+            }
+
+            def modsEntry = jar.getJarEntry('META-INF/mods.toml')
+            if (modsEntry == null) {
+                return [valid: false, reason: 'META-INF/mods.toml is missing']
+            }
+            def modsToml = jar.getInputStream(modsEntry).withCloseable {
+                new String(it.readAllBytes(), StandardCharsets.UTF_8)
+            }
+            if (!(modsToml =~ /(?m)^\s*modId\s*=\s*["']tfe["']\s*$/)) {
+                return [valid: false, reason: 'mods.toml does not declare modId=tfe']
+            }
+
+            def probeEntry = jar.getJarEntry(tfeNamedProbeEntry)
+            if (probeEntry == null) {
+                return [valid: false, reason: "named-mapping probe class is missing: ${tfeNamedProbeEntry}"]
+            }
+            def probeText = jar.getInputStream(probeEntry).withCloseable {
+                new String(it.readAllBytes(), StandardCharsets.ISO_8859_1)
+            }
+            if (!probeText.contains('renderLabels') || !probeText.contains('translationKey')) {
+                return [valid: false, reason: 'JAR is not the required named dev artifact (named method probes are absent)']
+            }
+
+            return [valid: true, reason: 'TFE identity and named mappings are valid', sha256: sha256(candidate)]
+        }
+    } catch (Exception failure) {
+        return [valid: false, reason: "cannot read JAR: ${failure.message}"]
+    }
+}
+
+def readMarker = {
+    if (!tfeMarker.isFile()) {
+        return [valid: false, reason: "missing provenance marker ${tfeMarker}"]
+    }
+    Properties marker = new Properties()
+    try {
+        tfeMarker.withInputStream { marker.load(it) }
+    } catch (Exception failure) {
+        return [valid: false, reason: "cannot read provenance marker: ${failure.message}"]
+    }
+    if (marker.getProperty('format') != '1') {
+        return [valid: false, reason: 'unsupported provenance marker format']
+    }
+    if (marker.getProperty('sourceRepository') != tfeSourceRepository ||
+        marker.getProperty('sourceCommit') != tfeSourceCommit ||
+        marker.getProperty('tfeVersion') != tfeVersion) {
+        return [valid: false, reason: 'provenance marker does not match the pinned TFE source']
+    }
+    return [valid: true, reason: 'provenance marker is valid', sha256: marker.getProperty('jarSha256')]
+}
+
+def inspectInstalledTfe = {
+    def jarState = inspectTfeJar(tfeLocalJar)
+    if (!jarState.valid) {
+        return jarState
+    }
+    def markerState = readMarker()
+    if (!markerState.valid) {
+        return markerState
+    }
+    if (!markerState.sha256 || markerState.sha256 != jarState.sha256) {
+        return [valid: false, reason: 'installed JAR hash does not match its pinned-source provenance marker']
+    }
+    return [valid: true, reason: jarState.reason, sha256: jarState.sha256]
+}
+
+def runCommand = { List<String> command, File workingDirectory, Map<String, String> extraEnvironment = [:] ->
+    logger.lifecycle("[TFE bootstrap] ${command.join(' ')}")
+    try {
+        ProcessBuilder builder = new ProcessBuilder(command)
+        builder.directory(workingDirectory)
+        builder.redirectErrorStream(true)
+        builder.environment().putAll(extraEnvironment)
+        Process process = builder.start()
+        process.inputStream.withReader(StandardCharsets.UTF_8.name()) { reader ->
+            reader.eachLine { logger.lifecycle(it) }
+        }
+        int exitCode = process.waitFor()
+        if (exitCode != 0) {
+            throw new GradleException("Command failed with exit code ${exitCode}: ${command.join(' ')}")
+        }
+    } catch (IOException failure) {
+        def action = command[0] == 'git'
+            ? 'Install Git and ensure it is on PATH.'
+            : "Ensure '${command[0]}' is available on this operating system."
+        throw new GradleException("Could not start '${command[0]}'. ${action} ${failure.message}", failure)
+    }
+}
+
+def captureCommand = { List<String> command, File workingDirectory ->
+    try {
+        ProcessBuilder builder = new ProcessBuilder(command)
+        builder.directory(workingDirectory)
+        builder.redirectErrorStream(true)
+        Process process = builder.start()
+        String output = process.inputStream.getText(StandardCharsets.UTF_8.name()).trim()
+        int exitCode = process.waitFor()
+        if (exitCode != 0) {
+            throw new GradleException("Command failed with exit code ${exitCode}: ${command.join(' ')}\n${output}")
+        }
+        return output
+    } catch (IOException failure) {
+        def action = command[0] == 'git'
+            ? 'Install Git and ensure it is on PATH.'
+            : "Ensure '${command[0]}' is available on this operating system."
+        throw new GradleException("Could not start '${command[0]}'. ${action} ${failure.message}", failure)
+    }
+}
+
+def prepareTfe = tasks.register('prepareTfeDevJar') {
+    group = 'build setup'
+    description = "Build the pinned TerraFirmaEarth ${tfeVersion} named dev JAR when it is not already valid."
+    inputs.property('tfeVersion', tfeVersion)
+    inputs.property('tfeSourceCommit', tfeSourceCommit)
+    inputs.property('tfeSourceRepository', tfeSourceRepository)
+    inputs.property('tfeRefresh', tfeRefresh)
+    outputs.file(tfeLocalJar)
+    outputs.file(tfeMarker)
+    outputs.upToDateWhen { !tfeRefresh.get() && inspectInstalledTfe().valid }
+
+    doLast {
+        def installedState = inspectInstalledTfe()
+        if (!tfeRefresh.get() && installedState.valid) {
+            logger.lifecycle("[TFE bootstrap] Reusing verified TFE ${tfeVersion} named dev JAR (${installedState.sha256}).")
+            return
+        }
+        logger.lifecycle("[TFE bootstrap] Provisioning is required: ${installedState.reason}")
+
+        def gitDirectory = new File(tfeSourceDir, '.git')
+        if (!gitDirectory.isDirectory()) {
+            if (tfeSourceDir.exists()) {
+                delete(tfeSourceDir)
+            }
+            tfeSourceDir.parentFile.mkdirs()
+            runCommand(['git', 'clone', '--filter=blob:none', '--no-checkout', tfeSourceRepository, tfeSourceDir.absolutePath], projectDir)
+        }
+
+        String originRepository = null
+        try {
+            originRepository = captureCommand(['git', '-C', tfeSourceDir.absolutePath, 'remote', 'get-url', 'origin'], projectDir)
+        } catch (GradleException ignored) {
+            logger.lifecycle('[TFE bootstrap] Cached source repository is invalid; cloning it again.')
+        }
+        if (originRepository != tfeSourceRepository) {
+            delete(tfeSourceDir)
+            runCommand(['git', 'clone', '--filter=blob:none', '--no-checkout', tfeSourceRepository, tfeSourceDir.absolutePath], projectDir)
+        }
+        if (windows) {
+            runCommand(['git', '-C', tfeSourceDir.absolutePath, 'config', 'core.longpaths', 'true'], projectDir)
+        }
+
+        boolean checkoutSucceeded = true
+        try {
+            runCommand(['git', '-C', tfeSourceDir.absolutePath, 'checkout', '--detach', '--force', tfeSourceCommit], projectDir)
+        } catch (GradleException ignored) {
+            checkoutSucceeded = false
+        }
+        if (!checkoutSucceeded) {
+            runCommand(['git', '-C', tfeSourceDir.absolutePath, 'fetch', '--depth=1', 'origin', tfeSourceCommit], projectDir)
+            runCommand(['git', '-C', tfeSourceDir.absolutePath, 'checkout', '--detach', '--force', tfeSourceCommit], projectDir)
+        }
+        runCommand(['git', '-C', tfeSourceDir.absolutePath, 'clean', '-fdx'], projectDir)
+        String currentCommit = captureCommand(['git', '-C', tfeSourceDir.absolutePath, 'rev-parse', 'HEAD'], projectDir)
+        if (currentCommit != tfeSourceCommit) {
+            throw new GradleException("TFE source checkout is ${currentCommit}, expected ${tfeSourceCommit}")
+        }
+
+        def javaHome = java21Launcher.get().metadata.installationPath.asFile
+        def environment = [
+            'JAVA_HOME': javaHome.absolutePath,
+            'PATH': new File(javaHome, 'bin').absolutePath + File.pathSeparator + System.getenv('PATH')
+        ]
+        def wrapper = new File(tfeSourceDir, windows ? 'gradlew.bat' : 'gradlew')
+        if (!wrapper.isFile()) {
+            throw new GradleException("TFE Gradle wrapper is missing: ${wrapper}")
+        }
+        def buildArguments = ['jar', '-x', 'reobfJar', '--rerun-tasks', '--no-daemon', '--console=plain']
+        if (gradle.startParameter.offline) {
+            buildArguments.add('--offline')
+        }
+        def buildCommand = windows
+            ? ['cmd', '/d', '/c', wrapper.absolutePath] + buildArguments
+            : ['sh', wrapper.absolutePath] + buildArguments
+        runCommand(buildCommand, tfeSourceDir, environment)
+
+        def builtState = inspectTfeJar(tfeBuiltJar)
+        if (!builtState.valid) {
+            throw new GradleException("Pinned TFE build did not produce a valid named dev JAR: ${builtState.reason}")
+        }
+        tfeLocalJar.parentFile.mkdirs()
+        Files.copy(tfeBuiltJar.toPath(), tfeLocalJar.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        String installedHash = sha256(tfeLocalJar)
+        tfeMarker.setText("""format=1
+sourceRepository=${tfeSourceRepository}
+sourceCommit=${tfeSourceCommit}
+tfeVersion=${tfeVersion}
+jarSha256=${installedHash}
+""", StandardCharsets.UTF_8.name())
+
+        def finalState = inspectInstalledTfe()
+        if (!finalState.valid) {
+            throw new GradleException("Installed TFE named dev JAR failed final verification: ${finalState.reason}")
+        }
+        logger.lifecycle("[TFE bootstrap] Installed verified TFE ${tfeVersion} named dev JAR (${finalState.sha256}).")
+    }
+}
+
+tasks.register('verifyTfeRuntime') {
+    group = 'verification'
+    description = "Verify the pinned TerraFirmaEarth ${tfeVersion} named dev runtime."
+    dependsOn prepareTfe
+    doLast {
+        def state = inspectInstalledTfe()
+        if (!state.valid) {
+            throw new GradleException("TerraFirmaEarth ${tfeVersion} runtime verification failed: ${state.reason}")
+        }
+        logger.lifecycle("[TFE bootstrap] Verified TFE ${tfeVersion} named dev JAR (${state.sha256}).")
+    }
+}
+
+tasks.register('tfeDevJarStatus') {
+    group = 'help'
+    description = 'Report whether the installed TFE dev JAR matches the pinned source and named mappings.'
+    doLast {
+        def state = inspectInstalledTfe()
+        logger.lifecycle("[TFE bootstrap] valid=${state.valid}; ${state.reason}${state.sha256 ? "; sha256=${state.sha256}" : ''}")
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    dependsOn prepareTfe
+}
+
+tasks.matching { it.name in ['runClient', 'runServer', 'runGameTestServer', 'runData'] }.configureEach {
+    dependsOn tasks.named('verifyTfeRuntime')
+}

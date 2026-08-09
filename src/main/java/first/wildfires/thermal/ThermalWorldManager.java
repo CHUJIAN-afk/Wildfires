@@ -1,6 +1,8 @@
 package first.wildfires.thermal;
 
 import com.mojang.logging.LogUtils;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongIterator;
@@ -30,7 +32,6 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,8 +64,10 @@ public final class ThermalWorldManager {
     private static final int ACTIVE_CHUNK_RADIUS = 2;
     private static final int DYNAMIC_SOURCE_INTERVAL = 10;
     private static final int PLAYER_SAMPLE_INTERVAL = 10;
+    private static final int RADIATION_QUERY_RETENTION_TICKS = PLAYER_SAMPLE_INTERVAL * 2;
     private static final int RESIDUAL_SWEEP_INTERVAL = 100;
     private static final int MAX_PATCH_SPAN = 4;
+    private static final float RADIATION_TRACKING_PADDING = MAX_PATCH_SPAN + 1.0F;
     private static final int SIMULATION_PARALLELISM = Math.max(1,
             Math.min(4, Runtime.getRuntime().availableProcessors() - 2));
     private static final AtomicInteger SIMULATION_WORKER_IDS = new AtomicInteger();
@@ -73,9 +76,10 @@ public final class ThermalWorldManager {
     private final ServerLevel level;
     private final ForkJoinPool simulationPool;
     private final Map<Long, ThermalSection> sections = new HashMap<>();
-    private final Map<Long, SourceRecord> sources = new HashMap<>();
+    private final Long2ObjectOpenHashMap<SourceRecord> sources = new Long2ObjectOpenHashMap<>();
     private final Map<Long, Integer> sourceCountsBySection = new HashMap<>();
-    private final Map<Long, Set<Long>> sourcePositionsByChunk = new HashMap<>();
+    private final Long2ObjectOpenHashMap<LongOpenHashSet> sourcePositionsByChunk =
+            new Long2ObjectOpenHashMap<>();
     private final Map<Long, List<ThermalFace>> heatingFacesByTarget = new HashMap<>();
     private final Map<Long, List<ThermalFace>> radiantFacesBySection = new HashMap<>();
     private final Map<Long, List<RadiantPatch>> radiantPatchesBySection = new HashMap<>();
@@ -83,6 +87,13 @@ public final class ThermalWorldManager {
     private final Map<Long, CompoundTag> pendingUnloadedChunkData = new HashMap<>();
     private final Set<Long> pendingChunkLoads = new HashSet<>();
     private final Map<UUID, CachedPlayerSample> playerSamples = new HashMap<>();
+    private final LongSet radiationReceiverSections = new LongOpenHashSet();
+    private final Long2IntOpenHashMap radiationReceiverMinimumRanges = new Long2IntOpenHashMap();
+    private final LongSet radiationCoverageChunks = new LongOpenHashSet();
+    private final Long2LongOpenHashMap transientRadiationReceiverSections = new Long2LongOpenHashMap();
+    private final Long2LongOpenHashMap transientRadiationDebugReceiverSections = new Long2LongOpenHashMap();
+    private final Long2IntOpenHashMap transientRadiationReceiverMinimumRanges = new Long2IntOpenHashMap();
+    private float maximumRegisteredRadiationRange = -1.0F;
     private boolean radiantPatchesDirty = true;
     private float maximumLoadedRadiationRange;
     private long lastDynamicSourcePoll;
@@ -142,6 +153,7 @@ public final class ThermalWorldManager {
             return;
         }
         long gameTick = level.getGameTime();
+        refreshRadiationCoverage(gameTick);
         processPendingChunkLoads();
         refreshAfterConfigChanges();
         if (gameTick - lastDynamicSourcePoll >= DYNAMIC_SOURCE_INTERVAL) {
@@ -533,6 +545,7 @@ public final class ThermalWorldManager {
     }
 
     public ThermalSample sample(ServerPlayer player) {
+        refreshRadiationCoverage(level.getGameTime());
         CachedPlayerSample cached = playerSamples.get(player.getUUID());
         long gameTick = level.getGameTime();
         if (cached != null && gameTick - cached.tick() < PLAYER_SAMPLE_INTERVAL) {
@@ -547,6 +560,7 @@ public final class ThermalWorldManager {
     }
 
     public ThermalSample sample(BlockPos position) {
+        registerTransientRadiationReceiver(position, level.getGameTime());
         float air = getAirTemperature(position);
         float effective = ThermalRadiationSolver.sample(level, this, null, position, air);
         return new ThermalSample(air, effective - air, effective);
@@ -604,27 +618,7 @@ public final class ThermalWorldManager {
                 section.clearAirCache();
             }
         }
-        LevelChunkSection[] chunkSections = chunk.getSections();
-        for (int sectionIndex = 0; sectionIndex < chunkSections.length; sectionIndex++) {
-            LevelChunkSection chunkSection = chunkSections[sectionIndex];
-            if (chunkSection.hasOnlyAir() || !chunkSection.maybeHas(ThermalSourceRegistry::isRegisteredBlock)) {
-                continue;
-            }
-            int sectionY = level.getSectionYFromSectionIndex(sectionIndex);
-            int baseX = chunk.getPos().getMinBlockX();
-            int baseY = SectionPos.sectionToBlockCoord(sectionY);
-            int baseZ = chunk.getPos().getMinBlockZ();
-            for (int y = 0; y < 16; y++) {
-                for (int z = 0; z < 16; z++) {
-                    for (int x = 0; x < 16; x++) {
-                        BlockState state = chunkSection.getBlockState(x, y, z);
-                        if (ThermalSourceRegistry.isRegisteredBlock(state)) {
-                            refreshSourceAt(new BlockPos(baseX + x, baseY + y, baseZ + z));
-                        }
-                    }
-                }
-            }
-        }
+        scanChunkSources(chunk, true, radiationCoverageChunks.contains(chunk.getPos().toLong()));
         refreshChunkBorders(chunk.getPos());
         ThermalRadiationSolver.invalidate(level);
     }
@@ -653,16 +647,246 @@ public final class ThermalWorldManager {
         }
     }
 
+    /**
+     * Keeps radiation-only runtime records local to actual receivers. Air-heating sources remain
+     * globally indexed because their persistent field must continue evolving without a player nearby.
+     */
+    private void refreshRadiationCoverage(long gameTick) {
+        LongIterator transientIterator = transientRadiationReceiverSections.keySet().iterator();
+        while (transientIterator.hasNext()) {
+            long sectionKey = transientIterator.nextLong();
+            if (transientRadiationReceiverSections.get(sectionKey) < gameTick) {
+                transientIterator.remove();
+            }
+        }
+        LongIterator debugIterator = transientRadiationDebugReceiverSections.keySet().iterator();
+        while (debugIterator.hasNext()) {
+            long sectionKey = debugIterator.nextLong();
+            if (transientRadiationDebugReceiverSections.get(sectionKey) < gameTick) {
+                debugIterator.remove();
+                transientRadiationReceiverMinimumRanges.remove(sectionKey);
+            }
+        }
+
+        LongSet desiredReceivers = new LongOpenHashSet();
+        Long2IntOpenHashMap desiredMinimumRanges = new Long2IntOpenHashMap();
+        if (ThermalConfig.radiationEnabled()) {
+            for (ServerPlayer player : level.players()) {
+                desiredReceivers.add(sectionKey(player.blockPosition()));
+            }
+            desiredReceivers.addAll(transientRadiationReceiverSections.keySet());
+            desiredReceivers.addAll(transientRadiationDebugReceiverSections.keySet());
+            LongIterator transientRangeIterator = transientRadiationReceiverMinimumRanges.keySet().iterator();
+            while (transientRangeIterator.hasNext()) {
+                long receiver = transientRangeIterator.nextLong();
+                int minimumRange = transientRadiationReceiverMinimumRanges.get(receiver);
+                if (minimumRange > 0) {
+                    desiredMinimumRanges.put(receiver, minimumRange);
+                }
+            }
+        }
+
+        float registeredMaximumRange = ThermalSourceRegistry.getMaximumNaturalRadiationRange();
+        boolean registeredRangeChanged = Float.floatToIntBits(registeredMaximumRange)
+                != Float.floatToIntBits(maximumRegisteredRadiationRange);
+        if (!registeredRangeChanged && desiredReceivers.equals(radiationReceiverSections)
+                && desiredMinimumRanges.equals(radiationReceiverMinimumRanges)) {
+            return;
+        }
+
+        LongSet receiversToScan = new LongOpenHashSet();
+        LongIterator desiredIterator = desiredReceivers.iterator();
+        while (desiredIterator.hasNext()) {
+            long receiver = desiredIterator.nextLong();
+            int desiredRange = desiredMinimumRanges.getOrDefault(receiver, 0);
+            if (registeredMaximumRange > maximumRegisteredRadiationRange
+                    || !radiationReceiverSections.contains(receiver)
+                    || desiredRange > radiationReceiverMinimumRanges.getOrDefault(receiver, 0)) {
+                receiversToScan.add(receiver);
+            }
+        }
+
+        radiationReceiverSections.clear();
+        radiationReceiverSections.addAll(desiredReceivers);
+        radiationReceiverMinimumRanges.clear();
+        radiationReceiverMinimumRanges.putAll(desiredMinimumRanges);
+        maximumRegisteredRadiationRange = registeredMaximumRange;
+
+        LongSet desiredChunks = radiationCoverageChunks(desiredReceivers, desiredMinimumRanges,
+                registeredMaximumRange);
+        radiationCoverageChunks.clear();
+        radiationCoverageChunks.addAll(desiredChunks);
+
+        boolean changed = pruneIrrelevantRadiationOnlySources();
+        LongSet chunksToScan = radiationCoverageChunks(receiversToScan, desiredMinimumRanges,
+                registeredMaximumRange);
+        LongIterator chunkIterator = chunksToScan.iterator();
+        while (chunkIterator.hasNext()) {
+            long chunkKey = chunkIterator.nextLong();
+            LevelChunk chunk = level.getChunkSource().getChunkNow(ChunkPos.getX(chunkKey), ChunkPos.getZ(chunkKey));
+            if (chunk != null) {
+                changed |= scanChunkSources(chunk, false, true);
+            }
+        }
+        if (changed) {
+            playerSamples.clear();
+            ThermalRadiationSolver.invalidate(level);
+        }
+    }
+
+    private void registerTransientRadiationReceiver(BlockPos position, long gameTick) {
+        registerTransientRadiationReceiver(position, gameTick, 0);
+    }
+
+    private void registerTransientRadiationReceiver(BlockPos position, long gameTick, int minimumRange) {
+        long key = sectionKey(position);
+        long expiry = gameTick + RADIATION_QUERY_RETENTION_TICKS;
+        if (minimumRange > 0) {
+            transientRadiationDebugReceiverSections.put(key,
+                    Math.max(expiry, transientRadiationDebugReceiverSections.getOrDefault(key, Long.MIN_VALUE)));
+            if (minimumRange > transientRadiationReceiverMinimumRanges.getOrDefault(key, 0)) {
+                transientRadiationReceiverMinimumRanges.put(key, minimumRange);
+            }
+        } else {
+            transientRadiationReceiverSections.put(key,
+                    Math.max(expiry, transientRadiationReceiverSections.getOrDefault(key, Long.MIN_VALUE)));
+        }
+        refreshRadiationCoverage(gameTick);
+    }
+
+    private LongSet radiationCoverageChunks(LongSet receivers, Long2IntOpenHashMap minimumRanges,
+                                            float registeredMaximumRange) {
+        LongSet chunks = new LongOpenHashSet();
+        LongIterator iterator = receivers.iterator();
+        while (iterator.hasNext()) {
+            long receiver = iterator.nextLong();
+            int blockPadding = (int) Math.ceil(Math.max(registeredMaximumRange,
+                    minimumRanges.getOrDefault(receiver, 0)) + RADIATION_TRACKING_PADDING);
+            int minimumBlockX = SectionPos.sectionToBlockCoord(SectionPos.x(receiver)) - blockPadding;
+            int maximumBlockX = SectionPos.sectionToBlockCoord(SectionPos.x(receiver)) + 15 + blockPadding;
+            int minimumBlockZ = SectionPos.sectionToBlockCoord(SectionPos.z(receiver)) - blockPadding;
+            int maximumBlockZ = SectionPos.sectionToBlockCoord(SectionPos.z(receiver)) + 15 + blockPadding;
+            int minimumChunkX = SectionPos.blockToSectionCoord(minimumBlockX);
+            int maximumChunkX = SectionPos.blockToSectionCoord(maximumBlockX);
+            int minimumChunkZ = SectionPos.blockToSectionCoord(minimumBlockZ);
+            int maximumChunkZ = SectionPos.blockToSectionCoord(maximumBlockZ);
+            for (int chunkX = minimumChunkX; chunkX <= maximumChunkX; chunkX++) {
+                for (int chunkZ = minimumChunkZ; chunkZ <= maximumChunkZ; chunkZ++) {
+                    chunks.add(ChunkPos.asLong(chunkX, chunkZ));
+                }
+            }
+        }
+        return chunks;
+    }
+
+    private boolean scanChunkSources(LevelChunk chunk, boolean includeAirHeating,
+                                     boolean includeRadiationOnly) {
+        if (!includeAirHeating && !includeRadiationOnly) {
+            return false;
+        }
+        boolean changed = false;
+        LevelChunkSection[] chunkSections = chunk.getSections();
+        for (int sectionIndex = 0; sectionIndex < chunkSections.length; sectionIndex++) {
+            LevelChunkSection chunkSection = chunkSections[sectionIndex];
+            if (chunkSection.hasOnlyAir() || !chunkSection.maybeHas(state -> {
+                ThermalSourceRegistry.ThermalSourceDefinition definition =
+                        ThermalSourceRegistry.getDefinition(state);
+                return definition != null && (includeAirHeating && definition.heatsAir()
+                        || includeRadiationOnly && !definition.heatsAir() && definition.radiates());
+            })) {
+                continue;
+            }
+            int sectionY = level.getSectionYFromSectionIndex(sectionIndex);
+            int baseX = chunk.getPos().getMinBlockX();
+            int baseY = SectionPos.sectionToBlockCoord(sectionY);
+            int baseZ = chunk.getPos().getMinBlockZ();
+            for (int y = 0; y < 16; y++) {
+                for (int z = 0; z < 16; z++) {
+                    for (int x = 0; x < 16; x++) {
+                        BlockState state = chunkSection.getBlockState(x, y, z);
+                        ThermalSourceRegistry.ThermalSourceDefinition definition =
+                                ThermalSourceRegistry.getDefinition(state);
+                        if (definition == null) {
+                            continue;
+                        }
+                        boolean airHeating = definition.heatsAir();
+                        if (airHeating ? !includeAirHeating : !includeRadiationOnly || !definition.radiates()) {
+                            continue;
+                        }
+                        BlockPos position = new BlockPos(baseX + x, baseY + y, baseZ + z);
+                        if (!airHeating && !isRadiationSourceRelevant(position, definition)) {
+                            continue;
+                        }
+                        refreshSourceAt(position);
+                        changed = true;
+                    }
+                }
+            }
+        }
+        return changed;
+    }
+
+    private boolean pruneIrrelevantRadiationOnlySources() {
+        boolean changed = false;
+        var iterator = sources.long2ObjectEntrySet().iterator();
+        while (iterator.hasNext()) {
+            SourceRecord record = iterator.next().getValue();
+            if (record.definition().heatsAir()
+                    || isRadiationSourceRelevant(record.position(), record.definition())) {
+                continue;
+            }
+            removeFaces(record);
+            removeSourcePosition(record.position());
+            iterator.remove();
+            changed = true;
+        }
+        return changed;
+    }
+
+    private boolean isRadiationSourceRelevant(BlockPos source,
+                                               ThermalSourceRegistry.ThermalSourceDefinition definition) {
+        if (!definition.radiates() || radiationReceiverSections.isEmpty()) {
+            return false;
+        }
+        double sourceX = source.getX() + 0.5D;
+        double sourceY = source.getY() + 0.5D;
+        double sourceZ = source.getZ() + 0.5D;
+        LongIterator iterator = radiationReceiverSections.iterator();
+        while (iterator.hasNext()) {
+            long receiver = iterator.nextLong();
+            double range = Math.max(definition.maximumNaturalRadiationRange(),
+                    radiationReceiverMinimumRanges.getOrDefault(receiver, 0)) + RADIATION_TRACKING_PADDING;
+            double rangeSquared = range * range;
+            double minimumX = SectionPos.sectionToBlockCoord(SectionPos.x(receiver));
+            double minimumY = SectionPos.sectionToBlockCoord(SectionPos.y(receiver));
+            double minimumZ = SectionPos.sectionToBlockCoord(SectionPos.z(receiver));
+            double deltaX = distanceOutside(sourceX, minimumX, minimumX + 16.0D);
+            double deltaY = distanceOutside(sourceY, minimumY, minimumY + 16.0D);
+            double deltaZ = distanceOutside(sourceZ, minimumZ, minimumZ + 16.0D);
+            if (deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ <= rangeSquared) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static double distanceOutside(double value, double minimum, double maximum) {
+        if (value < minimum) {
+            return minimum - value;
+        }
+        return value > maximum ? value - maximum : 0.0D;
+    }
+
     public void unloadChunk(ChunkPos chunkPos) {
         invalidateSimulation();
         pendingChunkLoads.remove(chunkPos.toLong());
         playerSamples.clear();
         clearBoundaryContactCache();
         pendingUnloadedChunkData.put(chunkPos.toLong(), serializeChunk(chunkPos));
-        Iterator<Map.Entry<Long, SourceRecord>> sourceIterator = sources.entrySet().iterator();
+        var sourceIterator = sources.long2ObjectEntrySet().iterator();
         while (sourceIterator.hasNext()) {
-            Map.Entry<Long, SourceRecord> entry = sourceIterator.next();
-            BlockPos position = BlockPos.of(entry.getKey());
+            Long2ObjectMap.Entry<SourceRecord> entry = sourceIterator.next();
+            BlockPos position = BlockPos.of(entry.getLongKey());
             if (SectionPos.blockToSectionCoord(position.getX()) == chunkPos.x
                     && SectionPos.blockToSectionCoord(position.getZ()) == chunkPos.z) {
                 removeFaces(entry.getValue());
@@ -839,6 +1063,7 @@ public final class ThermalWorldManager {
     }
 
     public List<SourceDebug> sourceSnapshot(BlockPos center, int radius, int limit) {
+        registerTransientRadiationReceiver(center, level.getGameTime(), radius);
         List<SourceDebug> result = new ArrayList<>();
         for (SourceRecord source : sourcesNear(center, radius)) {
             if (source.active()) {
@@ -852,6 +1077,7 @@ public final class ThermalWorldManager {
     }
 
     public List<SurfaceDebug> surfaceSnapshot(BlockPos center, int radius, int limit) {
+        registerTransientRadiationReceiver(center, level.getGameTime(), radius);
         List<SurfaceDebug> result = new ArrayList<>();
         for (SourceRecord source : sourcesNear(center, radius)) {
             if (!source.active()) {
@@ -877,11 +1103,13 @@ public final class ThermalWorldManager {
         int maximumChunkZ = SectionPos.blockToSectionCoord(center.getZ() + radius);
         for (int chunkX = minimumChunkX; chunkX <= maximumChunkX; chunkX++) {
             for (int chunkZ = minimumChunkZ; chunkZ <= maximumChunkZ; chunkZ++) {
-                Set<Long> positions = sourcePositionsByChunk.get(ChunkPos.asLong(chunkX, chunkZ));
+                LongOpenHashSet positions = sourcePositionsByChunk.get(ChunkPos.asLong(chunkX, chunkZ));
                 if (positions == null) {
                     continue;
                 }
-                for (long positionKey : positions) {
+                LongIterator positionIterator = positions.iterator();
+                while (positionIterator.hasNext()) {
+                    long positionKey = positionIterator.nextLong();
                     SourceRecord source = sources.get(positionKey);
                     if (source != null && source.position().distSqr(center) <= radiusSquared) {
                         result.add(source);
@@ -1096,6 +1324,14 @@ public final class ThermalWorldManager {
             return;
         }
         BlockState state = level.getBlockState(position);
+        ThermalSourceRegistry.ThermalSourceDefinition configuredDefinition =
+                ThermalSourceRegistry.getDefinition(state);
+        if (configuredDefinition == null
+                || !configuredDefinition.heatsAir() && (!configuredDefinition.radiates()
+                || !isRadiationSourceRelevant(position, configuredDefinition))) {
+            updateSectionSourceFlag(sectionKey(position));
+            return;
+        }
         ThermalSourceRegistry.ResolvedThermalSource resolved = ThermalSourceRegistry.resolve(level, position, state);
         if (resolved == null) {
             updateSectionSourceFlag(sectionKey(position));
@@ -1128,13 +1364,20 @@ public final class ThermalWorldManager {
                 }
             }
         }
+        // Constant radiation-only sources with no exposed air face cannot contribute anything.
+        // Neighbor block changes refresh this position again if it becomes exposed; dynamic providers
+        // stay indexed so their low-frequency active/temperature polling remains intact.
+        if (!heatsAir && !resolved.dynamic() && faces.isEmpty()) {
+            updateSectionSourceFlag(sectionKey(position));
+            return;
+        }
         SourceRecord record = new SourceRecord(position.immutable(), definition, active, surfaceTemperature,
                 resolved.dynamic(), List.copyOf(faces));
         sources.put(positionKey, record);
         if (definition.heatsAir()) {
             incrementSectionSourceCount(position);
         }
-        sourcePositionsByChunk.computeIfAbsent(new ChunkPos(position).toLong(), ignored -> new HashSet<>())
+        sourcePositionsByChunk.computeIfAbsent(new ChunkPos(position).toLong(), ignored -> new LongOpenHashSet())
                 .add(positionKey);
     }
 
@@ -1177,11 +1420,11 @@ public final class ThermalWorldManager {
                 ChunkPos.asLong(chunkPos.x, chunkPos.z + 1)
         };
         for (long neighboringChunk : neighboringChunks) {
-            Set<Long> positions = sourcePositionsByChunk.get(neighboringChunk);
+            LongOpenHashSet positions = sourcePositionsByChunk.get(neighboringChunk);
             if (positions == null) {
                 continue;
             }
-            for (long packedPosition : List.copyOf(positions)) {
+            for (long packedPosition : positions.toLongArray()) {
                 BlockPos position = BlockPos.of(packedPosition);
                 if (position.getX() == minX - 1 || position.getX() == maxX + 1
                         || position.getZ() == minZ - 1 || position.getZ() == maxZ + 1) {
@@ -1193,7 +1436,7 @@ public final class ThermalWorldManager {
 
     private void removeSourcePosition(BlockPos position) {
         long chunkKey = new ChunkPos(position).toLong();
-        Set<Long> positions = sourcePositionsByChunk.get(chunkKey);
+        LongOpenHashSet positions = sourcePositionsByChunk.get(chunkKey);
         if (positions == null) {
             return;
         }
@@ -1547,35 +1790,16 @@ public final class ThermalWorldManager {
                         ? 0 : Float.floatToIntBits(face.radiationTemperature()))
                 .thenComparingInt(face -> face.radiationDecayPerBlock() == null
                         ? 0 : Float.floatToIntBits(face.radiationDecayPerBlock())));
-        Map<MergeKey, Map<Long, ThermalFace>> groups = new LinkedHashMap<>();
+        Map<MergeKey, PatchMergeGroup> groups = new LinkedHashMap<>();
         for (ThermalFace face : sorted) {
-            groups.computeIfAbsent(mergeKey(face), ignored -> new HashMap<>())
-                    .put(patchCoordinateKey(firstPatchCoordinate(face), secondPatchCoordinate(face)), face);
+            groups.computeIfAbsent(mergeKey(face), ignored -> new PatchMergeGroup()).add(face,
+                    firstPatchCoordinate(face), secondPatchCoordinate(face));
         }
-        for (Map<Long, ThermalFace> group : groups.values()) {
-            while (!group.isEmpty()) {
-                ThermalFace first = group.values().stream().min(Comparator
-                                .comparingInt(this::firstPatchCoordinate)
-                                .thenComparingInt(this::secondPatchCoordinate))
-                        .orElseThrow();
-                int firstCoordinate = firstPatchCoordinate(first);
-                int secondCoordinate = secondPatchCoordinate(first);
-                int width = 1;
-                while (width < MAX_PATCH_SPAN && group.containsKey(
-                        patchCoordinateKey(firstCoordinate + width, secondCoordinate))) {
-                    width++;
-                }
-                int height = 1;
-                heightLoop:
-                while (height < MAX_PATCH_SPAN) {
-                    for (int offset = 0; offset < width; offset++) {
-                        if (!group.containsKey(patchCoordinateKey(firstCoordinate + offset,
-                                secondCoordinate + height))) {
-                            break heightLoop;
-                        }
-                    }
-                    height++;
-                }
+        for (PatchMergeGroup group : groups.values()) {
+            GreedyPatchMerger.merge(group.orderedFaces, this::firstPatchCoordinate,
+                    this::secondPatchCoordinate, MAX_PATCH_SPAN, group,
+                    (ignoredFirst, firstCoordinate, secondCoordinate, width, height, members) -> {
+                ThermalFace first = members.get(0);
                 double x = 0.0D;
                 double y = 0.0D;
                 double z = 0.0D;
@@ -1587,29 +1811,25 @@ public final class ThermalWorldManager {
                 double maxZ = Double.NEGATIVE_INFINITY;
                 float area = 0.0F;
                 long identity = 0xcbf29ce484222325L;
-                for (int v = 0; v < height; v++) {
-                    for (int u = 0; u < width; u++) {
-                        ThermalFace face = group.remove(patchCoordinateKey(firstCoordinate + u,
-                                secondCoordinate + v));
-                        Vec3 center = faceCenter(face);
-                        x += center.x * face.area();
-                        y += center.y * face.area();
-                        z += center.z * face.area();
-                        double halfX = face.direction().getAxis() == Direction.Axis.X ? 0.0D : 0.5D;
-                        double halfY = face.direction().getAxis() == Direction.Axis.Y ? 0.0D : 0.5D;
-                        double halfZ = face.direction().getAxis() == Direction.Axis.Z ? 0.0D : 0.5D;
-                        minX = Math.min(minX, center.x - halfX);
-                        minY = Math.min(minY, center.y - halfY);
-                        minZ = Math.min(minZ, center.z - halfZ);
-                        maxX = Math.max(maxX, center.x + halfX);
-                        maxY = Math.max(maxY, center.y + halfY);
-                        maxZ = Math.max(maxZ, center.z + halfZ);
-                        area += face.area();
-                        identity ^= face.source().asLong();
-                        identity *= 0x100000001b3L;
-                        identity ^= face.direction().ordinal();
-                        identity *= 0x100000001b3L;
-                    }
+                for (ThermalFace face : members) {
+                    Vec3 center = faceCenter(face);
+                    x += center.x * face.area();
+                    y += center.y * face.area();
+                    z += center.z * face.area();
+                    double halfX = face.direction().getAxis() == Direction.Axis.X ? 0.0D : 0.5D;
+                    double halfY = face.direction().getAxis() == Direction.Axis.Y ? 0.0D : 0.5D;
+                    double halfZ = face.direction().getAxis() == Direction.Axis.Z ? 0.0D : 0.5D;
+                    minX = Math.min(minX, center.x - halfX);
+                    minY = Math.min(minY, center.y - halfY);
+                    minZ = Math.min(minZ, center.z - halfZ);
+                    maxX = Math.max(maxX, center.x + halfX);
+                    maxY = Math.max(maxY, center.y + halfY);
+                    maxZ = Math.max(maxZ, center.z + halfZ);
+                    area += face.area();
+                    identity ^= face.source().asLong();
+                    identity *= 0x100000001b3L;
+                    identity ^= face.direction().ordinal();
+                    identity *= 0x100000001b3L;
                 }
                 Vec3 center = new Vec3(x / area, y / area, z / area);
                 RadiantPatch patch = new RadiantPatch(center, first.direction(), first.radiationTemperature(),
@@ -1622,7 +1842,7 @@ public final class ThermalWorldManager {
                 radiantPatchesBySection.computeIfAbsent(indexSection, ignored -> new ArrayList<>()).add(patch);
                 maximumLoadedRadiationRange = Math.max(maximumLoadedRadiationRange,
                         Math.abs(first.radiationTemperature()) / first.radiationDecayPerBlock());
-            }
+            });
         }
         for (Map.Entry<Long, List<RadiantPatch>> entry : radiantPatchesBySection.entrySet()) {
             entry.setValue(List.copyOf(entry.getValue()));
@@ -1668,5 +1888,30 @@ public final class ThermalWorldManager {
     }
 
     private record MergeKey(Direction direction, int plane, int radiationTemperatureBits, int decayBits) {
+    }
+
+    private static final class PatchMergeGroup implements GreedyPatchMerger.CellStore<ThermalFace> {
+        private final Long2ObjectOpenHashMap<ThermalFace> remainingFaces = new Long2ObjectOpenHashMap<>();
+        private final List<ThermalFace> orderedFaces = new ArrayList<>();
+
+        private void add(ThermalFace face, int firstCoordinate, int secondCoordinate) {
+            remainingFaces.put(patchCoordinateKey(firstCoordinate, secondCoordinate), face);
+            orderedFaces.add(face);
+        }
+
+        @Override
+        public boolean contains(int firstCoordinate, int secondCoordinate) {
+            return remainingFaces.containsKey(patchCoordinateKey(firstCoordinate, secondCoordinate));
+        }
+
+        @Override
+        public ThermalFace remove(int firstCoordinate, int secondCoordinate) {
+            return remainingFaces.remove(patchCoordinateKey(firstCoordinate, secondCoordinate));
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return remainingFaces.isEmpty();
+        }
     }
 }

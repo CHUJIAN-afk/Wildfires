@@ -25,8 +25,10 @@ base {
     archivesName = mod_id
 }
 
-def tfeVersion = '1.1.3'
-def tfeLocalJar = file("run/mods/Wildfire_TerraFirmaEarth-1.20.1-forge-${tfeVersion}.jar")
+ext.tfeVersion = '1.1.3'
+ext.tfeSourceCommit = '94d23b0312b5b98fc834b29b62ff6369ca3def9b'
+ext.tfeSourceRepository = 'https://github.com/jc-cy/TerraFirmaEarth-1.20.1.git'
+ext.tfeLocalJar = file("run/mods/Wildfire_TerraFirmaEarth-1.20.1-forge-${tfeVersion}.jar")
 
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -113,6 +115,11 @@ minecraft {
         // The gametest system is also enabled by default for other run configs under the /test command.
         gameTestServer {
             property 'forge.enabledGameTestNamespaces', mod_id
+            mods {
+                "${mod_id}" {
+                    source sourceSets.test
+                }
+            }
         }
 
         data {
@@ -260,18 +267,32 @@ tasks.withType(JavaExec).configureEach {
     }
 }
 
-tasks.register('verifyTfeRuntime') {
-    group = 'verification'
-    description = "Require the local TerraFirmaEarth ${tfeVersion} jar before starting runClient."
-    inputs.file(tfeLocalJar).optional()
+apply from: 'gradle/tfe-dev-bootstrap.gradle'
 
-    doLast {
-        if (!tfeLocalJar.isFile()) {
-            throw new GradleException("Missing required TerraFirmaEarth ${tfeVersion} runtime jar: ${tfeLocalJar}")
-        }
-    }
+tasks.register('celestialMathSelfTest', JavaExec) {
+    group = 'verification'
+    description = 'Run deterministic unified celestial mathematics, body and packet checks.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'first.wildfires.celestial.CelestialMathSelfTest'
 }
 
-tasks.matching { it.name == 'runClient' }.configureEach {
-    dependsOn tasks.named('verifyTfeRuntime')
+tasks.register('celestialClientSelfTest', JavaExec) {
+    group = 'verification'
+    description = 'Run deterministic star-table and client celestial visual-rule checks.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'first.wildfires.client.celestial.CelestialClientSelfTest'
+}
+
+tasks.register('calendarRateSelfTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs plain-Java checks for TFC calendar-rate accumulation.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'first.wildfires.tfc.calendar.CalendarRateAccumulatorSelfTest'
+}
+
+tasks.named('check').configure {
+    dependsOn tasks.named('celestialMathSelfTest'), tasks.named('celestialClientSelfTest'), tasks.named('calendarRateSelfTest')
 }

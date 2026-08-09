@@ -101,6 +101,7 @@ $RECYCLE.BIN/
 *.lnk
 
 .gradle
+.wildfires-cache/
 build/
 /bin/
 
@@ -115,6 +116,7 @@ gradle-app.setting
 # Common working directory
 run/
 runs/
+/logs/
 
 # Local engineering notes and helper launchers (not part of the mod distribution)
 /工程文档/

@@ -53,3 +53,16 @@ Do not substitute a production/reobfuscated TFE JAR. TFE contains `@Overwrite` m
 `run/`, `.wildfires-cache/`, IDE files and local engineering notes are intentionally not versioned. Commit and push all intended source/resource changes before asking another developer to pull; use `git status --short` to check that no required files remain untracked.
 
 Every push to `master` and every pull request also runs `.github/workflows/clean-build.yml` on a clean Windows checkout. The gate exercises automatic TFE provisioning, all configured self-tests and the production build, so a change that only works with an author's hidden local files cannot pass unnoticed.
+
+## Acknowledgements and third-party material
+
+Wildfires' sky and celestial work builds on ideas and material from the following projects and creators:
+
+- [Caelum](https://github.com/z0phka/Caelum) by Nuparu00 / z0phka, licensed under MIT.
+- [TFC Caelum](https://modrinth.com/mod/tfc-caelum) by Verph, for its TFC calendar bridge, celestial events, visual design and bundled sky assets.
+- [BSC5P-JSON-XYZ](https://github.com/frostoven/BSC5P-JSON-XYZ) by aggregate1166877 / Frostoven, whose generated catalog data is licensed under CC BY 4.0 and is the upstream source of the stellar catalog used through Caelum.
+- [Aurora shader](https://www.shadertoy.com/view/MsjfRG) by Mattenii, licensed under CC BY-NC-SA 3.0 and adapted through TFC Caelum.
+
+Thank you to these authors and to the authors of every project listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). That file is the authoritative attribution and license-status index; preserved upstream README, license and metadata snapshots live under [`third_party/`](third_party/README.md).
+
+Wildfires' original code, original assets, and original documentation are [All Rights Reserved](LICENSE). The distributed mod is not a single-license artifact: bundled third-party material retains the separate terms documented in `THIRD_PARTY_NOTICES.md`. Public release remains blocked while any item there is marked unresolved.

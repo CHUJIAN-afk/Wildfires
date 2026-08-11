@@ -58,6 +58,10 @@ public final class CelestialConfig {
                 .defineInRange("nodalYears", CelestialMath.NODAL_YEARS, 0.1D, 10000.0D);
         LUNAR_INCLINATION = server.comment("Lunar orbit inclination relative to the ecliptic, in degrees.")
                 .defineInRange("lunarInclinationDegrees", 5.14D, 0.0D, 90.0D);
+        SUN_SCALE = server.comment("Authoritative visual scale of the Sun and its square eclipse pixel body.")
+                .defineInRange("sunScale", CelestialDiscGeometry.DEFAULT_SUN_SCALE, 0.01D, 100.0D);
+        MOON_SCALE = server.comment("Authoritative visual scale of the Moon and its square eclipse pixel body.")
+                .defineInRange("moonScale", CelestialDiscGeometry.DEFAULT_MOON_SCALE, 0.01D, 100.0D);
         BLOOD_MOON_SURFACE_MONSTERS = server
                 .comment("Allow TFC-tagged vanilla monsters on the surface while a visible blood moon is active.")
                 .define("bloodMoonSurfaceMonsters", true);
@@ -114,8 +118,6 @@ public final class CelestialConfig {
         RAINBOW = client.define("enableRainbow", true);
         AURORA_MODE = client.defineEnum("aurora.mode", AuroraMode.POLAR_NIGHT);
         AURORA_BANDS = client.defineInRange("aurora.maxBands", 3, 0, 3);
-        SUN_SCALE = client.defineInRange("sunScale", 0.725D, 0.01D, 100.0D);
-        MOON_SCALE = client.defineInRange("moonScale", 1.0D, 0.01D, 100.0D);
         PLANET_SCALE = client.defineInRange("planetScale", 1.0D, 0.01D, 100.0D);
         client.pop();
         CLIENT_SPEC = client.build();
@@ -152,7 +154,8 @@ public final class CelestialConfig {
         }
         return new CelestialRuntimeSettings(SYNODIC_DAYS.get(), ANOMALISTIC_DAYS.get(), NODAL_YEARS.get(),
                 Math.toRadians(LUNAR_INCLINATION.get()), BLOOD_MOON_SURFACE_MONSTERS.get(),
-                BLOOD_MOON_SPAWN_MULTIPLIER.get(), LUNAR_PERIOD_PRESET.get(),
+                BLOOD_MOON_SPAWN_MULTIPLIER.get(), SUN_SCALE.get(), MOON_SCALE.get(),
+                LUNAR_PERIOD_PRESET.get(),
                 new CelestialPlanetSettings(planets, CONFIGURED_EARTH.diameterKm().get(),
                         CONFIGURED_EARTH.orbitalDays().get(), CONFIGURED_EARTH.semiMajorMillionKm().get()));
     }
@@ -174,8 +177,6 @@ public final class CelestialConfig {
     public static boolean rainbow() { return RAINBOW.get(); }
     public static AuroraMode auroraMode() { return AURORA_MODE.get(); }
     public static int auroraBands() { return AURORA_BANDS.get(); }
-    public static double sunScale() { return SUN_SCALE.get(); }
-    public static double moonScale() { return MOON_SCALE.get(); }
     public static double planetScale() { return PLANET_SCALE.get(); }
 
     private record ConfiguredBody(ForgeConfigSpec.DoubleValue diameterKm,

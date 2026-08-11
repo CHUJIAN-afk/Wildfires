@@ -6,6 +6,7 @@ import first.wildfires.item.GeckoSimpleArmorItem;
 import first.wildfires.item.HeatResistantArmorItem;
 import first.wildfires.item.DrainedPulpScoopItem;
 import first.wildfires.item.FilledPulpScoopItem;
+import first.wildfires.item.PlanetariumItem;
 import first.wildfires.item.PulpScoopItem;
 import net.dries007.tfc.util.Metal;
 import net.minecraft.core.registries.Registries;
@@ -55,6 +56,9 @@ public class ItemRegister {
 
     public static final RegistryObject<Item> DrainedPulpScoop =
             Register.register("drained_pulp_scoop", () -> new DrainedPulpScoopItem(new Item.Properties().stacksTo(1)));
+
+    public static final RegistryObject<Item> Planetarium =
+            Register.register("planetarium", () -> new PlanetariumItem(new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON)));
 
     public static final CustomArmorMaterial RainGearArmorMaterial = new CustomArmorMaterial(
             "minecraft:leather",

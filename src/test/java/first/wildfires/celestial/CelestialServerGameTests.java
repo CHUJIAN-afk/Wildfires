@@ -75,10 +75,15 @@ public final class CelestialServerGameTests {
                     "Wildfires TFC calendar clear command was not registered");
             var untilBranch = level.getServer().getCommands().getDispatcher().getRoot()
                     .getChild("wildfires").getChild("tfctime").getChild("until");
+            var skipToBranch = level.getServer().getCommands().getDispatcher().getRoot()
+                    .getChild("wildfires").getChild("tfctime").getChild("skipto");
             for (CelestialEventType event : CelestialEventType.values()) {
                 assertTrue(untilBranch.getChild(event.commandName()) != null
                                 && untilBranch.getChild(event.commandName()).getChild("speed") != null,
                         "Wildfires event acceleration command branch was not registered: "
+                                + event.commandName());
+                assertTrue(skipToBranch.getChild(event.commandName()) != null,
+                        "Wildfires direct event jump command branch was not registered: "
                                 + event.commandName());
             }
             assertTrue(level.getServer().getCommands().getDispatcher().getRoot()
@@ -89,9 +94,11 @@ public final class CelestialServerGameTests {
 
             verifyApiAndClimateIsolation(level, position);
 
-            Calendars.SERVER.setTimeFromCalendarTime(0L);
+            long controlTicks = findInactiveBloodMoonTicks(level, position,
+                    Math.max(0L, originalCalendarTicks));
+            Calendars.SERVER.setTimeFromCalendarTime(controlTicks);
             assertTrue(CelestialGameplay.visibleBloodMoon(level, position) == 0.0D,
-                    "calendar time zero unexpectedly began as a visible blood moon");
+                    "forward control time unexpectedly began as a visible blood moon");
             assertTrue(!Monster.isDarkEnoughToSpawn(level, position, RandomSource.create(1L)),
                     "bright control position passed the vanilla darkness check without a blood moon");
             MobSpawnEvent.FinalizeSpawn controlSpawn = zombieSpawnEvent(level, position);
@@ -99,13 +106,48 @@ public final class CelestialServerGameTests {
             assertTrue(controlSpawn.isCanceled() && controlSpawn.isSpawnCancelled(),
                     "TFC surface control spawn was not denied outside a blood moon");
 
-            long bloodMoonTicks = findVisibleBloodMoonTicks(level, position);
+            long penumbralTicks = findVisiblePenumbralLunarEclipseTicks(level, position, controlTicks);
+            Calendars.SERVER.setTimeFromCalendarTime(penumbralTicks);
+            CelestialState penumbralState = CelestialApi.state(level, position.getCenter(), 0.0F).orElseThrow();
+            var penumbralEvents = CelestialApi.events(level, position).orElseThrow();
+            assertTrue(penumbralState.lunarEclipseRegion().penumbralOnly()
+                            && penumbralState.lunarEclipse() == 0.0D
+                            && penumbralEvents.lunarEclipseCoverage() == 0.0D
+                            && penumbralEvents.lunarPenumbraCoverage() > 0.0D
+                            && penumbralEvents.lunarEclipseVisible()
+                            && !penumbralEvents.bloodMoonVisible(),
+                    "public event API did not expose the visible penumbral-only lunar eclipse");
+            var penumbralCurrent = EclipsePredictionService.currentEvents(level,
+                    position.getCenter());
+            assertTrue(penumbralCurrent.events().stream().anyMatch(event -> event.type()
+                            == CelestialEventType.LUNAR_ECLIPSE
+                            && event.endCalendarTicks() > penumbralTicks)
+                            && penumbralCurrent.events().stream().noneMatch(event -> event.type()
+                            == CelestialEventType.BLOOD_MOON),
+                    "planetarium current-event end prediction diverged from the public API "
+                            + "penumbral lunar-eclipse state");
+
+            long bloodMoonTicks = findVisibleBloodMoonTicks(level, position, penumbralTicks);
             Calendars.SERVER.setTimeFromCalendarTime(bloodMoonTicks);
             CelestialState bloodState = CelestialApi.state(level, position.getCenter(), 0.0F).orElseThrow();
             double intensity = CelestialGameplay.visibleBloodMoon(level, position);
             assertTrue(intensity > CelestialGameplayRules.ACTIVE_THRESHOLD
-                            && bloodState.moon().altitudeRadians() > 0.0D,
+                            && bloodState.moon().altitudeRadians() > 0.0D
+                            && bloodState.lunarEclipse() == bloodState.lunarEclipseRegion().umbraCoverage()
+                            && bloodState.lunarEclipseRegion().penumbraCoverage()
+                            >= bloodState.lunarEclipseRegion().umbraCoverage(),
                     "real provider did not expose the searched visible blood moon");
+            var bloodEvents = CelestialApi.events(level, position).orElseThrow();
+            var bloodCurrent = EclipsePredictionService.currentEvents(level,
+                    position.getCenter());
+            assertTrue(bloodEvents.bloodMoonVisible()
+                            && bloodCurrent.events().stream().anyMatch(event -> event.type()
+                            == CelestialEventType.BLOOD_MOON
+                            && event.endCalendarTicks() > bloodMoonTicks)
+                            && bloodCurrent.events().stream().noneMatch(event -> event.type()
+                            == CelestialEventType.LUNAR_ECLIPSE),
+                    "planetarium blood-moon row did not preserve public API authority or replace "
+                            + "the synonymous lunar-eclipse row");
             assertTrue(Monster.isDarkEnoughToSpawn(level, position, RandomSource.create(1L)),
                     "Monster darkness Mixin did not accept the visible blood moon");
 
@@ -124,6 +166,35 @@ public final class CelestialServerGameTests {
             setRoof(level, position, Blocks.STONE);
             long sunriseTicks = findNextSunriseTicks(level, position, bloodMoonTicks);
             long eventStartTicks = sunriseTicks - 10L;
+            Calendars.SERVER.setTimeFromCalendarTime(eventStartTicks);
+            long jumpStartPlayerTicks = Calendars.SERVER.getTicks();
+            long jumpStartDayTime = level.getDayTime();
+            int jumpResult = level.getServer().getCommands().performPrefixedCommand(
+                    level.getServer().createCommandSourceStack().withLevel(level)
+                            .withPosition(position.getCenter()).withPermission(4),
+                    "wildfires tfctime skipto sunrise");
+            long jumpedCalendarTicks = Calendars.SERVER.getCalendarTicks();
+            long skippedTicks = jumpedCalendarTicks - eventStartTicks;
+            assertTrue(jumpResult > 0 && jumpedCalendarTicks == sunriseTicks,
+                    "direct event jump did not land on the first sunrise tick: "
+                            + jumpedCalendarTicks + " vs " + sunriseTicks);
+            assertTrue(skippedTicks == 10L
+                            && Calendars.SERVER.getTicks() - jumpStartPlayerTicks == skippedTicks
+                            && level.getDayTime() - jumpStartDayTime == skippedTicks,
+                    "direct event jump did not advance TFC playerTicks/dayTime by the reported delta");
+            assertTrue(TfcCalendarRateController.serverMultiplier() == 1.0D
+                            && TfcCalendarEventAcceleration.status().isEmpty(),
+                    "direct event jump did not clear tracking and restore 1x");
+
+            long beforeRejectedRainbow = Calendars.SERVER.getCalendarTicks();
+            int rejectedRainbow = level.getServer().getCommands().performPrefixedCommand(
+                    level.getServer().createCommandSourceStack().withLevel(level)
+                            .withPosition(position.getCenter()).withPermission(4),
+                    "wildfires tfctime skipto rainbow");
+            assertTrue(rejectedRainbow == 0
+                            && Calendars.SERVER.getCalendarTicks() == beforeRejectedRainbow,
+                    "direct rainbow jump changed time without a real rain transition");
+
             Calendars.SERVER.setTimeFromCalendarTime(eventStartTicks);
             int commandResult = level.getServer().getCommands().performPrefixedCommand(
                     level.getServer().createCommandSourceStack().withLevel(level)
@@ -155,7 +226,9 @@ public final class CelestialServerGameTests {
                             long dayTimeDelta = level.getDayTime() - rateStartDayTime;
                             long serverTickDelta = level.getServer().getTickCount() - rateStartServerTick;
                             assertTrue(playerDelta == serverTickDelta,
-                                    "TFC player ticks diverged from the unchanged server tick count");
+                                    "TFC player ticks diverged from the unchanged server tick count: player="
+                                            + playerDelta + ", server=" + serverTickDelta
+                                            + ", calendar=" + calendarDelta + ", dayTime=" + dayTimeDelta);
                             assertTrue(calendarDelta == playerDelta * 20L,
                                     "20x rate did not advance the authoritative TFC calendar exactly");
                             assertTrue(dayTimeDelta == calendarDelta,
@@ -332,21 +405,74 @@ public final class CelestialServerGameTests {
                 level.getCurrentDifficultyAt(position), MobSpawnType.NATURAL, null, null, null);
     }
 
-    private static long findVisibleBloodMoonTicks(ServerLevel level, BlockPos position) {
+    private static long findInactiveBloodMoonTicks(ServerLevel level, BlockPos position, long startTick) {
+        int daysInMonth = Calendars.SERVER.getCalendarDaysInMonth();
+        CelestialRuntimeSettings settings = CelestialConfig.serverSettings();
+        double scale = TfeHemisphereScale.get(level);
+        long step = (long) CelestialMath.TICKS_IN_DAY / 4L;
+        long limit = (long) Math.ceil(settings.resolvedSynodicDays(daysInMonth) * 2.0D
+                * CelestialMath.TICKS_IN_DAY);
+        for (long offset = 0L; offset <= limit; offset += step) {
+            long tick = startTick + offset;
+            CelestialMath.Result result = celestialResultAt(position, scale, tick, daysInMonth, settings);
+            if (result.bloodMoon() <= CelestialGameplayRules.ACTIVE_THRESHOLD
+                    || result.moonElevation() <= 0.0D) {
+                return tick;
+            }
+        }
+        throw new AssertionError("no inactive blood-moon control time found across two synodic cycles");
+    }
+
+    private static long findVisibleBloodMoonTicks(ServerLevel level, BlockPos position, long startTick) {
         int daysInMonth = Calendars.SERVER.getCalendarDaysInMonth();
         CelestialRuntimeSettings settings = CelestialConfig.serverSettings();
         double maximumDays = CelestialMath.daysInYear(daysInMonth) * settings.nodalYears();
         double scale = TfeHemisphereScale.get(level);
-        for (double day = 0.0D; day < maximumDays; day += 0.005D) {
-            CelestialMath.Result result = CelestialMath.calculate(new CelestialMath.Input(position.getZ(), scale,
-                    day * CelestialMath.TICKS_IN_DAY, daysInMonth,
-                    settings.resolvedSynodicDays(daysInMonth), settings.resolvedAnomalisticDays(daysInMonth),
-                    settings.nodalYears(), settings.lunarInclinationRadians()));
-            if (result.bloodMoon() > 0.2D && result.moonElevation() > 0.1D) {
-                return Math.round(day * CelestialMath.TICKS_IN_DAY);
+        long maximumTicks = (long) Math.ceil(maximumDays * CelestialMath.TICKS_IN_DAY);
+        for (long offset = 0L; offset < maximumTicks; offset += 120L) {
+            long tick = startTick + offset;
+            CelestialMath.Result result = celestialResultAt(position, scale, tick, daysInMonth, settings);
+            if (result.bloodMoon() > CelestialGameplayRules.ACTIVE_THRESHOLD
+                    && result.moonElevation() > 0.1D && result.solarElevation() <= 0.0D) {
+                return tick;
             }
         }
         throw new AssertionError("no visible blood moon found across one configured nodal cycle");
+    }
+
+    private static long findVisiblePenumbralLunarEclipseTicks(ServerLevel level, BlockPos position,
+                                                               long startTick) {
+        int daysInMonth = Calendars.SERVER.getCalendarDaysInMonth();
+        CelestialRuntimeSettings settings = CelestialConfig.serverSettings();
+        double scale = TfeHemisphereScale.get(level);
+        double synodicDays = settings.resolvedSynodicDays(daysInMonth);
+        long firstIndex = (long) Math.ceil((double) startTick
+                / (CelestialMath.TICKS_IN_DAY * synodicDays));
+        long fullMoons = (long) Math.ceil(CelestialMath.daysInYear(daysInMonth)
+                * settings.nodalYears() / synodicDays);
+        for (long offsetIndex = 0L; offsetIndex <= fullMoons; offsetIndex++) {
+            long centerTick = Math.round((firstIndex + offsetIndex) * synodicDays
+                    * CelestialMath.TICKS_IN_DAY);
+            for (long offset = -9_000L; offset <= 9_000L; offset += 120L) {
+                long tick = centerTick + offset;
+                CelestialMath.Result result = celestialResultAt(position, scale, tick,
+                        daysInMonth, settings);
+                if (result.lunarEclipseRegion().penumbralOnly()
+                        && result.moonElevation() > 0.1D && result.solarElevation() <= 0.0D) {
+                    return tick;
+                }
+            }
+        }
+        throw new AssertionError("no visible penumbral lunar eclipse found across one nodal cycle");
+    }
+
+    private static CelestialMath.Result celestialResultAt(BlockPos position, double scale, long calendarTick,
+                                                           int daysInMonth,
+                                                           CelestialRuntimeSettings settings) {
+        return CelestialMath.calculate(new CelestialMath.Input(position.getZ(), scale, calendarTick, daysInMonth,
+                settings.resolvedSynodicDays(daysInMonth), settings.resolvedAnomalisticDays(daysInMonth),
+                settings.nodalYears(), settings.lunarInclinationRadians(),
+                settings.sunScale(), settings.moonScale()));
     }
 
     private static long findNextSunriseTicks(ServerLevel level, BlockPos position, long startTick) {
@@ -371,7 +497,7 @@ public final class CelestialServerGameTests {
         return CelestialMath.calculate(new CelestialMath.Input(position.getZ(), scale, calendarTick,
                 daysInMonth, settings.resolvedSynodicDays(daysInMonth),
                 settings.resolvedAnomalisticDays(daysInMonth), settings.nodalYears(),
-                settings.lunarInclinationRadians())).solarElevation();
+                settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale())).solarElevation();
     }
 
     private static void assertTrue(boolean condition, String message) {

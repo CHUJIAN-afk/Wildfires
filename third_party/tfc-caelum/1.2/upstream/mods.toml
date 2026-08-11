@@ -1,0 +1,40 @@
+modLoader="javafml"
+loaderVersion="[40,)"
+license = "BSD 3"
+
+[[mods]]
+modId="tfccaelum"
+version="${file.jarVersion}"
+logoFile="pack.png"
+displayName="TFC Caelum"
+displayURL="https://www.curseforge.com/minecraft/mc-mods/tfc-caelum"
+authors="Verph"
+description="Syncronizing TFC and Caelum"
+
+[[dependencies.tfccaelum]]
+	mandatory = true
+	modId = "caelum"
+	ordering = "AFTER"
+	side = "BOTH"
+	versionRange = "[1.20.1-2,)"
+
+[[dependencies.tfccaelum]]
+	mandatory = true
+	modId = "tfc"
+	ordering = "AFTER"
+	side = "BOTH"
+	versionRange = "[1.20.1-3,)"
+	
+[[dependencies.tfccaelum]]
+    modId = "forge"
+    mandatory = true
+    versionRange = "[0,)"
+    ordering = "AFTER"
+    side = "BOTH"
+
+[[dependencies.tfccaelum]]
+    modId = "minecraft"
+    mandatory = true
+    versionRange = "[1.20.1,1.20.2)"
+    ordering = "NONE"
+    side = "BOTH"

@@ -31,4 +31,9 @@ public final class CelestialApi {
     public static Optional<DaylightState> daylight(Level level, BlockPos observer) {
         return state(level, observer.getCenter(), 0.0F).map(CelestialState::daylight);
     }
+
+    /** Current local Sun/Moon event state with horizon and day/night eligibility already applied. */
+    public static Optional<CelestialEventState> events(Level level, BlockPos observer) {
+        return state(level, observer.getCenter(), 0.0F).map(CelestialEventState::from);
+    }
 }

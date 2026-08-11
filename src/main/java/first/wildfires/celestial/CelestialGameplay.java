@@ -49,11 +49,11 @@ public final class CelestialGameplay {
                                                      OverworldCelestialProvider.FrameContext overworldFrame) {
         if (overworldFrame != null) {
             CelestialMath.Result result = overworldFrame.frameAt(observer.z).result();
-            return CelestialGameplayRules.visibleBloodMoon(result.bloodMoon(), result.moonElevation());
+            return CelestialGameplayRules.visibleBloodMoon(result.bloodMoon(), result.moonElevation(),
+                    result.solarElevation());
         }
         CelestialState state = CelestialApi.state(level, observer, 0.0F).orElse(null);
-        return state == null ? 0.0D
-                : CelestialGameplayRules.visibleBloodMoon(state.bloodMoon(), state.moon().altitudeRadians());
+        return state == null || !state.visibleBloodMoon() ? 0.0D : state.bloodMoon();
     }
 
     public static boolean allowsSurfaceMonster(EntityType<?> type) {

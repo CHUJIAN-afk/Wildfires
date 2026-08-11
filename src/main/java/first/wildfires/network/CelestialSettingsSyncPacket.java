@@ -29,6 +29,8 @@ public record CelestialSettingsSyncPacket(CelestialRuntimeSettings settings) imp
         buffer.writeDouble(settings.lunarInclinationRadians());
         buffer.writeBoolean(settings.bloodMoonSurfaceMonsters());
         buffer.writeDouble(settings.bloodMoonSpawnMultiplier());
+        buffer.writeDouble(settings.sunScale());
+        buffer.writeDouble(settings.moonScale());
         buffer.writeEnum(settings.lunarPeriodPreset());
         CelestialPlanetSettings planetSettings = settings.planetSettings();
         buffer.writeDouble(planetSettings.earthDiameterKm());
@@ -61,6 +63,8 @@ public record CelestialSettingsSyncPacket(CelestialRuntimeSettings settings) imp
         double lunarInclination = buffer.readDouble();
         boolean bloodMoonSurfaceMonsters = buffer.readBoolean();
         double bloodMoonSpawnMultiplier = buffer.readDouble();
+        double sunScale = buffer.readDouble();
+        double moonScale = buffer.readDouble();
         CelestialRuntimeSettings.LunarPeriodPreset preset =
                 buffer.readEnum(CelestialRuntimeSettings.LunarPeriodPreset.class);
         double earthDiameterKm = buffer.readDouble();
@@ -77,7 +81,7 @@ public record CelestialSettingsSyncPacket(CelestialRuntimeSettings settings) imp
                     buffer.readDouble(), buffer.readDouble()));
         }
         return new CelestialRuntimeSettings(synodicDays, anomalisticDays, nodalYears, lunarInclination,
-                bloodMoonSurfaceMonsters, bloodMoonSpawnMultiplier, preset,
+                bloodMoonSurfaceMonsters, bloodMoonSpawnMultiplier, sunScale, moonScale, preset,
                 new CelestialPlanetSettings(planets, earthDiameterKm, earthOrbitalDays,
                         earthSemiMajorMillionKm));
     }

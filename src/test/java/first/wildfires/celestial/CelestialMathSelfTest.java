@@ -3,6 +3,7 @@ package first.wildfires.celestial;
 import first.wildfires.api.celestial.CelestialBodyState;
 import first.wildfires.api.celestial.CelestialVector;
 import first.wildfires.network.CelestialSettingsSyncPacket;
+import first.wildfires.tfc.calendar.CalendarEventWindowScanner;
 import io.netty.buffer.Unpooled;
 import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Method;
@@ -20,21 +21,37 @@ public final class CelestialMathSelfTest {
 
     public static void main(String[] args) {
         latitudeGridMatchesTfcPolesAndEquators();
+        latitudePeriodRepeatsWithoutChangingGeocentricEclipses();
+        regionalSolarEclipseBandsAreSeasonalAndLatitudeBound();
+        eclipsePredictionsReuseRegionalAndLunarGeometry();
+        planetariumTimelinePreservesSameDayDistinctEclipses();
         configurableMonthLengthPreservesDaysAndScalesYears();
         solarFrameIsFiniteAtPoles();
         equinoxSolsticeAndPolarDayAreDistinct();
+        apparentSolarTimeIsContinuousAtPolarCircleTransitions();
         seasonalGridIsNorthSouthSymmetric();
+        directEventJumpSearchHorizonsAreBounded();
+        directEventJumpFindsEveryDeterministicEvent();
         solarDirectionsMatchTfcReferenceMath();
         synodicCycleReturnsToFullMoon();
+        supermoonRequiresFullMoonPerigeeAndLocalNight();
+        quarterPhaseDebugEventsRequireLocalNight();
         moonPhaseCellsUseThreeDimensionalSeparation();
         moonPhaseAndDirectionAreContinuousAcrossCycle();
         anomalisticCycleIsIndependent();
         nodalCycleIsIndependent();
         lunarPeriodPresetsAreExplicit();
         eclipseDiscGeometryIsBounded();
+        squarePixelDiscProjectionMatchesRenderedGeometry();
+        lunarUmbraUsesEqualSquarePixelGeometry();
+        lunarEclipseRegionUsesNonlinearTerrestrialShadowLatitude();
         realGeometryProducesSolarAndLunarEclipses();
+        eclipseEventWindowsStartAtFirstGeometricContact();
+        renderedPixelEclipseWindowOutlastsPhysicalDiscWindow();
+        eclipseWindowsRemainContiguousAndTickContinuous();
+        renderedSolarOverlapAlwaysMatchesAuthority();
         eventTargetsUseTheUnifiedVisibleGeometry();
-        visualScaleCannotChangeEclipseMath();
+        authoritativeVisualScaleDrivesPixelCoverageOnly();
         orbitalProjectionIsThreeDimensionalAndDeterministic();
         bodyDefinitionsMatchTfccaelumAuthority();
         configuredPrimaryBodySettingsDriveUnifiedOrbits();
@@ -55,7 +72,8 @@ public final class CelestialMathSelfTest {
 
     private static void overworldFrameContextIsExactlyEquivalentAtEveryLatitude() {
         CelestialRuntimeSettings custom = new CelestialRuntimeSettings(17.25D, 14.75D, 19.0D,
-                Math.toRadians(4.75D), true, 2.5D, CelestialRuntimeSettings.LunarPeriodPreset.CUSTOM,
+                Math.toRadians(4.75D), true, 2.5D, 0.8D, 1.15D,
+                CelestialRuntimeSettings.LunarPeriodPreset.CUSTOM,
                 CelestialPlanetSettings.DEFAULT);
         for (CelestialRuntimeSettings settings : new CelestialRuntimeSettings[]{
                 CelestialRuntimeSettings.DEFAULT, custom}) {
@@ -69,7 +87,7 @@ public final class CelestialMathSelfTest {
                 CelestialMath.Result expected = CelestialMath.calculate(new CelestialMath.Input(z, scale, ticks,
                         daysInMonth, settings.resolvedSynodicDays(daysInMonth),
                         settings.resolvedAnomalisticDays(daysInMonth), settings.nodalYears(),
-                        settings.lunarInclinationRadians()));
+                        settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale()));
                 if (!expected.equals(actual.result())
                         || Double.doubleToLongBits(ticks) != Double.doubleToLongBits(actual.calendarTicks())
                         || actual.daysInMonth() != daysInMonth) {
@@ -137,6 +155,329 @@ public final class CelestialMathSelfTest {
         assertClose(0.0D, CelestialMath.latitude(10000.0D, scale), "equator");
         assertClose(-Math.PI / 2.0D, CelestialMath.latitude(30000.0D, scale), "south pole");
         assertClose(0.0D, CelestialMath.latitude(-30000.0D, scale), "wrapped equator");
+    }
+
+    private static void latitudePeriodRepeatsWithoutChangingGeocentricEclipses() {
+        double scale = 20000.0D;
+        double period = 4.0D * scale;
+        double calendarTicks = 1234567.25D;
+        for (double z : new double[]{-50000.0D, -10000.0D, 0.0D, 10000.0D, 30000.0D, 49999.5D}) {
+            CelestialMath.Result first = CelestialMath.calculate(new CelestialMath.Input(
+                    z, scale, calendarTicks, 8));
+            CelestialMath.Result repeated = CelestialMath.calculate(new CelestialMath.Input(
+                    z + period, scale, calendarTicks, 8));
+            assertClose(first.latitude(), repeated.latitude(), "Z latitude period at " + z);
+            if (CelestialMath.angle(first.sunDirection(), repeated.sunDirection()) > EPSILON
+                    || CelestialMath.angle(first.moonDirection(), repeated.moonDirection()) > EPSILON) {
+                throw new AssertionError("local sky directions changed across one Z period at " + z);
+            }
+            assertClose(first.solarEclipse(), repeated.solarEclipse(),
+                    "geocentric solar eclipse Z period at " + z);
+            assertClose(first.lunarEclipse(), repeated.lunarEclipse(),
+                    "geocentric lunar eclipse Z period at " + z);
+        }
+
+        CelestialMath.Result latitudeA = CelestialMath.calculate(new CelestialMath.Input(
+                -10000.0D, scale, calendarTicks, 8));
+        CelestialMath.Result latitudeB = CelestialMath.calculate(new CelestialMath.Input(
+                10000.0D, scale, calendarTicks, 8));
+        assertClose(latitudeA.lunarEclipse(), latitudeB.lunarEclipse(),
+                "lunar coverage remains geocentric across latitude");
+
+        double seam = -2.5D * scale;
+        double left = CelestialMath.latitude(seam - 0.001D, scale);
+        double right = CelestialMath.latitude(seam + 0.001D, scale);
+        if (!Double.isFinite(left) || !Double.isFinite(right) || Math.abs(left - right) > 1.0E-6D) {
+            throw new AssertionError("Z latitude period seam is discontinuous: " + left + " -> " + right);
+        }
+        CelestialMath.Result huge = CelestialMath.calculate(new CelestialMath.Input(
+                1.0E15D, scale, calendarTicks, 8));
+        if (!Double.isFinite(huge.latitude()) || !Double.isFinite(huge.solarEclipse())
+                || !Double.isFinite(huge.lunarEclipse())) {
+            throw new AssertionError("large Z coordinate produced a non-finite eclipse state");
+        }
+    }
+
+    private static void regionalSolarEclipseBandsAreSeasonalAndLatitudeBound() {
+        double yearDays = CelestialMath.daysInYear(8);
+        double cycleDays = yearDays * CelestialMath.NODAL_YEARS;
+        long conjunctions = (long) Math.ceil(cycleDays / CelestialMath.SYNODIC_DAYS);
+        int eclipseCount = 0;
+        boolean foundUmbra = false;
+        boolean foundPolarPartialOnly = false;
+        boolean foundLatitudeDifference = false;
+        SolarEclipseRegion.Event polarPartialEvent = SolarEclipseRegion.Event.NONE;
+        double polarPartialLatitude = 0.0D;
+        for (long index = 0; index < conjunctions; index++) {
+            SolarEclipseRegion.Event event = SolarEclipseRegion.eventAt(index, yearDays,
+                    CelestialMath.SYNODIC_DAYS, CelestialMath.NODAL_YEARS,
+                    CelestialMath.LUNAR_INCLINATION);
+            if (!event.intersectsWorld()) {
+                continue;
+            }
+            CelestialMath.Result center = calculateAtDay(event.conjunctionDay());
+            double sunHalf = CelestialDiscGeometry.tangentHalfExtent(
+                    CelestialDiscGeometry.sunBodyHalfSize(CelestialDiscGeometry.DEFAULT_SUN_SCALE));
+            double moonHalf = CelestialDiscGeometry.tangentHalfExtent(
+                    CelestialDiscGeometry.moonBodyHalfSize(CelestialDiscGeometry.DEFAULT_MOON_SCALE,
+                            center.moonDistance()), CelestialDiscGeometry.PIXEL_COVER_RADIUS);
+            double maximum = 0.0D;
+            double polarMaximum = 0.0D;
+            for (int latitudeIndex = 0; latitudeIndex <= 360; latitudeIndex++) {
+                double latitude = -Math.PI * 0.5D + Math.PI * latitudeIndex / 360.0D;
+                double coverage = SolarEclipseRegion.maximumCoverageAtLatitude(event, latitude,
+                        sunHalf, moonHalf, CelestialMath.SYNODIC_DAYS);
+                maximum = Math.max(maximum, coverage);
+                if (latitudeIndex == 0 || latitudeIndex == 360) {
+                    polarMaximum = Math.max(polarMaximum, coverage);
+                }
+            }
+            if (maximum > 0.0D) {
+                eclipseCount++;
+                foundUmbra |= maximum >= 0.8D;
+                boolean polarOnly = Math.abs(event.greatestLatitude()) > Math.PI * 0.5D
+                        && polarMaximum > 0.0D && maximum < 0.5D;
+                foundPolarPartialOnly |= polarOnly;
+                if (polarOnly && !polarPartialEvent.valid()) {
+                    polarPartialEvent = event;
+                    polarPartialLatitude = Math.copySign(Math.PI * 0.5D, event.greatestLatitude());
+                }
+                double equator = SolarEclipseRegion.maximumCoverageAtLatitude(event, 0.0D,
+                        sunHalf, moonHalf, CelestialMath.SYNODIC_DAYS);
+                double north = SolarEclipseRegion.maximumCoverageAtLatitude(event, Math.toRadians(60.0D),
+                        sunHalf, moonHalf, CelestialMath.SYNODIC_DAYS);
+                foundLatitudeDifference |= Math.abs(equator - north) > 0.1D;
+            }
+        }
+        double perYear = eclipseCount / CelestialMath.NODAL_YEARS;
+        if (!(perYear >= 2.0D && perYear <= 5.0D) || eclipseCount >= conjunctions
+                || !foundUmbra || !foundPolarPartialOnly || !foundLatitudeDifference) {
+            throw new AssertionError("regional eclipse tuning is invalid: count=" + eclipseCount
+                    + "/" + conjunctions + ", perYear=" + perYear + ", umbra=" + foundUmbra
+                    + ", polarPartial=" + foundPolarPartialOnly
+                    + ", latitudeDifference=" + foundLatitudeDifference);
+        }
+        int auditedYears = 1_000;
+        int[] globalEclipsesPerYear = new int[auditedYears];
+        long auditedConjunctions = (long) Math.ceil(auditedYears * yearDays
+                / CelestialMath.SYNODIC_DAYS);
+        for (long index = 0L; index < auditedConjunctions; index++) {
+            SolarEclipseRegion.Event event = SolarEclipseRegion.eventAt(index, yearDays,
+                    CelestialMath.SYNODIC_DAYS, CelestialMath.NODAL_YEARS,
+                    CelestialMath.LUNAR_INCLINATION);
+            int year = (int) Math.floor(event.conjunctionDay() / yearDays);
+            if (event.intersectsWorld() && year >= 0 && year < auditedYears) {
+                globalEclipsesPerYear[year]++;
+            }
+        }
+        for (int year = 0; year < auditedYears; year++) {
+            int count = globalEclipsesPerYear[year];
+            if (count < 2 || count > 5) {
+                throw new AssertionError("global solar eclipse count escaped real annual bounds in year "
+                        + year + ": " + count);
+            }
+        }
+        SolarEclipseRegion.Event tilted = SolarEclipseRegion.eventAt(0L, yearDays,
+                CelestialMath.SYNODIC_DAYS, CelestialMath.NODAL_YEARS,
+                CelestialMath.LUNAR_INCLINATION);
+        assertClose(Math.toRadians(6.0D), tilted.trackLatitude(tilted.conjunctionDay() + 0.25D)
+                - tilted.trackLatitude(tilted.conjunctionDay() - 0.25D), "inclined latitude-time track");
+
+        double sunHalf = CelestialDiscGeometry.tangentHalfExtent(
+                CelestialDiscGeometry.sunBodyHalfSize(CelestialDiscGeometry.DEFAULT_SUN_SCALE));
+        CelestialMath.Result conjunction = calculateAtDay(polarPartialEvent.conjunctionDay());
+        double moonHalf = CelestialDiscGeometry.tangentHalfExtent(
+                CelestialDiscGeometry.moonBodyHalfSize(CelestialDiscGeometry.DEFAULT_MOON_SCALE,
+                        conjunction.moonDistance()), CelestialDiscGeometry.PIXEL_COVER_RADIUS);
+        double bestDay = polarPartialEvent.conjunctionDay();
+        double bestPolarCoverage = 0.0D;
+        for (int sample = 0; sample <= 256; sample++) {
+            double day = polarPartialEvent.conjunctionDay() - 0.35D + sample * 0.7D / 256.0D;
+            double coverage = SolarEclipseRegion.coverageAt(polarPartialEvent, day,
+                    polarPartialLatitude, sunHalf, moonHalf, CelestialMath.SYNODIC_DAYS);
+            if (coverage > bestPolarCoverage) {
+                bestPolarCoverage = coverage;
+                bestDay = day;
+            }
+        }
+        double polarZ = EclipsePredictionService.zForLatitude(polarPartialLatitude, 20_000.0D);
+        CelestialMath.Result polarFrame = calculateAt(polarZ, bestDay);
+        CelestialMath.Result equatorFrame = calculateAt(10_000.0D, bestDay);
+        if (!(bestPolarCoverage > 0.0D) || !(polarFrame.solarEclipse() > 0.0D)
+                || polarFrame.solarEclipseRegion().zone()
+                != first.wildfires.api.celestial.SolarEclipseZone.PARTIAL
+                || !polarFrame.solarEclipseRegion().activeSomewhere()
+                || !(polarFrame.solarEclipseRegion().globalCoverage() > 0.0D)
+                || equatorFrame.solarEclipse() != 0.0D
+                || !equatorFrame.solarEclipseRegion().activeSomewhere()
+                || !(equatorFrame.solarEclipseRegion().globalCoverage() > 0.0D)) {
+            throw new AssertionError("a polar-only partial contact stopped counting as a global eclipse: polar="
+                    + polarFrame + ", equator=" + equatorFrame);
+        }
+
+        long polarConjunctionIndex = polarPartialEvent.conjunctionIndex();
+        EclipsePredictionService.SolarPrediction polarPrediction = EclipsePredictionService.predictTimeline(
+                        (polarPartialEvent.conjunctionDay() - 0.5D) * CelestialMath.TICKS_IN_DAY,
+                        8, 20_000.0D, 0.0D, polarZ, CelestialRuntimeSettings.DEFAULT, 1.0D)
+                .solar().stream().filter(candidate -> candidate.conjunctionIndex()
+                        == polarConjunctionIndex).findFirst()
+                .orElse(EclipsePredictionService.SolarPrediction.NONE);
+        boolean polarContactIsDaylight = polarFrame.solarElevation() > 0.0D;
+        if (!polarPrediction.present()
+                || polarPrediction.conjunctionIndex() != polarPartialEvent.conjunctionIndex()
+                || !(polarPrediction.globalMaximumCoverage() > 0.0D)
+                || !polarPrediction.partialBand().present()
+                || polarContactIsDaylight != (polarPrediction.observerMaximumCoverage() > 0.0D)) {
+            throw new AssertionError("planetarium global/local polar eclipse qualification diverged: "
+                    + polarPrediction + ", daylight=" + polarContactIsDaylight);
+        }
+        double conjunctionTicks = polarPartialEvent.conjunctionDay() * CelestialMath.TICKS_IN_DAY;
+        if (polarPrediction.present()
+                && polarPrediction.conjunctionIndex() == polarPartialEvent.conjunctionIndex()
+                && Math.abs(polarPrediction.greatestCalendarTicks() - conjunctionTicks) < 1.0D) {
+            throw new AssertionError("polar grazing eclipse maximum was still hard-coded to conjunction time: "
+                    + polarPrediction);
+        }
+    }
+
+    private static void eclipsePredictionsReuseRegionalAndLunarGeometry() {
+        EclipsePredictionService.Predictions prediction = EclipsePredictionService.predict(
+                0.0D, 8, 20_000.0D, 10_000.0D, CelestialRuntimeSettings.DEFAULT);
+        if (!prediction.solar().present() || !prediction.lunar().present()
+                || prediction.solar().globalMaximumCoverage() <= 0.0D
+                || !prediction.solar().partialBand().present()
+                || prediction.solar().endCalendarTicks() < 0.0D
+                || prediction.lunar().maximumCoverage() <= 0.0D
+                || prediction.lunar().kind() == EclipsePredictionService.LunarEclipseKind.NONE
+                || !Double.isFinite(prediction.lunar().shadowCenterX())
+                || !Double.isFinite(prediction.lunar().shadowCenterY())) {
+            throw new AssertionError("planetarium eclipse prediction is incomplete: " + prediction);
+        }
+        if (EclipsePredictionService.lunarKind(0.0D, 0.1D)
+                != EclipsePredictionService.LunarEclipseKind.PENUMBRAL
+                || EclipsePredictionService.lunarKind(0.1D, 0.2D)
+                != EclipsePredictionService.LunarEclipseKind.PARTIAL
+                || EclipsePredictionService.lunarKind(0.9D, 1.0D)
+                != EclipsePredictionService.LunarEclipseKind.TOTAL
+                || EclipsePredictionService.lunarKind(0.0D, 0.0D)
+                != EclipsePredictionService.LunarEclipseKind.NONE) {
+            throw new AssertionError("planetarium lunar eclipse classification diverged from coverage");
+        }
+        EclipsePredictionService.SolarPrediction solar = prediction.solar();
+        double greatestDay = solar.greatestCalendarTicks() / CelestialMath.TICKS_IN_DAY;
+        assertClose(solar.globalMaximumCoverage(),
+                SolarEclipseRegion.maximumCoverageAtTime(solar.event(), greatestDay,
+                        solar.sunHalfTangent(), solar.moonHalfTangent(), solar.synodicDays()),
+                "planetarium reported greatest-eclipse world time");
+        double oneTickDay = 1.0D / CelestialMath.TICKS_IN_DAY;
+        double before = SolarEclipseRegion.maximumCoverageAtTime(solar.event(),
+                solar.startCalendarTicks() / CelestialMath.TICKS_IN_DAY - oneTickDay,
+                solar.sunHalfTangent(), solar.moonHalfTangent(), solar.synodicDays());
+        double entered = SolarEclipseRegion.maximumCoverageAtTime(solar.event(),
+                solar.startCalendarTicks() / CelestialMath.TICKS_IN_DAY + oneTickDay,
+                solar.sunHalfTangent(), solar.moonHalfTangent(), solar.synodicDays());
+        double leaving = SolarEclipseRegion.maximumCoverageAtTime(solar.event(),
+                solar.endCalendarTicks() / CelestialMath.TICKS_IN_DAY - oneTickDay,
+                solar.sunHalfTangent(), solar.moonHalfTangent(), solar.synodicDays());
+        double after = SolarEclipseRegion.maximumCoverageAtTime(solar.event(),
+                solar.endCalendarTicks() / CelestialMath.TICKS_IN_DAY + oneTickDay,
+                solar.sunHalfTangent(), solar.moonHalfTangent(), solar.synodicDays());
+        if (before > 0.0D || !(entered > 0.0D) || !(leaving > 0.0D) || after > 0.0D
+                || solar.greatestCalendarTicks() < solar.startCalendarTicks()
+                || solar.greatestCalendarTicks() > solar.endCalendarTicks()) {
+            throw new AssertionError("planetarium solar contact/max times diverged from geometry: "
+                    + before + ", " + entered + ", " + leaving + ", " + after + "; " + solar);
+        }
+        double latitude = Math.toRadians(37.5D);
+        double z = EclipsePredictionService.zForLatitude(latitude, 20_000.0D);
+        assertClose(latitude, CelestialMath.latitude(z, 20_000.0D), "planetarium latitude inverse");
+
+        // Regression for the live-world 911-day local-visible gap: the 400-day planetarium axis
+        // is global and must keep showing regional eclipses even when this observer gets 0%.
+        double liveLatitude = Math.toRadians(-46.0D);
+        double liveZ = EclipsePredictionService.zForLatitude(liveLatitude, 20_000.0D);
+        EclipsePredictionService.Timeline globalTimeline = EclipsePredictionService.predictTimeline(
+                652_097_136.0D, 8, 20_000.0D, 0.0D, liveZ,
+                CelestialRuntimeSettings.DEFAULT, 400.0D);
+        if (globalTimeline.solar().isEmpty()
+                || globalTimeline.solar().stream().noneMatch(candidate ->
+                candidate.observerMaximumCoverage() == 0.0D)) {
+            throw new AssertionError("planetarium still hid global eclipses during a local visibility gap: "
+                    + globalTimeline.solar());
+        }
+        double maximumGlobalGapDays = 0.0D;
+        for (int index = 1; index < globalTimeline.solar().size(); index++) {
+            maximumGlobalGapDays = Math.max(maximumGlobalGapDays,
+                    (globalTimeline.solar().get(index).greatestCalendarTicks()
+                            - globalTimeline.solar().get(index - 1).greatestCalendarTicks())
+                            / CelestialMath.TICKS_IN_DAY);
+        }
+        if (globalTimeline.solar().size() < 4
+                || maximumGlobalGapDays > CelestialMath.SYNODIC_DAYS * 6.0D) {
+            throw new AssertionError("global solar prediction retained an abnormal long gap: count="
+                    + globalTimeline.solar().size() + ", maximumGap=" + maximumGlobalGapDays);
+        }
+    }
+
+    private static void planetariumTimelinePreservesSameDayDistinctEclipses() {
+        CelestialRuntimeSettings rapidCustomCycle = new CelestialRuntimeSettings(
+                0.2D, 0.19D, CelestialMath.NODAL_YEARS, 0.0D,
+                true, 3.0D, CelestialDiscGeometry.DEFAULT_SUN_SCALE,
+                CelestialDiscGeometry.DEFAULT_MOON_SCALE,
+                CelestialRuntimeSettings.LunarPeriodPreset.CUSTOM,
+                CelestialPlanetSettings.DEFAULT);
+        EclipsePredictionService.Timeline timeline = EclipsePredictionService.predictTimeline(
+                0.0D, 8, 20_000.0D, 0.0D, 10_000.0D,
+                rapidCustomCycle, 2.0D);
+        EclipsePredictionService.SolarPrediction first = null;
+        EclipsePredictionService.SolarPrediction second = null;
+        for (int left = 0; left < timeline.solar().size(); left++) {
+            long leftDay = (long) Math.floor(timeline.solar().get(left).greatestCalendarTicks()
+                    / CelestialMath.TICKS_IN_DAY);
+            for (int right = left + 1; right < timeline.solar().size(); right++) {
+                long rightDay = (long) Math.floor(timeline.solar().get(right).greatestCalendarTicks()
+                        / CelestialMath.TICKS_IN_DAY);
+                if (leftDay == rightDay) {
+                    first = timeline.solar().get(left);
+                    second = timeline.solar().get(right);
+                    break;
+                }
+            }
+            if (first != null) {
+                break;
+            }
+        }
+        if (first == null || second == null
+                || first.conjunctionIndex() == second.conjunctionIndex()
+                || first.greatestCalendarTicks() == second.greatestCalendarTicks()
+                || !(first.globalMaximumCoverage() > 0.0D)
+                || !(second.globalMaximumCoverage() > 0.0D)) {
+            throw new AssertionError("planetarium timeline did not preserve two distinct same-day eclipses: "
+                    + timeline.solar());
+        }
+        for (EclipsePredictionService.SolarPrediction prediction : new EclipsePredictionService.SolarPrediction[]{
+                first, second}) {
+            double greatestDay = prediction.greatestCalendarTicks() / CelestialMath.TICKS_IN_DAY;
+            double coverage = SolarEclipseRegion.maximumCoverageAtTime(prediction.event(), greatestDay,
+                    prediction.sunHalfTangent(), prediction.moonHalfTangent(), prediction.synodicDays());
+            if (!(coverage > 0.0D)) {
+                throw new AssertionError("same-day eclipse maximum does not lie inside its geometric window: "
+                        + prediction);
+            }
+        }
+
+        double paddingTicks = 1.0D;
+        double singleStart = first.startCalendarTicks() - paddingTicks;
+        double singleEnd = first.endCalendarTicks() + paddingTicks;
+        EclipsePredictionService.Timeline single = EclipsePredictionService.predictTimeline(
+                singleStart, 8, 20_000.0D, 0.0D, 10_000.0D, rapidCustomCycle,
+                (singleEnd - singleStart) / CelestialMath.TICKS_IN_DAY);
+        if (single.solar().size() != 1
+                || single.solar().get(0).conjunctionIndex() != first.conjunctionIndex()
+                || single.solar().get(0).greatestCalendarTicks() != first.greatestCalendarTicks()) {
+            throw new AssertionError("single eclipse window lost its unique maximum-time marker: "
+                    + single.solar());
+        }
     }
 
     private static void configurableMonthLengthPreservesDaysAndScalesYears() {
@@ -218,6 +559,51 @@ public final class CelestialMathSelfTest {
         }
     }
 
+    private static void apparentSolarTimeIsContinuousAtPolarCircleTransitions() {
+        assertClose(0.0D, CelestialMath.sunBasedDayTimeFromElevations(
+                0.0D, 0.0D, 0.0D, Math.toRadians(30.0D)), "polar-day grazing sunrise");
+        assertClose(12000.0D, CelestialMath.sunBasedDayTimeFromElevations(
+                0.999999D, 0.0D, 0.0D, Math.toRadians(30.0D)), "polar-day grazing sunset");
+        assertClose(24000.0D, CelestialMath.sunBasedDayTimeFromElevations(
+                0.499999D, 0.0D, Math.toRadians(-30.0D), 0.0D), "polar-night grazing sunrise");
+        assertClose(12000.0D, CelestialMath.sunBasedDayTimeFromElevations(
+                0.5D, 0.0D, Math.toRadians(-30.0D), 0.0D), "polar-night grazing sunset");
+
+        for (double minimum : new double[]{Math.toRadians(-30.0D), -1.0E-12D, 0.0D,
+                Math.toRadians(5.0D)}) {
+            for (double maximum : new double[]{Math.toRadians(5.0D), Math.toRadians(30.0D)}) {
+                if (maximum < minimum) continue;
+                double previousLight = Double.NaN;
+                for (int step = 0; step <= 24000; step++) {
+                    double fraction = step / 24000.0D;
+                    double elevation = minimum + (maximum - minimum)
+                            * (0.5D - 0.5D * Math.cos(fraction * CelestialMath.TAU));
+                    double apparent = CelestialMath.sunBasedDayTimeFromElevations(
+                            fraction, elevation, minimum, maximum);
+                    assertFinite(apparent, "polar-transition apparent time");
+                    if (apparent < 0.0D || apparent > 24000.0D) {
+                        throw new AssertionError("polar-transition apparent time escaped one day: " + apparent);
+                    }
+                    double light = visualSkyBrightness(apparent);
+                    if (Double.isFinite(previousLight) && Math.abs(light - previousLight) > 0.01D) {
+                        throw new AssertionError("polar-transition visual light jumped at minimum=" + minimum
+                                + ", maximum=" + maximum + ", step=" + step + ": "
+                                + previousLight + " -> " + light);
+                    }
+                    previousLight = light;
+                }
+            }
+        }
+    }
+
+    private static double visualSkyBrightness(double apparentTicks) {
+        double phase = positiveModulo(apparentTicks / 24000.0D - 0.25D, 1.0D);
+        double eased = 0.5D - Math.cos(phase * Math.PI) * 0.5D;
+        double angle = (phase * 2.0D + eased) / 3.0D;
+        return Math.max(0.0D, Math.min(1.0D,
+                Math.cos(angle * CelestialMath.TAU) * 2.0D + 0.5D));
+    }
+
     private static void seasonalGridIsNorthSouthSymmetric() {
         double yearDays = 96.0D;
         for (int season = 0; season < 4; season++) {
@@ -230,6 +616,68 @@ public final class CelestialMathSelfTest {
             assertFinite(north.celestialNorth().y(), "celestial north y");
             assertFinite(north.celestialNorth().z(), "celestial north z");
         }
+    }
+
+    private static void directEventJumpSearchHorizonsAreBounded() {
+        CelestialRuntimeSettings settings = CelestialRuntimeSettings.DEFAULT;
+        for (CelestialEventType event : CelestialEventType.values()) {
+            long days = TfcCalendarEventAcceleration.skipSearchDays(event, 8, settings);
+            if (event == CelestialEventType.RAINBOW) {
+                if (days != 0L) {
+                    throw new AssertionError("weather-dependent rainbow received a direct search horizon");
+                }
+            } else if (days < 2L || days > 8192L) {
+                throw new AssertionError("direct event search horizon escaped its bound: "
+                        + event + " -> " + days);
+            }
+        }
+        if (TfcCalendarEventAcceleration.skipSearchDays(CelestialEventType.NOON, 8, settings) != 2L
+                || TfcCalendarEventAcceleration.skipSearchDays(
+                CelestialEventType.SUNRISE, 8, settings) != 98L
+                || TfcCalendarEventAcceleration.skipSearchDays(
+                CelestialEventType.SOLAR_ECLIPSE, 8, settings) != 1820L
+                || TfcCalendarEventAcceleration.skipSearchDays(
+                CelestialEventType.AURORA, 8, settings) != 8192L
+                || TfcCalendarEventAcceleration.skipSearchDays(
+                CelestialEventType.LUNAR_ECLIPSE, Integer.MAX_VALUE, settings) != 8192L) {
+            throw new AssertionError("direct event search periods no longer follow daily/yearly/nodal bounds");
+        }
+    }
+
+    private static void directEventJumpFindsEveryDeterministicEvent() {
+        int daysInMonth = 8;
+        double hemisphereScale = 20_000.0D;
+        CelestialRuntimeSettings settings = CelestialRuntimeSettings.DEFAULT;
+        for (CelestialEventType event : CelestialEventType.values()) {
+            if (event == CelestialEventType.RAINBOW) {
+                continue;
+            }
+            double observerZ = event == CelestialEventType.AURORA ? -6_000.0D : 0.0D;
+            long startTick = 0L;
+            CelestialMath.Result initial = eventResult(observerZ, hemisphereScale, startTick,
+                    daysInMonth, settings);
+            long searchDays = TfcCalendarEventAcceleration.skipSearchDays(
+                    event, daysInMonth, settings);
+            CalendarEventWindowScanner.ScanResult scan = CalendarEventWindowScanner.scan(
+                    startTick, searchDays * (long) CelestialMath.TICKS_IN_DAY,
+                    event.matches(initial, startTick, null),
+                    tick -> event.matches(eventResult(observerZ, hemisphereScale, tick,
+                            daysInMonth, settings), tick, null));
+            if (!scan.found() || !event.matches(eventResult(observerZ, hemisphereScale,
+                    scan.reachedTick(), daysInMonth, settings), scan.reachedTick(), null)) {
+                throw new AssertionError("direct jump search did not find " + event
+                        + " within " + searchDays + " TFC days");
+            }
+        }
+    }
+
+    private static CelestialMath.Result eventResult(double observerZ, double hemisphereScale,
+                                                     long tick, int daysInMonth,
+                                                     CelestialRuntimeSettings settings) {
+        return CelestialMath.calculate(new CelestialMath.Input(observerZ, hemisphereScale, tick,
+                daysInMonth, settings.resolvedSynodicDays(daysInMonth),
+                settings.resolvedAnomalisticDays(daysInMonth), settings.nodalYears(),
+                settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale()));
     }
 
     private static void solarDirectionsMatchTfcReferenceMath() {
@@ -281,6 +729,80 @@ public final class CelestialMathSelfTest {
         if (!(start.illuminatedFraction() > quarter.illuminatedFraction()
                 && quarter.illuminatedFraction() > half.illuminatedFraction())) {
             throw new AssertionError("moon illumination does not decrease from full to new");
+        }
+    }
+
+    private static void supermoonRequiresFullMoonPerigeeAndLocalNight() {
+        CelestialMath.Result fullPerigeeMidnight = calculateAtDay(0.0D);
+        CelestialMath.Result sameEventNearEdge = calculateAtDay(0.49D);
+        CelestialMath.Result outsideFullMoonDay = calculateAtDay(0.51D);
+        CelestialMath.Result laterPerigeeWithoutFullMoon = calculateAtDay(CelestialMath.ANOMALISTIC_DAYS);
+        if (fullPerigeeMidnight.supermoon() < 0.999D
+                || sameEventNearEdge.supermoon() < 0.999D
+                || outsideFullMoonDay.supermoon() != 0.0D
+                || laterPerigeeWithoutFullMoon.supermoon() != 0.0D
+                || !CelestialEventType.SUPERMOON.matches(fullPerigeeMidnight, 0L, null)) {
+            throw new AssertionError("supermoon no longer requires the one-day full-Moon/perigee event");
+        }
+        CelestialMath.Result localNoon = calculateAtDay(0.5D);
+        if (CelestialEventType.SUPERMOON.matches(localNoon,
+                Math.round(0.5D * CelestialMath.TICKS_IN_DAY), null)) {
+            throw new AssertionError("supermoon event succeeded outside the local lunar night");
+        }
+    }
+
+    private static void quarterPhaseDebugEventsRequireLocalNight() {
+        boolean sawDayFirstQuarter = false;
+        boolean sawNightFirstQuarter = false;
+        boolean sawDayLastQuarter = false;
+        boolean sawNightLastQuarter = false;
+        double endDay = CelestialMath.SYNODIC_DAYS * 9.0D;
+        for (double day = 0.0D; day <= endDay; day += 1.0D / 240.0D) {
+            CelestialMath.Result result = calculateAtDay(day);
+            boolean firstCandidate = result.moonPhase() == 2
+                    && Math.abs(result.illuminatedFraction() - 0.5D) <= 0.03D
+                    && result.moonElevation() > 0.0D;
+            boolean lastCandidate = result.moonPhase() == 6
+                    && Math.abs(result.illuminatedFraction() - 0.5D) <= 0.03D
+                    && result.moonElevation() > 0.0D;
+            if (firstCandidate) {
+                boolean matches = CelestialEventType.FIRST_QUARTER.matches(result,
+                        Math.round(day * CelestialMath.TICKS_IN_DAY),
+                        CelestialEventRules.RainSample.DRY);
+                if (result.solarElevation() > 0.0D) {
+                    sawDayFirstQuarter = true;
+                    if (matches) {
+                        throw new AssertionError("first-quarter debug event succeeded in daylight");
+                    }
+                } else {
+                    sawNightFirstQuarter = true;
+                    if (!matches) {
+                        throw new AssertionError("first-quarter debug event rejected local night");
+                    }
+                }
+            }
+            if (lastCandidate) {
+                boolean matches = CelestialEventType.LAST_QUARTER.matches(result,
+                        Math.round(day * CelestialMath.TICKS_IN_DAY),
+                        CelestialEventRules.RainSample.DRY);
+                if (result.solarElevation() > 0.0D) {
+                    sawDayLastQuarter = true;
+                    if (matches) {
+                        throw new AssertionError("last-quarter debug event succeeded in daylight");
+                    }
+                } else {
+                    sawNightLastQuarter = true;
+                    if (!matches) {
+                        throw new AssertionError("last-quarter debug event rejected local night");
+                    }
+                }
+            }
+        }
+        if (!sawDayFirstQuarter || !sawNightFirstQuarter
+                || !sawDayLastQuarter || !sawNightLastQuarter) {
+            throw new AssertionError("quarter-phase debug scan missed a light-state branch: "
+                    + sawDayFirstQuarter + "/" + sawNightFirstQuarter + "/"
+                    + sawDayLastQuarter + "/" + sawNightLastQuarter);
         }
     }
 
@@ -336,6 +858,7 @@ public final class CelestialMathSelfTest {
         assertClose(16.13D, unified.resolvedSynodicDays(8), "unified synodic preset");
         CelestialRuntimeSettings legacy = new CelestialRuntimeSettings(99.0D, 98.0D, 18.6D,
                 CelestialMath.LUNAR_INCLINATION, true, 3.0D,
+                CelestialDiscGeometry.DEFAULT_SUN_SCALE, CelestialDiscGeometry.DEFAULT_MOON_SCALE,
                 CelestialRuntimeSettings.LunarPeriodPreset.LEGACY_TFCCAELUM,
                 CelestialPlanetSettings.DEFAULT);
         assertClose(8.0D * 29.530588D / 30.436875D, legacy.resolvedSynodicDays(8),
@@ -350,6 +873,33 @@ public final class CelestialMathSelfTest {
         double partial = CelestialMath.circleCoverage(1.0D, 1.0D, 1.0D);
         if (!(partial > 0.0D && partial < 1.0D)) {
             throw new AssertionError("partial disc coverage is outside (0,1)");
+        }
+    }
+
+    private static void squarePixelDiscProjectionMatchesRenderedGeometry() {
+        CelestialVector sun = new CelestialVector(0.0D, 0.0D, 1.0D);
+        CelestialVector north = new CelestialVector(0.0D, 1.0D, 0.0D);
+        CelestialDiscGeometry.Basis basis = CelestialDiscGeometry.stableBasis(sun, north);
+        double half = 0.05D;
+        assertClose(1.0D, CelestialDiscGeometry.squareCoverage(sun, sun, north, half, half),
+                "coincident rendered pixel squares");
+        CelestialVector halfOffset = sun.add(basis.right().scale(half)).normalized();
+        double halfOverlap = CelestialDiscGeometry.squareCoverage(sun, halfOffset, north, half, half);
+        if (Math.abs(halfOverlap - 0.5D) > 2.0E-4D) {
+            throw new AssertionError("perspective half-width rendered pixel overlap changed: " + halfOverlap);
+        }
+        CelestialVector separated = sun.add(basis.right().scale(half * 2.2D)).normalized();
+        assertClose(0.0D, CelestialDiscGeometry.squareCoverage(sun, separated, north, half, half),
+                "separated rendered pixel squares");
+        double rotatedPartial = CelestialDiscGeometry.squareCoverage(sun,
+                sun.add(basis.right().scale(0.04D)).add(basis.up().scale(0.03D)).normalized(),
+                new CelestialVector(0.4D, 1.0D, 0.2D).normalized(), half, half * 1.2D);
+        if (!(rotatedPartial > 0.0D && rotatedPartial < 1.0D)) {
+            throw new AssertionError("rotated perspective square coverage escaped (0,1): " + rotatedPartial);
+        }
+        if (CelestialDiscGeometry.squareCoverage(sun, sun, north, Double.NaN, half) != 0.0D
+                || CelestialDiscGeometry.squareCoverage(CelestialVector.ZERO, sun, north, half, half) != 0.0D) {
+            throw new AssertionError("invalid rendered pixel geometry did not fail closed");
         }
     }
 
@@ -377,6 +927,174 @@ public final class CelestialMathSelfTest {
         }
     }
 
+    private static void lunarUmbraUsesEqualSquarePixelGeometry() {
+        CelestialVector moon = new CelestialVector(1.0D, 0.0D, 0.0D);
+        CelestialVector north = new CelestialVector(0.0D, 1.0D, 0.0D);
+        CelestialDiscGeometry.Basis basis = CelestialDiscGeometry.stableBasis(moon, north);
+        double half = 0.05D;
+        assertClose(1.0D, CelestialDiscGeometry.alignedSquareCoverage(moon, moon, north, half, half),
+                "centered equal-size square lunar umbra");
+        CelestialVector halfOffset = moon.add(basis.right().scale(half)).normalized();
+        double halfCoverage = CelestialDiscGeometry.alignedSquareCoverage(moon, halfOffset, north, half, half);
+        if (Math.abs(halfCoverage - 0.5D) > 2.0E-4D) {
+            throw new AssertionError("equal-size lunar umbra lost half-width coverage: " + halfCoverage);
+        }
+        CelestialVector penumbraOnly = moon.add(basis.right().scale(half * 2.1D)).normalized();
+        assertClose(0.0D, CelestialDiscGeometry.alignedSquareCoverage(moon, penumbraOnly, north, half, half),
+                "separated square lunar umbra");
+        double expandedPenumbra = CelestialDiscGeometry.alignedSquareCoverage(moon, penumbraOnly, north, half,
+                half * (1.0D + CelestialDiscGeometry.LUNAR_PENUMBRA_NORMALIZED_WIDTH));
+        if (!(expandedPenumbra > 0.0D && expandedPenumbra < 1.0D)) {
+            throw new AssertionError("one-pixel lunar penumbra did not bridge the umbra contact: "
+                    + expandedPenumbra);
+        }
+    }
+
+    private static void lunarEclipseRegionUsesNonlinearTerrestrialShadowLatitude() {
+        LunarCycleStats reference = scanLunarEclipseCycle(8);
+        LunarCycleStats longMonth = scanLunarEclipseCycle(15);
+        for (LunarCycleStats stats : new LunarCycleStats[]{reference, longMonth}) {
+            double frequency = stats.eclipses() / CelestialMath.NODAL_YEARS;
+            double totalAmongUmbral = stats.total() / (double) (stats.partial() + stats.total());
+            if (stats.eclipses() != 44 || Math.abs(frequency - 2.38D) > 0.03D
+                    || stats.penumbral() < 1 || stats.partial() <= stats.total()
+                    || stats.penumbral() + stats.partial() <= stats.total()
+                    || Math.abs(totalAmongUmbral - 0.453D) > 0.07D
+                    || stats.minimumAnnual() < 0 || stats.maximumAnnual() > 4) {
+                throw new AssertionError("calendar-normalized lunar eclipse tuning changed: " + stats
+                        + ", frequency=" + frequency + ", totalAmongUmbral=" + totalAmongUmbral);
+            }
+        }
+        assertClose(0.0D, LunarEclipseRegion.effectiveLatitudeRadians(0.0D),
+                "zero lunar latitude remains centered");
+        assertClose(-LunarEclipseRegion.effectiveLatitudeRadians(Math.toRadians(0.73D)),
+                LunarEclipseRegion.effectiveLatitudeRadians(Math.toRadians(-0.73D)),
+                "nonlinear lunar latitude is odd");
+        assertClose(Math.toRadians(0.1D) * LunarEclipseRegion.CENTER_LATITUDE_MULTIPLIER,
+                LunarEclipseRegion.effectiveLatitudeRadians(Math.toRadians(0.1D)),
+                "node-adjacent lunar latitude uses center scale");
+        assertClose(Math.toRadians(2.0D) * LunarEclipseRegion.OUTER_LATITUDE_MULTIPLIER,
+                LunarEclipseRegion.effectiveLatitudeRadians(Math.toRadians(2.0D)),
+                "outer lunar latitude uses rejection scale");
+        double opportunityRatio = Math.pow(180.0D / LunarEclipseRegion.REFERENCE_YEAR_DAYS,
+                LunarEclipseRegion.ANNUAL_OPPORTUNITY_EXPONENT);
+        assertClose(LunarEclipseRegion.effectiveLatitudeRadians(Math.toRadians(0.1D))
+                        * opportunityRatio,
+                LunarEclipseRegion.effectiveLatitudeRadians(Math.toRadians(0.1D), 180.0D,
+                        CelestialMath.SYNODIC_DAYS),
+                "configured month length normalizes annual lunar eclipse opportunities");
+        double derivativeStep = 1.0E-7D;
+        double innerDerivative = (LunarEclipseRegion.effectiveLatitudeRadians(
+                LunarEclipseRegion.INNER_TRANSITION_LATITUDE + derivativeStep)
+                - LunarEclipseRegion.effectiveLatitudeRadians(
+                LunarEclipseRegion.INNER_TRANSITION_LATITUDE - derivativeStep))
+                / (2.0D * derivativeStep);
+        double outerDerivative = (LunarEclipseRegion.effectiveLatitudeRadians(
+                LunarEclipseRegion.OUTER_TRANSITION_LATITUDE + derivativeStep)
+                - LunarEclipseRegion.effectiveLatitudeRadians(
+                LunarEclipseRegion.OUTER_TRANSITION_LATITUDE - derivativeStep))
+                / (2.0D * derivativeStep);
+        if (Math.abs(innerDerivative - LunarEclipseRegion.CENTER_LATITUDE_MULTIPLIER) > 1.0E-3D
+                || Math.abs(outerDerivative - LunarEclipseRegion.OUTER_LATITUDE_MULTIPLIER) > 1.0E-3D) {
+            throw new AssertionError("nonlinear lunar latitude lost C1 transition slopes: "
+                    + innerDerivative + "/" + outerDerivative);
+        }
+        double previous = 0.0D;
+        for (int sample = 1; sample <= 514; sample++) {
+            double effective = LunarEclipseRegion.effectiveLatitudeRadians(
+                    Math.toRadians(sample / 100.0D));
+            if (!(effective > previous)) {
+                throw new AssertionError("nonlinear lunar latitude was not strictly monotone at " + sample);
+            }
+            previous = effective;
+        }
+        assertClose(Math.toRadians(5.14D), CelestialMath.LUNAR_INCLINATION,
+                "physical lunar inclination remains real");
+        for (long index = 0L; index < 16L; index++) {
+            LunarEclipseRegion.Event extreme = LunarEclipseRegion.eventAt(index,
+                    LunarEclipseRegion.REFERENCE_YEAR_DAYS,
+                    CelestialMath.SYNODIC_DAYS, CelestialMath.NODAL_YEARS,
+                    Math.PI * 0.5D);
+            if (!extreme.valid() || !Double.isFinite(extreme.effectiveLatitudeRadians())
+                    || Math.abs(extreme.effectiveLatitudeRadians()) >= Math.PI * 0.5D) {
+                throw new AssertionError("extreme configured lunar inclination escaped finite projection");
+            }
+        }
+    }
+
+    private static LunarCycleStats scanLunarEclipseCycle(int daysInMonth) {
+        double daysInYear = CelestialMath.daysInYear(daysInMonth);
+        long fullMoons = (long) Math.ceil(daysInYear * CelestialMath.NODAL_YEARS
+                / CelestialMath.SYNODIC_DAYS);
+        int ordinary = 0;
+        int penumbral = 0;
+        int partial = 0;
+        int total = 0;
+        int[] eclipsesPerYear = new int[(int) Math.floor(CelestialMath.NODAL_YEARS)];
+        for (long index = 0L; index < fullMoons; index++) {
+            double day = index * CelestialMath.SYNODIC_DAYS;
+            CelestialMath.Result center = calculateAt(10_000.0D, day, daysInMonth);
+            var state = center.lunarEclipseRegion();
+            if (state.fullMoonIndex() != index) {
+                throw new AssertionError("lunar eclipse event was not stable for full Moon " + index);
+            }
+            assertClose(LunarEclipseRegion.effectiveLatitudeRadians(state.lunarLatitudeRadians(),
+                            daysInYear, CelestialMath.SYNODIC_DAYS),
+                    state.effectiveLatitudeRadians(), "effective lunar shadow latitude");
+            double maximumUmbra = 0.0D;
+            double maximumPenumbra = 0.0D;
+            for (int sample = 0; sample <= 320; sample++) {
+                double sampleDay = day - 0.75D + 1.5D * sample / 320.0D;
+                CelestialMath.Result result = calculateAt(10_000.0D, sampleDay, daysInMonth);
+                var sampleState = result.lunarEclipseRegion();
+                if (sampleState.fullMoonIndex() != index) {
+                    throw new AssertionError("lunar eclipse projection changed event inside full-Moon window");
+                }
+                assertClose(sampleState.umbraCoverage(), result.lunarEclipse(),
+                        "lunar eclipse/result umbra authority");
+                assertClose(sampleState.umbraCoverage(), result.bloodMoon(),
+                        "lunar eclipse/blood-moon umbra authority");
+                CelestialDiscGeometry.AlignedSquare shadow = new CelestialDiscGeometry.AlignedSquare(
+                        sampleState.shadowCenterX(), sampleState.shadowCenterY(),
+                        sampleState.shadowRadius(), true);
+                assertClose(CelestialDiscGeometry.alignedSquareCoverage(shadow),
+                        sampleState.umbraCoverage(), "projected lunar umbra coverage");
+                CelestialDiscGeometry.AlignedSquare expanded = new CelestialDiscGeometry.AlignedSquare(
+                        sampleState.shadowCenterX(), sampleState.shadowCenterY(),
+                        sampleState.shadowRadius()
+                                + CelestialDiscGeometry.LUNAR_PENUMBRA_NORMALIZED_WIDTH, true);
+                assertClose(CelestialDiscGeometry.alignedSquareCoverage(expanded),
+                        sampleState.penumbraCoverage(), "projected lunar penumbra coverage");
+                maximumUmbra = Math.max(maximumUmbra, sampleState.umbraCoverage());
+                maximumPenumbra = Math.max(maximumPenumbra, sampleState.penumbraCoverage());
+            }
+            if (Math.abs(state.lunarLatitudeRadians()) >= LunarEclipseRegion.INNER_TRANSITION_LATITUDE
+                    && maximumPenumbra > 0.0D && Math.signum(state.lunarLatitudeRadians())
+                    == Math.signum(state.shadowCenterY())) {
+                throw new AssertionError("north/south lunar shadow grazing sign was lost at " + index);
+            }
+            if (maximumPenumbra == 0.0D) ordinary++;
+            else if (maximumUmbra == 0.0D) penumbral++;
+            else if (maximumUmbra < 0.9D) partial++;
+            else total++;
+            int year = (int) Math.floor(day / daysInYear);
+            if (maximumPenumbra > 0.0D && year >= 0 && year < eclipsesPerYear.length) {
+                eclipsesPerYear[year]++;
+            }
+        }
+        return new LunarCycleStats(daysInMonth, (int) fullMoons, ordinary, penumbral, partial, total,
+                java.util.Arrays.stream(eclipsesPerYear).min().orElseThrow(),
+                java.util.Arrays.stream(eclipsesPerYear).max().orElseThrow());
+    }
+
+    private record LunarCycleStats(int daysInMonth, int fullMoons, int ordinary,
+                                   int penumbral, int partial, int total,
+                                   int minimumAnnual, int maximumAnnual) {
+        int eclipses() {
+            return penumbral + partial + total;
+        }
+    }
+
     private static void eventTargetsUseTheUnifiedVisibleGeometry() {
         double cycleDays = 96.0D * CelestialMath.NODAL_YEARS;
         boolean solar = false;
@@ -398,13 +1116,240 @@ public final class CelestialMathSelfTest {
         }
     }
 
-    private static void visualScaleCannotChangeEclipseMath() {
-        CelestialMath.Result result = calculateAtDay(CelestialMath.SYNODIC_DAYS / 2.0D);
-        double original = CelestialMath.circleCoverage(CelestialMath.SUN_ANGULAR_RADIUS,
-                result.moonAngularRadius(), result.sunMoonSeparation());
-        double repeated = CelestialMath.circleCoverage(CelestialMath.SUN_ANGULAR_RADIUS,
-                result.moonAngularRadius(), result.sunMoonSeparation());
-        assertClose(original, repeated, "eclipse geometry");
+    private static void eclipseEventWindowsStartAtFirstGeometricContact() {
+        double firstRepresentableCoverage = Math.nextUp(0.0D);
+        if (!CelestialEventType.visibleEclipseContact(firstRepresentableCoverage, 0.25D)
+                || CelestialEventType.visibleEclipseContact(0.0D, 0.25D)
+                || CelestialEventType.visibleEclipseContact(-firstRepresentableCoverage, 0.25D)
+                || CelestialEventType.visibleEclipseContact(0.5D, 0.0D)
+                || CelestialEventType.visibleEclipseContact(Double.NaN, 0.25D)) {
+            throw new AssertionError("eclipse debug window no longer follows exact visible disc contact");
+        }
+    }
+
+    private static void renderedPixelEclipseWindowOutlastsPhysicalDiscWindow() {
+        double centerDay = strongestSolarEclipseDay();
+        long centerTick = Math.round(centerDay * CelestialMath.TICKS_IN_DAY);
+        long firstPixel = Long.MAX_VALUE;
+        long lastPixel = Long.MIN_VALUE;
+        long firstPhysical = Long.MAX_VALUE;
+        long lastPhysical = Long.MIN_VALUE;
+        for (long tick = centerTick - 12_000L; tick <= centerTick + 12_000L; tick++) {
+            CelestialMath.Result result = CelestialMath.calculate(new CelestialMath.Input(
+                    10_000.0D, 20_000.0D, tick, 8));
+            if (result.solarEclipse() > 0.0D) {
+                firstPixel = Math.min(firstPixel, tick);
+                lastPixel = Math.max(lastPixel, tick);
+            }
+            if (result.physicalSolarEclipse() > 0.0D) {
+                firstPhysical = Math.min(firstPhysical, tick);
+                lastPhysical = Math.max(lastPhysical, tick);
+            }
+        }
+        long pixelTicks = lastPixel - firstPixel + 1L;
+        long physicalTicks = lastPhysical - firstPhysical + 1L;
+        if (firstPixel == Long.MAX_VALUE || firstPhysical == Long.MAX_VALUE
+                || firstPixel >= firstPhysical || lastPixel <= lastPhysical
+                || pixelTicks < physicalTicks * 3L) {
+            throw new AssertionError("rendered pixel eclipse window did not contain and substantially outlast "
+                    + "the physical diagnostic window: pixel=" + pixelTicks + ", physical=" + physicalTicks);
+        }
+    }
+
+    private static void eclipseWindowsRemainContiguousAndTickContinuous() {
+        assertContinuousEclipseWindow("solar", strongestSolarEclipseDay(), true);
+        assertContinuousEclipseWindow("lunar", strongestLunarEclipseDay(), false);
+    }
+
+    private static void renderedSolarOverlapAlwaysMatchesAuthority() {
+        int daysInMonth = 8;
+        double daysInYear = CelestialMath.daysInYear(daysInMonth);
+        int conjunctions = (int) Math.ceil(daysInYear * CelestialMath.NODAL_YEARS
+                / CelestialMath.SYNODIC_DAYS);
+        int visibleWindows = 0;
+        for (double moonScale : new double[]{0.75D, 1.0D, 1.5D}) {
+            for (long index = 0L; index < conjunctions; index++) {
+                SolarEclipseRegion.Event event = SolarEclipseRegion.eventAt(index, daysInYear,
+                        CelestialMath.SYNODIC_DAYS, CelestialMath.NODAL_YEARS,
+                        CelestialMath.LUNAR_INCLINATION);
+                long centerTick = Math.round(event.conjunctionDay() * CelestialMath.TICKS_IN_DAY);
+                for (double latitude : new double[]{-Math.PI * 0.5D, -Math.PI / 3.0D,
+                        0.0D, Math.PI / 3.0D, Math.PI * 0.5D}) {
+                    double z = EclipsePredictionService.zForLatitude(latitude, 20_000.0D);
+                    boolean active = false;
+                    int entries = 0;
+                    for (long tick = centerTick - 18_000L; tick <= centerTick + 18_000L; tick += 20L) {
+                        CelestialMath.Result result = CelestialMath.calculate(new CelestialMath.Input(
+                                z, 20_000.0D, tick, daysInMonth, CelestialMath.SYNODIC_DAYS,
+                                CelestialMath.ANOMALISTIC_DAYS, CelestialMath.NODAL_YEARS,
+                                CelestialMath.LUNAR_INCLINATION,
+                                CelestialDiscGeometry.DEFAULT_SUN_SCALE, moonScale));
+                        double sunHalf = CelestialDiscGeometry.tangentHalfExtent(
+                                CelestialDiscGeometry.sunBodyHalfSize(
+                                        CelestialDiscGeometry.DEFAULT_SUN_SCALE));
+                        double moonHalf = CelestialDiscGeometry.tangentHalfExtent(
+                                CelestialDiscGeometry.moonBodyHalfSize(moonScale,
+                                        result.moonDistance()), CelestialDiscGeometry.PIXEL_COVER_RADIUS);
+                        double renderedCoverage = CelestialDiscGeometry.squareCoverage(
+                                result.sunDirection(), result.moonDirection(), result.celestialNorth(),
+                                sunHalf, moonHalf);
+                        if ((renderedCoverage > 0.0D) != (result.solarEclipse() > 0.0D)
+                                || Math.abs(renderedCoverage - result.solarEclipse()) > 1.0E-12D) {
+                            throw new AssertionError("rendered/authoritative solar coverage diverged at "
+                                    + "conjunction " + index + ": " + renderedCoverage + " != "
+                                    + result.solarEclipse());
+                        }
+                        boolean nowActive = result.solarEclipse() > 0.0D;
+                        if (nowActive && !active) {
+                            entries++;
+                        }
+                        if (nowActive && (!result.solarEclipseRegion().activeSomewhere()
+                                || !(result.solarEclipseRegion().globalCoverage() > 0.0D))) {
+                            throw new AssertionError("local rendered contact lacked global eclipse state at "
+                                    + tick + ": " + result);
+                        }
+                        active = nowActive;
+                    }
+                    if (!event.intersectsWorld() && entries != 0) {
+                        throw new AssertionError("non-eclipse conjunction still crossed the rendered Sun: "
+                                + index + " at latitude " + latitude);
+                    }
+                    if (entries > 1) {
+                        throw new AssertionError("one conjunction folded into multiple rendered eclipse windows: "
+                                + index + " at latitude " + latitude + " (" + entries + ")");
+                    }
+                    visibleWindows += entries;
+                }
+            }
+        }
+        if (visibleWindows == 0) {
+            throw new AssertionError("full nodal-cycle audit found no rendered eclipse windows");
+        }
+    }
+
+    private static void assertContinuousEclipseWindow(String name, double centerDay, boolean solar) {
+        long centerTick = Math.round(centerDay * CelestialMath.TICKS_IN_DAY);
+        long first = Long.MAX_VALUE;
+        long last = Long.MIN_VALUE;
+        double previous = 0.0D;
+        double maximum = 0.0D;
+        double maximumStep = 0.0D;
+        boolean entered = false;
+        boolean exited = false;
+        for (long tick = centerTick - 15_000L; tick <= centerTick + 15_000L; tick++) {
+            CelestialMath.Result result = CelestialMath.calculate(new CelestialMath.Input(
+                    10_000.0D, 20_000.0D, tick, 8));
+            double coverage = solar ? result.solarEclipse()
+                    : result.lunarEclipseRegion().penumbraCoverage();
+            if (!solar) {
+                assertClose(result.lunarEclipse(), result.bloodMoon(),
+                        "lunar/blood square coverage at " + tick);
+            }
+            if (!Double.isFinite(coverage) || coverage < 0.0D || coverage > 1.0D) {
+                throw new AssertionError(name + " eclipse coverage escaped [0,1] at " + tick + ": " + coverage);
+            }
+            maximumStep = Math.max(maximumStep, Math.abs(coverage - previous));
+            maximum = Math.max(maximum, coverage);
+            if (coverage > 0.0D) {
+                if (exited) {
+                    throw new AssertionError(name + " eclipse window reopened after complete separation at " + tick);
+                }
+                entered = true;
+                first = Math.min(first, tick);
+                last = tick;
+            } else if (entered) {
+                exited = true;
+            }
+            previous = coverage;
+        }
+        if (!entered || !exited || first == Long.MAX_VALUE || last == Long.MIN_VALUE || maximum < 0.25D) {
+            throw new AssertionError(name + " eclipse scan did not contain a complete strong event");
+        }
+        if (coverageAtTick(first - 1L, solar) != 0.0D || coverageAtTick(first, solar) <= 0.0D
+                || coverageAtTick(last, solar) <= 0.0D || coverageAtTick(last + 1L, solar) != 0.0D) {
+            throw new AssertionError(name + " eclipse no longer begins at first positive contact and ends at separation");
+        }
+        if (maximumStep > 0.01D) {
+            throw new AssertionError(name + " eclipse coverage jumped by " + maximumStep
+                    + " in one TFC calendar tick");
+        }
+    }
+
+    private static double coverageAtTick(long tick, boolean solar) {
+        CelestialMath.Result result = CelestialMath.calculate(new CelestialMath.Input(
+                10_000.0D, 20_000.0D, tick, 8));
+        return solar ? result.solarEclipse() : result.lunarEclipseRegion().penumbraCoverage();
+    }
+
+    private static void authoritativeVisualScaleDrivesPixelCoverageOnly() {
+        double day = strongestSolarEclipseDay();
+        CelestialMath.Input smallPixels = new CelestialMath.Input(10_000.0D, 20_000.0D,
+                day * CelestialMath.TICKS_IN_DAY, 8, CelestialMath.SYNODIC_DAYS,
+                CelestialMath.ANOMALISTIC_DAYS, CelestialMath.NODAL_YEARS,
+                CelestialMath.LUNAR_INCLINATION, 0.5D, 0.5D);
+        CelestialMath.Input largeMoon = new CelestialMath.Input(10_000.0D, 20_000.0D,
+                day * CelestialMath.TICKS_IN_DAY, 8, CelestialMath.SYNODIC_DAYS,
+                CelestialMath.ANOMALISTIC_DAYS, CelestialMath.NODAL_YEARS,
+                CelestialMath.LUNAR_INCLINATION, 0.5D, 2.0D);
+        CelestialMath.Result small = CelestialMath.calculate(smallPixels);
+        CelestialMath.Result large = CelestialMath.calculate(largeMoon);
+        assertClose(small.physicalSolarEclipse(), large.physicalSolarEclipse(),
+                "physical solar eclipse diagnostic");
+        if (!(large.solarEclipse() > small.solarEclipse())) {
+            throw new AssertionError("authoritative rendered Moon scale did not enlarge pixel coverage: "
+                    + small.solarEclipse() + " -> " + large.solarEclipse());
+        }
+    }
+
+    private static double strongestPhysicalSolarEclipseDay() {
+        double cycleDays = CelestialMath.daysInYear(8) * CelestialMath.NODAL_YEARS;
+        double bestDay = 0.0D;
+        double bestCoverage = 0.0D;
+        for (double day = 0.0D; day < cycleDays; day += 0.01D) {
+            double coverage = calculateAtDay(day).physicalSolarEclipse();
+            if (coverage > bestCoverage) {
+                bestCoverage = coverage;
+                bestDay = day;
+            }
+        }
+        if (bestCoverage <= 0.25D) {
+            throw new AssertionError("no strong physical solar eclipse found for window comparison");
+        }
+        return bestDay;
+    }
+
+    private static double strongestSolarEclipseDay() {
+        double cycleDays = CelestialMath.daysInYear(8) * CelestialMath.NODAL_YEARS;
+        double bestDay = 0.0D;
+        double bestCoverage = 0.0D;
+        for (double day = 0.0D; day < cycleDays; day += 0.01D) {
+            double coverage = calculateAtDay(day).solarEclipse();
+            if (coverage > bestCoverage) {
+                bestCoverage = coverage;
+                bestDay = day;
+            }
+        }
+        if (bestCoverage <= 0.25D) {
+            throw new AssertionError("no strong regional solar eclipse found at the reference latitude");
+        }
+        return bestDay;
+    }
+
+    private static double strongestLunarEclipseDay() {
+        double cycleDays = CelestialMath.daysInYear(8) * CelestialMath.NODAL_YEARS;
+        double bestDay = 0.0D;
+        double bestCoverage = 0.0D;
+        for (double day = 0.0D; day < cycleDays; day += 0.01D) {
+            double coverage = calculateAtDay(day).lunarEclipse();
+            if (coverage > bestCoverage) {
+                bestCoverage = coverage;
+                bestDay = day;
+            }
+        }
+        if (bestCoverage <= 0.25D) {
+            throw new AssertionError("no strong square lunar eclipse found for continuity audit");
+        }
+        return bestDay;
     }
 
     private static void orbitalProjectionIsThreeDimensionalAndDeterministic() {
@@ -548,15 +1493,18 @@ public final class CelestialMathSelfTest {
     }
 
     private static void bloodMoonGameplayRulesAreLocalAndFinite() {
-        assertClose(0.0D, CelestialGameplayRules.visibleBloodMoon(1.0D, -0.01D),
+        assertClose(0.0D, CelestialGameplayRules.visibleBloodMoon(1.0D, -0.01D, -0.5D),
                 "moon below horizon");
         assertClose(0.0D, CelestialGameplayRules.visibleBloodMoon(
-                CelestialGameplayRules.ACTIVE_THRESHOLD, 0.5D), "strict blood moon threshold");
+                CelestialGameplayRules.ACTIVE_THRESHOLD, 0.5D, -0.5D), "strict blood moon threshold");
         double aboveThreshold = Math.nextUp(CelestialGameplayRules.ACTIVE_THRESHOLD);
-        assertClose(aboveThreshold, CelestialGameplayRules.visibleBloodMoon(aboveThreshold, 0.5D),
+        assertClose(aboveThreshold, CelestialGameplayRules.visibleBloodMoon(
+                aboveThreshold, 0.5D, -0.5D),
                 "blood moon immediately above source threshold");
-        assertClose(0.75D, CelestialGameplayRules.visibleBloodMoon(0.75D, 0.5D),
+        assertClose(0.85D, CelestialGameplayRules.visibleBloodMoon(0.85D, 0.5D, -0.5D),
                 "visible blood moon");
+        assertClose(0.0D, CelestialGameplayRules.visibleBloodMoon(1.0D, 0.5D, 0.01D),
+                "blood moon rejected during local day");
         int limit = CelestialGameplayRules.localMobCapLimit(70, 0.5D, 3.0D);
         if (limit != 140 || CelestialGameplayRules.localMobCapLimit(70, 1.0D, 3.0D) != 210) {
             throw new AssertionError("finite local mob cap scaling is invalid");
@@ -576,7 +1524,8 @@ public final class CelestialMathSelfTest {
                         CelestialBodies.EARTH_ORBITAL_DAYS + 6.0D,
                         CelestialBodies.EARTH_SEMI_MAJOR_AXIS + 7.0D);
         CelestialRuntimeSettings expected = new CelestialRuntimeSettings(21.25D, 19.75D, 11.5D,
-                Math.toRadians(7.25D), false, 4.5D, CelestialRuntimeSettings.LunarPeriodPreset.CUSTOM,
+                Math.toRadians(7.25D), false, 4.5D, 0.81D, 1.17D,
+                CelestialRuntimeSettings.LunarPeriodPreset.CUSTOM,
                 planets);
         FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
         new CelestialSettingsSyncPacket(expected).encode(buffer);

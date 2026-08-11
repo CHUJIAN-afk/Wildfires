@@ -29,5 +29,6 @@ public final class CelestialClientEvents {
     @SubscribeEvent
     public static void registerShaders(RegisterShadersEvent event) throws IOException {
         AuroraRenderer.registerShader(event);
+        LunarEclipseRenderer.registerShader(event);
     }
 }

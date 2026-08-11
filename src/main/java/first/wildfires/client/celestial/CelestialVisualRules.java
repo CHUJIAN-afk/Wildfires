@@ -1,7 +1,10 @@
 package first.wildfires.client.celestial;
 
 import first.wildfires.api.celestial.CelestialVector;
+import first.wildfires.api.celestial.LunarEclipseState;
+import first.wildfires.celestial.CelestialDiscGeometry;
 import first.wildfires.celestial.CelestialEventRules;
+import first.wildfires.celestial.CelestialMath;
 
 /** Pure client-visual decisions shared by renderers and deterministic acceptance tests. */
 final class CelestialVisualRules {
@@ -34,8 +37,39 @@ final class CelestialVisualRules {
         if (!Double.isFinite(sunAltitudeRadians) || !Double.isFinite(weatherVisibility)) {
             return 0.0D;
         }
-        double alpha = 1.0D - Math.abs(sunAltitudeRadians + DEG_TO_RAD) / (11.0D * DEG_TO_RAD);
+        double rising = smoothstep(-18.0D * DEG_TO_RAD, -3.0D * DEG_TO_RAD, sunAltitudeRadians);
+        double falling = 1.0D - smoothstep(-1.0D * DEG_TO_RAD, 12.0D * DEG_TO_RAD,
+                sunAltitudeRadians);
+        double alpha = rising * falling;
         return clamp(alpha, 0.0D, 1.0D) * clamp(weatherVisibility, 0.0D, 1.0D);
+    }
+
+    /** Keeps the TFC sunrise fan on the world horizon while following the Sun's current azimuth. */
+    static HorizonFrame horizonFrame(CelestialVector sunDirection) {
+        if (sunDirection == null || !Double.isFinite(sunDirection.x())
+                || !Double.isFinite(sunDirection.z())) {
+            return new HorizonFrame(new CelestialVector(0.0D, 0.0D, 1.0D),
+                    new CelestialVector(1.0D, 0.0D, 0.0D),
+                    new CelestialVector(0.0D, 1.0D, 0.0D));
+        }
+        double horizontalLength = Math.hypot(sunDirection.x(), sunDirection.z());
+        CelestialVector horizon = horizontalLength > 1.0E-9D
+                ? new CelestialVector(sunDirection.x() / horizontalLength, 0.0D,
+                sunDirection.z() / horizontalLength)
+                : new CelestialVector(0.0D, 0.0D, 1.0D);
+        CelestialVector right = new CelestialVector(horizon.z(), 0.0D, -horizon.x());
+        return new HorizonFrame(horizon, right, new CelestialVector(0.0D, 1.0D, 0.0D));
+    }
+
+    /** Tints the complete TFC-style solar texture without changing its glow-to-body scale. */
+    static SunAppearance sunAppearance(double sunAltitudeRadians) {
+        if (!Double.isFinite(sunAltitudeRadians)) {
+            return new SunAppearance(1.0D, 0.65D, 0.30D);
+        }
+        double warmth = 1.0D - smoothstep(-4.0D * DEG_TO_RAD, 12.0D * DEG_TO_RAD,
+                sunAltitudeRadians);
+        return new SunAppearance(1.0D, 1.0D - 0.35D * warmth,
+                1.0D - 0.70D * warmth);
     }
 
     /** Matches ClientLevel.getStarBrightness for a local apparent vanilla day time. */
@@ -98,22 +132,32 @@ final class CelestialVisualRules {
                 * clamp(weatherVisibility, 0.0D, 1.0D);
     }
 
-    /** The vanilla new-moon cell is an opaque dark square; a physical new moon has no ordinary visible face. */
+    /** TFC 1.21 samples every vanilla atlas cell so the new moon retains its dark face and faint rim. */
     static boolean moonTextureVisible(int moonPhase) {
-        return moonPhase >= 0 && moonPhase < 8 && moonPhase != 4;
+        return moonPhase >= 0 && moonPhase < 8;
     }
 
-    /** Every valid lunar phase, including the invisible new moon, must occult visible background stars. */
+    /** Visible stars require an opaque solar-body pass before the additive sun texture. */
+    static boolean sunSkyCoverVisible(double apparentDayTime, double weatherVisibility) {
+        return starVisibility(apparentDayTime, weatherVisibility) > 0.001D;
+    }
+
+    /**
+     * Every valid lunar phase owns the nearest celestial body layer. Daylight and weather may fade
+     * its texture, but cannot move the physical Moon behind the Sun or planets.
+     */
     static boolean moonSkyCoverVisible(int moonPhase, double apparentDayTime, double weatherVisibility) {
-        return moonPhase >= 0 && moonPhase < 8
-                && starVisibility(apparentDayTime, weatherVisibility) > 0.001D;
+        return moonPhase >= 0 && moonPhase < 8;
     }
 
     /** Vanilla's solid lunar pixels occupy the centered 8x8 area (12..19) of each 32x32 phase cell. */
     static double moonAtlasBodyHalfSize(double moonQuadRadius) {
-        return Double.isFinite(moonQuadRadius) && moonQuadRadius > 0.0D
-                ? moonQuadRadius * 4.0D / 16.0D
-                : 0.0D;
+        return CelestialDiscGeometry.atlasBodyHalfSize(moonQuadRadius);
+    }
+
+    /** The TFC 1.21 solar body cover is 7.5 for a 30-radius full sun texture. */
+    static double sunAtlasBodyHalfSize(double sunQuadRadius) {
+        return CelestialDiscGeometry.atlasBodyHalfSize(sunQuadRadius);
     }
 
     /** The low-brightness circular gradient occupies pixels 5..26 around the centered lunar body. */
@@ -137,6 +181,16 @@ final class CelestialVisualRules {
         return new MoonHalo(1.5D + 2.0D * Math.sqrt(phase), 0.34D * strength);
     }
 
+    /** The terrestrial shadow removes the full Moon's white veil while leaving the red body visible. */
+    static double lunarEclipseMoonlight(double illuminatedFraction, double eclipseCoverage) {
+        if (!Double.isFinite(illuminatedFraction)) {
+            return 0.0D;
+        }
+        double phase = clamp(illuminatedFraction, 0.0D, 1.0D);
+        double eclipse = clamp(Double.isFinite(eclipseCoverage) ? eclipseCoverage : 0.0D, 0.0D, 1.0D);
+        return phase * (1.0D - 0.88D * eclipse);
+    }
+
     static double moonHaloAlpha(MoonHalo halo, double normalizedRadius) {
         if (halo == null || !Double.isFinite(normalizedRadius)) {
             return 0.0D;
@@ -144,13 +198,14 @@ final class CelestialVisualRules {
         return halo.centerAlpha() * clamp(1.0D - normalizedRadius, 0.0D, 1.0D);
     }
 
-    static boolean discVisible(double altitudeRadians) {
-        return Double.isFinite(altitudeRadians) && altitudeRadians > -3.0D * DEG_TO_RAD;
+    /** Rendering eligibility is geometric validity only; altitude never deletes a celestial body. */
+    static boolean celestialDiscRenderable(CelestialVector direction) {
+        return direction != null && Double.isFinite(direction.x()) && Double.isFinite(direction.y())
+                && Double.isFinite(direction.z()) && direction.lengthSquared() > 1.0E-12D;
     }
 
-    static double planetVisibility(double altitudeRadians, double apparentDayTime, double weatherVisibility) {
-        return Double.isFinite(altitudeRadians) && altitudeRadians > 0.0D
-                ? starVisibility(apparentDayTime, weatherVisibility) : 0.0D;
+    static double planetVisibility(double apparentDayTime, double weatherVisibility) {
+        return starVisibility(apparentDayTime, weatherVisibility);
     }
 
     /**
@@ -202,17 +257,8 @@ final class CelestialVisualRules {
      * keeps the Sun, Moon and planet textures continuous along the ecliptic instead.
      */
     static DiscBasis stableDiscBasis(CelestialVector bodyDirection, CelestialVector celestialNorth) {
-        CelestialVector direction = finiteUnit(bodyDirection, new CelestialVector(0.0D, 1.0D, 0.0D));
-        CelestialVector north = finiteUnit(celestialNorth, new CelestialVector(0.0D, 0.0D, 1.0D));
-        CelestialVector up = north.subtract(direction.scale(direction.dot(north)));
-        if (up.lengthSquared() < 1.0E-12D) {
-            CelestialVector fallback = leastAlignedAxis(direction);
-            up = fallback.subtract(direction.scale(direction.dot(fallback)));
-        }
-        up = finiteUnit(up, new CelestialVector(0.0D, 0.0D, 1.0D));
-        CelestialVector right = finiteUnit(cross(up, direction), new CelestialVector(1.0D, 0.0D, 0.0D));
-        up = finiteUnit(cross(direction, right), up);
-        return new DiscBasis(right, up);
+        CelestialDiscGeometry.Basis basis = CelestialDiscGeometry.stableBasis(bodyDirection, celestialNorth);
+        return new DiscBasis(basis.right(), basis.up());
     }
 
     static boolean startsRainbow(float rainBefore, float currentRain, float rainAfter, double apparentDayTime,
@@ -247,8 +293,7 @@ final class CelestialVisualRules {
     static double rainbowAlpha(long remainingTicks, double solarEclipseCoverage) {
         double timer = clamp(remainingTicks, 0L, RAINBOW_DURATION_TICKS);
         double curve = Math.sin(Math.pow(timer * LEGACY_RAINBOW_CURVE, 2.0D));
-        double eclipseVisibility = 1.0D - clamp(Double.isFinite(solarEclipseCoverage)
-                ? solarEclipseCoverage : 0.0D, 0.0D, 1.0D);
+        double eclipseVisibility = 1.0D - CelestialClientTime.eclipseVisualIntensity(solarEclipseCoverage);
         return clamp(curve * eclipseVisibility, 0.0D, 1.0D);
     }
 
@@ -260,22 +305,120 @@ final class CelestialVisualRules {
         return elapsedTicks >= remaining ? 0L : remaining - elapsedTicks;
     }
 
-    static int solarEclipseFrame(double coverage) {
+    /** Fixed new-moon texture brightness; unlike the old eight frames this cannot jump discretely. */
+    static double solarOccultorTextureAlpha(double coverage) {
         double obscured = clamp(Double.isFinite(coverage) ? coverage : 0.0D, 0.0D, 1.0D);
-        return Math.min(7, Math.max(0, (int) Math.round((1.0D - obscured) * 7.0D)));
+        return 1.0D - obscured;
     }
 
-    /** Bounded equivalent of TFCCaelum's eclipse Sun shader color using unified geometric coverage. */
+    /** Uses one ordinary lunar texture before, during and after a solar eclipse. */
+    static double solarOccultorMoonAlpha(double apparentDayTime, double weatherVisibility,
+                                         double coverage) {
+        return moonVisibility(apparentDayTime, weatherVisibility)
+                * solarOccultorTextureAlpha(coverage);
+    }
+
+    /** Daylight washes the Moon into the local sky; night continuously restores its neutral texture. */
+    static MoonTint moonSkyTint(double skyRed, double skyGreen, double skyBlue,
+                                double apparentDayTime) {
+        double red = clamp(Double.isFinite(skyRed) ? skyRed : 0.0D, 0.0D, 1.0D);
+        double green = clamp(Double.isFinite(skyGreen) ? skyGreen : 0.0D, 0.0D, 1.0D);
+        double blue = clamp(Double.isFinite(skyBlue) ? skyBlue : 0.0D, 0.0D, 1.0D);
+        double night = clamp(vanillaStarAlpha(apparentDayTime) * 2.0D, 0.0D, 1.0D);
+        double neutralWeight = 0.25D + 0.75D * night;
+        return new MoonTint(red + (1.0D - red) * neutralWeight,
+                green + (1.0D - green) * neutralWeight,
+                blue + (1.0D - blue) * neutralWeight);
+    }
+
+    /**
+     * Local-night blue-moon strength. Sunset and sunrise stay white, midnight reaches the
+     * configured supermoon strength, weather attenuates the tint, and the shared lunar-eclipse
+     * transition coverage continuously removes blue before its red shadow layers take over.
+     */
+    static double supermoonBlueIntensity(double apparentDayTime, double weatherVisibility,
+                                         double supermoonStrength, double lunarEclipseCoverage,
+                                         double sunAltitudeRadians, double moonAltitudeRadians) {
+        if (!Double.isFinite(apparentDayTime) || !Double.isFinite(weatherVisibility)
+                || !Double.isFinite(supermoonStrength) || !Double.isFinite(lunarEclipseCoverage)
+                || !Double.isFinite(sunAltitudeRadians) || !Double.isFinite(moonAltitudeRadians)
+                || sunAltitudeRadians > 0.0D || moonAltitudeRadians <= 0.0D) {
+            return 0.0D;
+        }
+        double distanceFromMidnight = Math.abs(apparentDayTime - 0.75D) % 1.0D;
+        distanceFromMidnight = Math.min(distanceFromMidnight, 1.0D - distanceFromMidnight);
+        double nightProgress = smoothstep(0.0D, 1.0D,
+                clamp(1.0D - distanceFromMidnight / 0.25D, 0.0D, 1.0D));
+        return nightProgress * clamp(weatherVisibility, 0.0D, 1.0D)
+                * clamp(supermoonStrength, 0.0D, 1.0D)
+                * (1.0D - clamp(lunarEclipseCoverage, 0.0D, 1.0D));
+    }
+
+    /**
+     * Uses the same first penumbral contact that activates the red lunar-eclipse pass. Umbra is
+     * retained as a defensive maximum so malformed third-party states cannot restore blue inside
+     * a darker shadow.
+     */
+    static double lunarEclipseTintCoverage(LunarEclipseState eclipse) {
+        if (eclipse == null) {
+            return 0.0D;
+        }
+        return Math.max(clamp(eclipse.penumbraCoverage(), 0.0D, 1.0D),
+                clamp(eclipse.umbraCoverage(), 0.0D, 1.0D));
+    }
+
+    static MoonTint supermoonTint(MoonTint ordinary, double blueIntensity) {
+        if (ordinary == null) {
+            return new MoonTint(1.0D, 1.0D, 1.0D);
+        }
+        double blue = clamp(Double.isFinite(blueIntensity) ? blueIntensity : 0.0D, 0.0D, 1.0D);
+        return new MoonTint(ordinary.red() * (1.0D - 0.55D * blue),
+                ordinary.green() * (1.0D - 0.28D * blue),
+                ordinary.blue() + (1.0D - ordinary.blue()) * blue);
+    }
+
+    /** Keeps the eclipsed corona warm while the geometric Moon removes the covered solar body. */
     static SunTint solarEclipseSunTint(double coverage) {
-        double obscured = clamp(Double.isFinite(coverage) ? coverage : 0.0D, 0.0D, 1.0D);
-        double remaining = 1.0D - obscured;
-        return new SunTint(1.0D, remaining, remaining);
+        double obscured = CelestialClientTime.eclipseVisualIntensity(coverage);
+        return new SunTint(1.0D, 1.0D - 0.28D * obscured,
+                1.0D - 0.82D * obscured);
     }
 
-    static MoonTint bloodMoonTint(double intensity) {
-        double value = clamp(Double.isFinite(intensity) ? intensity : 0.0D, 0.0D, 1.0D);
-        return new MoonTint(1.0D + value * 0.25D, 1.0D - value * 0.675D,
-                1.0D - value * 0.85D);
+    /** Preserves opaque occultation while the visible Moon darkens continuously with covered area. */
+    static SolarOccultorTint solarOccultorTint(double skyRed, double skyGreen, double skyBlue,
+                                               double coverage) {
+        double value = clamp(Double.isFinite(coverage) ? coverage : 0.0D, 0.0D, 1.0D);
+        double red = clamp(Double.isFinite(skyRed) ? skyRed : 0.0D, 0.0D, 1.0D);
+        double green = clamp(Double.isFinite(skyGreen) ? skyGreen : 0.0D, 0.0D, 1.0D);
+        double blue = clamp(Double.isFinite(skyBlue) ? skyBlue : 0.0D, 0.0D, 1.0D);
+        return new SolarOccultorTint(red + (0.008D - red) * value,
+                green + (0.012D - green) * value,
+                blue + (0.022D - blue) * value);
+    }
+
+    /** Uses the server/client-common lunar projection without recomputing a raw anti-solar shadow. */
+    static LunarShadow lunarShadow(LunarEclipseState state) {
+        if (state == null || !state.active() || !Double.isFinite(state.shadowCenterX())
+                || !Double.isFinite(state.shadowCenterY())
+                || !Double.isFinite(state.shadowRadius()) || state.shadowRadius() <= 0.0D) {
+            return LunarShadow.NONE;
+        }
+        return new LunarShadow(state.shadowCenterX(), state.shadowCenterY(),
+                state.shadowRadius(), true);
+    }
+
+    /** Coverage of the Moon by the umbra plus its one-pixel visual penumbra. */
+    static double lunarPenumbraCoverage(LunarShadow shadow) {
+        if (shadow == null || !shadow.visible() || !Double.isFinite(shadow.centerX())
+                || !Double.isFinite(shadow.centerY()) || !Double.isFinite(shadow.radius())) {
+            return 0.0D;
+        }
+        double expandedRadius = shadow.radius() + CelestialDiscGeometry.LUNAR_PENUMBRA_NORMALIZED_WIDTH;
+        double xOverlap = Math.max(0.0D, Math.min(1.0D, shadow.centerX() + expandedRadius)
+                - Math.max(-1.0D, shadow.centerX() - expandedRadius));
+        double yOverlap = Math.max(0.0D, Math.min(1.0D, shadow.centerY() + expandedRadius)
+                - Math.max(-1.0D, shadow.centerY() - expandedRadius));
+        return clamp(xOverlap * yOverlap / 4.0D, 0.0D, 1.0D);
     }
 
     private static double smoothstep(double edge0, double edge1, double value) {
@@ -295,28 +438,21 @@ final class CelestialVisualRules {
         return fallback;
     }
 
-    private static CelestialVector leastAlignedAxis(CelestialVector direction) {
-        double x = Math.abs(direction.x());
-        double y = Math.abs(direction.y());
-        double z = Math.abs(direction.z());
-        if (x <= y && x <= z) {
-            return new CelestialVector(1.0D, 0.0D, 0.0D);
-        }
-        if (y <= z) {
-            return new CelestialVector(0.0D, 1.0D, 0.0D);
-        }
-        return new CelestialVector(0.0D, 0.0D, 1.0D);
-    }
-
     private static CelestialVector cross(CelestialVector first, CelestialVector second) {
         return new CelestialVector(first.y() * second.z() - first.z() * second.y(),
                 first.z() * second.x() - first.x() * second.z(),
                 first.x() * second.y() - first.y() * second.x());
     }
 
+    record SunTint(double red, double green, double blue) {}
+
+    record SolarOccultorTint(double red, double green, double blue) {}
+
     record MoonTint(double red, double green, double blue) {}
 
-    record SunTint(double red, double green, double blue) {}
+    record SunAppearance(double red, double green, double blue) {}
+
+    record HorizonFrame(CelestialVector horizon, CelestialVector right, CelestialVector up) {}
 
     record RainbowDirection(double x, double y, double z) {}
 
@@ -324,6 +460,10 @@ final class CelestialVisualRules {
 
     record MoonHalo(double radiusMultiplier, double centerAlpha) {
         private static final MoonHalo NONE = new MoonHalo(0.0D, 0.0D);
+    }
+
+    record LunarShadow(double centerX, double centerY, double radius, boolean visible) {
+        private static final LunarShadow NONE = new LunarShadow(0.0D, 0.0D, 0.0D, false);
     }
 
     record StarAppearance(double radius, double alpha) {

@@ -149,10 +149,12 @@ void main() {
             + 0.5 * smoothstep(0.5, 0.7,
                     pnoise1(vec2(10.0 * uv.x, Time))));
 
-    float adjustedAlpha = Alpha;
     float luminosity = dot(color, LUMA_FACTORS);
+    if (luminosity <= 0.001) {
+        discard;
+    }
+    float adjustedAlpha = Alpha * smoothstep(0.0, LUMA_THRESHOLD, luminosity);
     if (luminosity < LUMA_THRESHOLD) {
-        adjustedAlpha *= luminosity / LUMA_THRESHOLD;
         float difference = LUMA_THRESHOLD - luminosity;
         color *= 1.0 + LUMA_FACTORS * difference;
     }

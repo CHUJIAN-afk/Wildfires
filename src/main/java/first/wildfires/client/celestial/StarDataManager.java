@@ -58,6 +58,11 @@ public final class StarDataManager extends SimpleJsonResourceReloadListener impl
         return customBuffer;
     }
 
+    /** Immutable catalog snapshot used by the in-game planetarium. */
+    List<StarTableLoader.Star> stars() {
+        return loadedStars;
+    }
+
     private void rebuild(ConfigSignature signature) {
         close();
         BufferBuilder builder = Tesselator.getInstance().getBuilder();

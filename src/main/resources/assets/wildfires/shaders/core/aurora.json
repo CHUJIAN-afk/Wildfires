@@ -1,4 +1,9 @@
 {
+  "blend": {
+    "func": "add",
+    "srcrgb": "srcalpha",
+    "dstrgb": "one"
+  },
   "vertex": "wildfires:aurora",
   "fragment": "wildfires:aurora",
   "attributes": ["Position", "UV0"],

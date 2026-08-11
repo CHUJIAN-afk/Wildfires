@@ -121,8 +121,9 @@ runs/
 # Local engineering notes and helper launchers (not part of the mod distribution)
 /工程文档/
 /本地工具/
-/运行客户端.bat
-/构建模组.bat
+/runclient.bat
+/build.bat
+/wildfires-java21.bat
 /工作交接.md
 /任务清单.md
 /.vscode/

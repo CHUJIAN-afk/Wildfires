@@ -5,6 +5,7 @@ import first.wildfires.api.celestial.CelestialBodyState;
 import first.wildfires.api.celestial.CelestialProvider;
 import first.wildfires.api.celestial.CelestialState;
 import first.wildfires.api.celestial.DaylightState;
+import first.wildfires.tfc.calendar.TfcCalendarRateController;
 import java.util.List;
 import net.dries007.tfc.util.calendar.Calendars;
 import net.dries007.tfc.util.calendar.ICalendar;
@@ -47,7 +48,9 @@ public final class OverworldCelestialProvider implements CelestialProvider {
                 result.apparentDayTime(), result.daylightFactor());
         return new CelestialState(result.latitude(), result.fractionOfDay(), result.fractionOfYear(),
                 (long) ticks, sun, moon, result.celestialNorth(), planets, result.moonPhase(),
-                result.solarEclipse(), result.lunarEclipse(), result.supermoon(), result.bloodMoon(),
+                result.solarEclipse(), result.physicalSolarEclipse(), result.solarEclipseRegion(),
+                result.lunarEclipse(), result.lunarEclipseRegion(),
+                result.supermoon(), result.bloodMoon(), settings.sunScale(), settings.moonScale(),
                 weatherVisibility, daylight);
     }
 
@@ -58,7 +61,10 @@ public final class OverworldCelestialProvider implements CelestialProvider {
     /** Captures the inputs shared by every position query during the same authoritative tick. */
     static FrameContext context(Level level, float partialTick, CelestialRuntimeSettings settings) {
         ICalendar calendar = Calendars.get(level);
-        double ticks = calendar.getCalendarTicks() + partialTick;
+        double interpolatedTicks = level.isClientSide()
+                ? TfcCalendarRateController.clientPartialCalendarTicks(partialTick)
+                : partialTick;
+        double ticks = calendar.getCalendarTicks() + interpolatedTicks;
         int daysInMonth = calendar.getCalendarDaysInMonth();
         return new FrameContext(ticks, daysInMonth, TfeHemisphereScale.get(level), settings);
     }
@@ -70,7 +76,7 @@ public final class OverworldCelestialProvider implements CelestialProvider {
             CelestialMath.Input input = new CelestialMath.Input(observerZ, hemisphereScale, calendarTicks,
                     daysInMonth, settings.resolvedSynodicDays(daysInMonth),
                     settings.resolvedAnomalisticDays(daysInMonth), settings.nodalYears(),
-                    settings.lunarInclinationRadians());
+                    settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale());
             return new Frame(CelestialMath.calculate(input), calendarTicks, daysInMonth);
         }
     }

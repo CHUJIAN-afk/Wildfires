@@ -5,9 +5,10 @@ import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
-import first.wildfires.network.TfcCalendarRateSyncPacket;
 import first.wildfires.celestial.CelestialEventType;
+import first.wildfires.celestial.CelestialMath;
 import first.wildfires.celestial.TfcCalendarEventAcceleration;
+import first.wildfires.network.TfcCalendarRateSyncPacket;
 import first.wildfires.tfc.calendar.CalendarRateAccumulator;
 import first.wildfires.tfc.calendar.TfcCalendarRateController;
 import java.util.Locale;
@@ -37,6 +38,7 @@ public final class TfcTimeCommand {
                                 .executes(context -> setMultiplier(context,
                                         DoubleArgumentType.getDouble(context, "multiplier"), false))))
                 .then(createUntilBranch())
+                .then(createSkipToBranch())
                 .then(Commands.literal("clear").executes(TfcTimeCommand::clear))
                 .then(Commands.literal("reset").executes(TfcTimeCommand::clear));
 
@@ -62,6 +64,15 @@ public final class TfcTimeCommand {
                                     DoubleArgumentType.getDouble(context, "speed")))));
         }
         return until;
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> createSkipToBranch() {
+        LiteralArgumentBuilder<CommandSourceStack> skipTo = Commands.literal("skipto");
+        for (CelestialEventType event : CelestialEventType.values()) {
+            skipTo.then(Commands.literal(event.commandName())
+                    .executes(context -> skipTo(context, event)));
+        }
+        return skipTo;
     }
 
     /** Mirrors TFC 1.21's /time set dayLength branch on the fixed TFC 3.2.20 runtime. */
@@ -146,6 +157,20 @@ public final class TfcTimeCommand {
         return Command.SINGLE_SUCCESS;
     }
 
+    private static int skipTo(CommandContext<CommandSourceStack> context, CelestialEventType event) {
+        TfcCalendarEventAcceleration.JumpResult result =
+                TfcCalendarEventAcceleration.jump(context.getSource(), event);
+        if (!result.success()) {
+            context.getSource().sendFailure(result.failure());
+            return 0;
+        }
+        context.getSource().sendSuccess(() -> Component.translatable(
+                "commands.wildfires.tfctime.skipto.reached",
+                Component.translatable(event.translationKey()), formatCalendarDays(result.skippedTicks()),
+                result.skippedTicks(), result.targetTick()), true);
+        return Command.SINGLE_SUCCESS;
+    }
+
     private static void sendUntilStatus(CommandSourceStack source) {
         TfcCalendarEventAcceleration.status().ifPresentOrElse(status ->
                         source.sendSuccess(() -> Component.translatable(
@@ -165,5 +190,9 @@ public final class TfcTimeCommand {
         return multiplier == 0.0D
                 ? "∞"
                 : String.format(Locale.ROOT, "%.4g", VANILLA_DAY_LENGTH_MINUTES / multiplier);
+    }
+
+    private static String formatCalendarDays(long calendarTicks) {
+        return String.format(Locale.ROOT, "%.6f", calendarTicks / CelestialMath.TICKS_IN_DAY);
     }
 }

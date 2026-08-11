@@ -7,12 +7,18 @@ public record CelestialRuntimeSettings(double synodicDays,
                                        double lunarInclinationRadians,
                                        boolean bloodMoonSurfaceMonsters,
                                        double bloodMoonSpawnMultiplier,
+                                       double sunScale,
+                                       double moonScale,
                                        LunarPeriodPreset lunarPeriodPreset,
                                        CelestialPlanetSettings planetSettings) {
 
     public CelestialRuntimeSettings {
         if (lunarPeriodPreset == null || planetSettings == null) {
             throw new IllegalArgumentException("Celestial runtime settings cannot contain null values");
+        }
+        if (!Double.isFinite(sunScale) || sunScale <= 0.0D
+                || !Double.isFinite(moonScale) || moonScale <= 0.0D) {
+            throw new IllegalArgumentException("Authoritative Sun and Moon scales must be finite and positive");
         }
     }
 
@@ -32,6 +38,8 @@ public record CelestialRuntimeSettings(double synodicDays,
             CelestialMath.LUNAR_INCLINATION,
             true,
             3.0D,
+            CelestialDiscGeometry.DEFAULT_SUN_SCALE,
+            CelestialDiscGeometry.DEFAULT_MOON_SCALE,
             LunarPeriodPreset.UNIFIED_16_13,
             CelestialPlanetSettings.DEFAULT
     );

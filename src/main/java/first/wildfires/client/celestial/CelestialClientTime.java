@@ -4,6 +4,7 @@ package first.wildfires.client.celestial;
 public final class CelestialClientTime {
 
     private static final double MIDNIGHT = 0.75D;
+    public static final double ECLIPSE_DARKENING_START = 0.20D;
 
     private CelestialClientTime() {
     }
@@ -31,14 +32,23 @@ public final class CelestialClientTime {
         if (!Double.isFinite(solarApparentDayTime)) {
             return solarApparentDayTime;
         }
-        if (!Double.isFinite(solarEclipseCoverage) || solarEclipseCoverage <= 0.0D) {
+        double coverage = eclipseVisualIntensity(solarEclipseCoverage);
+        if (coverage <= 0.0D) {
             return solarApparentDayTime;
         }
-        double coverage = Math.min(1.0D, solarEclipseCoverage);
         double midnightDistance = solarApparentDayTime - MIDNIGHT;
         midnightDistance -= Math.floor(midnightDistance + 0.5D);
         double visualTime = MIDNIGHT + midnightDistance * (1.0D - coverage);
         return visualTime - Math.floor(visualTime);
+    }
+
+    /** Linear visual response: first 20% is ordinary daylight, then 20..100% maps to 0..1. */
+    public static double eclipseVisualIntensity(double solarEclipseCoverage) {
+        if (!Double.isFinite(solarEclipseCoverage)) {
+            return 0.0D;
+        }
+        return Math.max(0.0D, Math.min(1.0D,
+                (solarEclipseCoverage - ECLIPSE_DARKENING_START) / (1.0D - ECLIPSE_DARKENING_START)));
     }
 
     /** Converts the eclipse-adjusted visual time into the unit consumed by vanilla color methods. */

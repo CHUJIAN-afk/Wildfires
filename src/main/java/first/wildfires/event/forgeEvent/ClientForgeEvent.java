@@ -88,7 +88,8 @@ public class ClientForgeEvent {
                             ThermalDebugRenderer.diagnosticsSummary()), false);
                     return 1;
                 }));
-        event.getDispatcher().register(Commands.literal("wildfires").then(thermalDebug));
+        event.getDispatcher().register(Commands.literal("wildfires")
+                .then(thermalDebug));
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)

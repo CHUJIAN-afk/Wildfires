@@ -22,6 +22,7 @@ import org.slf4j.Logger;
 public final class TfcCalendarEventAcceleration {
 
     private static final Logger LOGGER = LogUtils.getLogger();
+    private static final long MAX_SKIP_SEARCH_DAYS = 8192L;
     private static Active active;
 
     private TfcCalendarEventAcceleration() {
@@ -50,6 +51,53 @@ public final class TfcCalendarEventAcceleration {
         TfcCalendarRateController.setServerMultiplier(multiplier);
         new TfcCalendarRateSyncPacket(multiplier).sendToAll();
         return StartResult.success(observer, matching, event == CelestialEventType.RAINBOW);
+    }
+
+    /** Immediately moves the authoritative TFC calendar to the next deterministic event edge. */
+    public static JumpResult jump(CommandSourceStack source, CelestialEventType event) {
+        ServerLevel level = source.getLevel();
+        if (level.dimension() != Level.OVERWORLD) {
+            return JumpResult.failure(Component.translatable(
+                    "commands.wildfires.tfctime.until.overworld_only"));
+        }
+        if (event == CelestialEventType.RAINBOW) {
+            return JumpResult.failure(Component.translatable(
+                    "commands.wildfires.tfctime.skipto.rainbow_weather"));
+        }
+        BlockPos observer = BlockPos.containing(source.getPosition());
+        Evaluation evaluation = evaluation(level, observer);
+        long startTick = Calendars.SERVER.getCalendarTicks();
+        CelestialMath.Result initial = evaluation.at(startTick);
+        if (event == CelestialEventType.AURORA
+                && CelestialEventRules.auroraProbability(Math.abs(Math.toDegrees(
+                initial.latitude()))) <= 0.0D) {
+            return JumpResult.failure(Component.translatable(
+                    "commands.wildfires.tfctime.until.aurora_latitude"));
+        }
+        long searchDays = skipSearchDays(event, evaluation);
+        long requestedAdvance = searchDays * (long) CelestialMath.TICKS_IN_DAY;
+        long maximumAdvance = startTick > Long.MAX_VALUE - requestedAdvance
+                ? Long.MAX_VALUE - startTick : requestedAdvance;
+        if (maximumAdvance <= 0L) {
+            return JumpResult.failure(Component.translatable(
+                    "commands.wildfires.tfctime.skipto.no_target", searchDays));
+        }
+        boolean currentlyMatching = event.matches(initial, startTick, null);
+        CalendarEventWindowScanner.ScanResult scan = CalendarEventWindowScanner.scan(
+                startTick, maximumAdvance, currentlyMatching,
+                tick -> event.matches(evaluation.at(tick), tick, null));
+        if (!scan.found()) {
+            return JumpResult.failure(Component.translatable(
+                    "commands.wildfires.tfctime.skipto.no_target", searchDays));
+        }
+
+        long targetTick = scan.reachedTick();
+        long skippedTicks = targetTick - startTick;
+        active = null;
+        TfcCalendarRateController.setServerMultiplier(TfcCalendarRateController.NORMAL_MULTIPLIER);
+        new TfcCalendarRateSyncPacket(TfcCalendarRateController.NORMAL_MULTIPLIER).sendToAll();
+        Calendars.SERVER.setTimeFromCalendarTime(targetTick);
+        return JumpResult.success(observer, startTick, targetTick, skippedTicks, searchDays);
     }
 
     /** Called after TFC has authorized its normal one-tick calendar advance. */
@@ -166,6 +214,41 @@ public final class TfcCalendarEventAcceleration {
         return new Evaluation(observer.getZ(), hemisphereScale, daysInMonth, settings);
     }
 
+    private static long skipSearchDays(CelestialEventType event, Evaluation evaluation) {
+        return skipSearchDays(event, evaluation.daysInMonth(), evaluation.settings());
+    }
+
+    static long skipSearchDays(CelestialEventType event, int daysInMonth,
+                               CelestialRuntimeSettings settings) {
+        if (event == CelestialEventType.RAINBOW) {
+            return 0L;
+        }
+        double yearDays = CelestialMath.daysInYear(daysInMonth);
+        double synodicDays = settings.resolvedSynodicDays(daysInMonth);
+        double anomalisticDays = settings.resolvedAnomalisticDays(daysInMonth);
+        double requested = switch (event) {
+            case NOON, MIDNIGHT -> 2.0D;
+            case SUNRISE, SUNSET -> yearDays + 2.0D;
+            case MOONRISE, MOONSET -> Math.max(40.0D, synodicDays * 3.0D);
+            case FULL_MOON, NEW_MOON, FIRST_QUARTER, LAST_QUARTER -> synodicDays * 3.0D + 2.0D;
+            case SUPERMOON -> fullMoonPerigeeBeatDays(synodicDays, anomalisticDays) * 2.0D + 2.0D;
+            case SOLAR_ECLIPSE, LUNAR_ECLIPSE, BLOOD_MOON ->
+                    yearDays * settings.nodalYears() + synodicDays * 2.0D + 2.0D;
+            case AURORA -> MAX_SKIP_SEARCH_DAYS;
+            case RAINBOW -> 0.0D;
+        };
+        if (!Double.isFinite(requested)) {
+            return MAX_SKIP_SEARCH_DAYS;
+        }
+        return Math.min(MAX_SKIP_SEARCH_DAYS, Math.max(2L, (long) Math.ceil(requested)));
+    }
+
+    private static double fullMoonPerigeeBeatDays(double synodicDays, double anomalisticDays) {
+        double frequencyDifference = Math.abs(1.0D / synodicDays - 1.0D / anomalisticDays);
+        return frequencyDifference > 1.0E-12D && Double.isFinite(frequencyDifference)
+                ? 1.0D / frequencyDifference : MAX_SKIP_SEARCH_DAYS;
+    }
+
     private record Evaluation(double observerZ, double hemisphereScale, int daysInMonth,
                               CelestialRuntimeSettings settings) {
 
@@ -173,7 +256,7 @@ public final class TfcCalendarEventAcceleration {
             return CelestialMath.calculate(new CelestialMath.Input(observerZ, hemisphereScale, calendarTick,
                     daysInMonth, settings.resolvedSynodicDays(daysInMonth),
                     settings.resolvedAnomalisticDays(daysInMonth), settings.nodalYears(),
-                    settings.lunarInclinationRadians()));
+                    settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale()));
         }
     }
 
@@ -209,5 +292,19 @@ public final class TfcCalendarEventAcceleration {
 
     public record Status(CelestialEventType event, double multiplier, BlockPos observer,
                          boolean currentlyMatching) {
+    }
+
+    public record JumpResult(boolean success, Component failure, BlockPos observer,
+                             long startTick, long targetTick, long skippedTicks, long searchedDays) {
+
+        private static JumpResult success(BlockPos observer, long startTick, long targetTick,
+                                          long skippedTicks, long searchedDays) {
+            return new JumpResult(true, Component.empty(), observer, startTick, targetTick,
+                    skippedTicks, searchedDays);
+        }
+
+        private static JumpResult failure(Component failure) {
+            return new JumpResult(false, failure, BlockPos.ZERO, 0L, 0L, 0L, 0L);
+        }
     }
 }

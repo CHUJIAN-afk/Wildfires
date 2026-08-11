@@ -30,6 +30,14 @@ public final class TfcCalendarRateController {
         return CLIENT.multiplier();
     }
 
+    /** Calendar-tick interpolation for one rendered client tick at the synchronized TFC rate. */
+    public static double clientPartialCalendarTicks(float partialTick) {
+        if (!Float.isFinite(partialTick)) {
+            return 0.0D;
+        }
+        return Math.max(0.0D, Math.min(1.0D, partialTick)) * CLIENT.multiplier();
+    }
+
     public static long clientCalendarTicksForBaseAdvance(boolean baseAdvanced) {
         return CLIENT.calendarTicksForBaseAdvance(baseAdvanced);
     }

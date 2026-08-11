@@ -1,17 +1,21 @@
 package first.wildfires.celestial;
 
+import first.wildfires.api.celestial.CelestialState;
+
 /** Pure, deterministic rules shared by blood-moon gameplay and regression tests. */
 public final class CelestialGameplayRules {
 
-    /** TFCCaelum enables blood-moon spawn rules only when its event strength is strictly above 0.2. */
-    public static final double ACTIVE_THRESHOLD = 0.2D;
+    /** Blood-moon gameplay requires strictly more than eighty percent square-disc coverage. */
+    public static final double ACTIVE_THRESHOLD = CelestialState.BLOOD_MOON_COVERAGE_THRESHOLD;
 
     private CelestialGameplayRules() {
     }
 
-    public static double visibleBloodMoon(double rawIntensity, double moonElevationRadians) {
+    public static double visibleBloodMoon(double rawIntensity, double moonElevationRadians,
+                                          double sunElevationRadians) {
         if (!Double.isFinite(rawIntensity) || !Double.isFinite(moonElevationRadians)
-                || moonElevationRadians <= 0.0D || rawIntensity <= ACTIVE_THRESHOLD) {
+                || !Double.isFinite(sunElevationRadians) || moonElevationRadians <= 0.0D
+                || sunElevationRadians > 0.0D || rawIntensity <= ACTIVE_THRESHOLD) {
             return 0.0D;
         }
         return clamp(rawIntensity, 0.0D, 1.0D);

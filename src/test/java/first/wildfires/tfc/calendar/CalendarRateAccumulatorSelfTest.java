@@ -16,10 +16,12 @@ public final class CalendarRateAccumulatorSelfTest {
         fractionalRatesCarryWithoutChangingTickCount();
         pauseAndNoBaseAdvanceStayStopped();
         changingAndClearingRateDiscardOldCarry();
+        clientPartialTicksFollowTheSynchronizedRate();
         synchronizationPacketRoundTripsExactly();
         invalidRatesAreRejected();
         acceleratedIntervalsCannotSkipEventWindows();
         activeEventsWaitForTheirNextNaturalOccurrence();
+        directJumpSearchFindsAnExactMultiDayEntry();
         auroraAndRainbowRulesAreDeterministicAndNatural();
         System.out.println("CalendarRateAccumulatorSelfTest: all checks passed");
     }
@@ -56,6 +58,26 @@ public final class CalendarRateAccumulatorSelfTest {
         assertEquals(0L, accumulator.calendarTicksForBaseAdvance(true), "fractional carry setup");
         accumulator.setMultiplier(1.0D);
         assertEquals(1L, accumulator.calendarTicksForBaseAdvance(true), "clear to normal");
+    }
+
+    private static void clientPartialTicksFollowTheSynchronizedRate() {
+        TfcCalendarRateController.acceptClientMultiplier(1200.0D);
+        assertClose(0.0D, TfcCalendarRateController.clientPartialCalendarTicks(0.0F),
+                "accelerated frame start");
+        assertClose(300.0D, TfcCalendarRateController.clientPartialCalendarTicks(0.25F),
+                "accelerated quarter frame");
+        assertClose(600.0D, TfcCalendarRateController.clientPartialCalendarTicks(0.5F),
+                "accelerated half frame");
+        assertClose(1200.0D, TfcCalendarRateController.clientPartialCalendarTicks(1.0F),
+                "accelerated frame end");
+        assertClose(0.0D, TfcCalendarRateController.clientPartialCalendarTicks(Float.NaN),
+                "invalid partial frame");
+        TfcCalendarRateController.acceptClientMultiplier(0.0D);
+        assertClose(0.0D, TfcCalendarRateController.clientPartialCalendarTicks(0.5F),
+                "paused client calendar");
+        TfcCalendarRateController.resetClient();
+        assertClose(0.5D, TfcCalendarRateController.clientPartialCalendarTicks(0.5F),
+                "normal client interpolation");
     }
 
     private static void invalidRatesAreRejected() {
@@ -96,6 +118,20 @@ public final class CalendarRateAccumulatorSelfTest {
         assertEquals(703L, result.reachedTick(), "next event after an already-active window");
     }
 
+    private static void directJumpSearchFindsAnExactMultiDayEntry() {
+        long startTick = 12_345L;
+        long targetTick = startTick + 3L * 24_000L + 777L;
+        CalendarEventWindowScanner.ScanResult result = CalendarEventWindowScanner.scan(
+                startTick, targetTick - startTick + 500L, false,
+                tick -> tick >= targetTick && tick <= targetTick + 240L);
+        assertEquals(targetTick, result.reachedTick(), "multi-day direct event jump");
+        assertEquals(72_777L, result.reachedTick() - startTick, "reported skipped calendar ticks");
+        double skippedDays = (result.reachedTick() - startTick) / 24_000.0D;
+        if (Math.abs(skippedDays - 3.032375D) > 1.0E-12D) {
+            throw new AssertionError("reported skipped TFC days changed: " + skippedDays);
+        }
+    }
+
     private static void auroraAndRainbowRulesAreDeterministicAndNatural() {
         if (CelestialEventRules.auroraProbability(49.999D) != 0.0D
                 || CelestialEventRules.auroraProbability(65.0D) != 0.42D) {
@@ -115,6 +151,12 @@ public final class CalendarRateAccumulatorSelfTest {
 
     private static void assertEquals(long expected, long actual, String name) {
         if (expected != actual) {
+            throw new AssertionError(name + ": expected " + expected + ", got " + actual);
+        }
+    }
+
+    private static void assertClose(double expected, double actual, String name) {
+        if (Math.abs(expected - actual) > 1.0E-9D) {
             throw new AssertionError(name + ": expected " + expected + ", got " + actual);
         }
     }

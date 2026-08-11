@@ -23,4 +23,5 @@ public final class CelestialClientForgeEvents {
             RenderSystem.recordRenderCall(CelestialRenderer::close);
         }
     }
+
 }

@@ -239,6 +239,13 @@ tasks.named('processResources', ProcessResources).configure {
     filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) {
         expand replaceProperties + [project: project]
     }
+
+    // Keep the license evidence next to the exact binary and resources it covers.
+    from(rootProject.file('LICENSE'))
+    from(rootProject.file('THIRD_PARTY_NOTICES.md'))
+    from(rootProject.file('third_party')) {
+        into 'third_party'
+    }
 }
 
 // Example for how to get properties into the manifest for reading at runtime.

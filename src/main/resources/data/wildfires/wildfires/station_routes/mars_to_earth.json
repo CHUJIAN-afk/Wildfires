@@ -1,0 +1,9 @@
+{
+  "id": "wildfires:mars_to_earth",
+  "from_body": "wildfires:mars",
+  "to_body": "wildfires:earth",
+  "departure_ticks": 200,
+  "cruise_ticks": 600,
+  "arrival_ticks": 200,
+  "enabled": true
+}

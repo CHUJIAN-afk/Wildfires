@@ -3,6 +3,21 @@ package first.wildfires.celestial;
 import com.mojang.authlib.GameProfile;
 import first.wildfires.api.celestial.CelestialApi;
 import first.wildfires.api.celestial.CelestialState;
+import first.wildfires.space.celestial.CelestialRegistryRuntime;
+import first.wildfires.space.celestial.CelestialRegistrySnapshot;
+import first.wildfires.space.celestial.ExistingCelestialEphemeris;
+import first.wildfires.space.celestial.ObservationContextResolver;
+import first.wildfires.space.SpaceDimensions;
+import first.wildfires.space.route.StationRouteRuntime;
+import first.wildfires.space.route.StationTravelRequest;
+import first.wildfires.space.route.StationTravelResult;
+import first.wildfires.space.route.StationTravelService;
+import first.wildfires.space.content.SpaceContentRegister;
+import first.wildfires.space.content.StationDriveIndex;
+import first.wildfires.space.station.SpaceSavedData;
+import first.wildfires.space.station.StationRecord;
+import first.wildfires.space.station.StationService;
+import first.wildfires.space.station.StationStatus;
 import first.wildfires.tfc.calendar.TfcCalendarRateController;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import java.lang.reflect.Field;
@@ -13,6 +28,7 @@ import net.dries007.tfc.util.calendar.Calendars;
 import net.dries007.tfc.util.climate.Climate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
@@ -59,9 +75,7 @@ public final class CelestialServerGameTests {
         if (!ForgeGameTestHooks.isGametestServer()) {
             return;
         }
-        ServerLevel level = event.getServer().overworld();
-        level.getStructureManager().getOrCreate(EMPTY_TEMPLATE).fillFromWorld(level,
-                new BlockPos(0, 200, 0), new Vec3i(3, 3, 3), false, Blocks.STRUCTURE_VOID);
+        prepareTemplate(event.getServer().overworld());
     }
 
     @GameTest(template = "celestial_empty", timeoutTicks = 200)
@@ -92,6 +106,7 @@ public final class CelestialServerGameTests {
             level.setBlockAndUpdate(position.below(), Blocks.DIRT.defaultBlockState());
             level.setBlockAndUpdate(position.east(), Blocks.GLOWSTONE.defaultBlockState());
 
+            verifyExistingEphemerisAdapter(level, position);
             verifyApiAndClimateIsolation(level, position);
 
             long controlTicks = findInactiveBloodMoonTicks(level, position,
@@ -262,6 +277,288 @@ public final class CelestialServerGameTests {
         }
     }
 
+    @GameTest(template = "celestial_empty", batch = "zz_space_registry_reload", timeoutTicks = 400)
+    public static void synchronizedCelestialRegistryReloads(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        long initialGeneration = CelestialRegistryRuntime.current().generation();
+        assertTrue(initialGeneration > 0L,
+                "celestial registry runtime was not populated during the initial data load");
+        level.getServer().getCommands().performPrefixedCommand(
+                level.getServer().createCommandSourceStack().withLevel(level).withPermission(4),
+                "reload");
+        CelestialRegistrySnapshot snapshot = CelestialRegistryRuntime.current();
+        assertTrue(snapshot.generation() > initialGeneration,
+                "celestial registry generation did not advance after /reload completed");
+        verifyOnlyEarthBindsOverworld(snapshot);
+        prepareTemplate(level);
+        helper.succeed();
+    }
+
+    @GameTest(template = "celestial_empty", batch = "space_station_persistence", timeoutTicks = 200)
+    public static void globalStationDataPersistsFromOverworld(GameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        SpaceSavedData data = SpaceSavedData.get(server);
+        SpaceSavedData directOverworldData = server.overworld().getDataStorage().computeIfAbsent(
+                SpaceSavedData::load, SpaceSavedData::new, SpaceSavedData.FILE_ID);
+        assertTrue(data == directOverworldData,
+                "global station authority was not stored in the overworld DataStorage");
+        assertTrue(data.writable(), "global station data unexpectedly opened read-only");
+
+        var root = server.getCommands().getDispatcher().getRoot();
+        var wildfires = root.getChild("wildfires");
+        var space = wildfires == null ? null : wildfires.getChild("space");
+        var stationBranch = space == null ? null : space.getChild("station");
+        assertTrue(stationBranch != null
+                        && stationBranch.getChild("create") != null
+                        && stationBranch.getChild("list") != null
+                        && stationBranch.getChild("info") != null
+                        && stationBranch.getChild("teleport") != null
+                        && stationBranch.getChild("recover") != null,
+                "station debug command branches were not registered");
+
+        UUID stationId = UUID.fromString("d650b0ee-85d2-4b9a-9e73-ad4aa30d6610");
+        UUID owner = UUID.fromString("38cf1b16-c614-4558-8808-d7af921c0d1b");
+        ResourceLocation earth = ResourceLocation.fromNamespaceAndPath("wildfires", "earth");
+        if (data.station(stationId).isEmpty()) {
+            StationService.OperationResult created = StationService.create(data, stationId,
+                    "GameTest Station", owner, earth, CelestialRegistryRuntime.current(),
+                    server.overworld().getGameTime());
+            assertTrue(created.status() == StationService.OperationStatus.SUCCESS,
+                    "fixed GameTest station could not be created: " + created.status()
+                            + " " + created.message());
+        }
+
+        StationRecord station = data.station(stationId).orElseThrow();
+        assertTrue(station.owner().equals(owner) && station.currentBody().equals(earth)
+                        && station.status() == StationStatus.ACTIVE && station.revision() >= 1L,
+                "fixed GameTest station did not retain its authoritative identity or Earth state");
+        BlockPos safePoint = StationService.safePoint(data, stationId).orElseThrow();
+        assertTrue(safePoint.equals(station.primaryDock().position())
+                        && data.stationAt(safePoint.getX(), safePoint.getZ())
+                        .map(value -> value.stationId().equals(stationId)).orElse(false),
+                "station safe point did not resolve back to its allocated region");
+
+        SpaceSavedData decoded = SpaceSavedData.load(data.save(new CompoundTag()));
+        StationRecord reloaded = decoded.station(stationId).orElseThrow();
+        assertTrue(reloaded.equals(station)
+                        && StationService.safePoint(decoded, stationId).orElseThrow().equals(safePoint)
+                        && reloaded.revision() == station.revision(),
+                "station NBT save/load changed the record, safe point or revision");
+        helper.succeed();
+    }
+
+    @GameTest(template = "celestial_empty", batch = "space_orbit_context", timeoutTicks = 200)
+    public static void orbitDimensionAndStationContextsAreIsolated(GameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        ServerLevel orbit = server.getLevel(SpaceDimensions.ORBIT);
+        assertTrue(orbit != null && orbit.dimension() == SpaceDimensions.ORBIT,
+                "the required wildfires:orbit dimension was not loaded");
+        assertTrue(StationRouteRuntime.current().definitions().size() == 2
+                        && StationRouteRuntime.current().rejected().isEmpty(),
+                "the two built-in P5 test routes were not loaded and validated");
+        assertTrue(!orbit.dimensionType().bedWorks() && !orbit.dimensionType().respawnAnchorWorks()
+                        && !orbit.dimensionType().natural(),
+                "orbit dimension unexpectedly allowed beds, anchors or natural-world semantics");
+
+        SpaceSavedData data = SpaceSavedData.get(server);
+        ResourceLocation earth = ResourceLocation.fromNamespaceAndPath("wildfires", "earth");
+        UUID firstId = UUID.fromString("d650b0ee-85d2-4b9a-9e73-ad4aa30d6610");
+        UUID firstOwner = UUID.fromString("38cf1b16-c614-4558-8808-d7af921c0d1b");
+        if (data.station(firstId).isEmpty()) {
+            StationService.OperationResult created = StationService.create(data, firstId,
+                    "GameTest Station", firstOwner, earth, CelestialRegistryRuntime.current(),
+                    server.overworld().getGameTime());
+            assertTrue(created.successful(), "first orbit GameTest station could not be created");
+        }
+        UUID secondId = UUID.fromString("e54121d1-7573-4ba3-ae30-6b8e02006b25");
+        ResourceLocation mars = ResourceLocation.fromNamespaceAndPath("wildfires", "mars");
+        if (data.station(secondId).isEmpty()) {
+            StationService.OperationResult created = StationService.create(data, secondId,
+                    "Second Context Station", UUID.fromString("48c1feef-d155-4382-867a-a04cbd493758"),
+                    mars, CelestialRegistryRuntime.current(), server.overworld().getGameTime());
+            assertTrue(created.successful(), "second orbit GameTest station could not be created");
+        }
+
+        StationRecord first = data.station(firstId).orElseThrow();
+        StationRecord second = data.station(secondId).orElseThrow();
+        BlockPos firstPoint = first.region().safePoint();
+        BlockPos secondPoint = second.region().safePoint();
+        var firstContext = ObservationContextResolver.resolve(orbit, firstPoint.getCenter()).orElseThrow();
+        var secondContext = ObservationContextResolver.resolve(orbit, secondPoint.getCenter()).orElseThrow();
+        assertTrue(firstContext.stationId().equals(firstId)
+                        && secondContext.stationId().equals(secondId)
+                        && firstContext.currentBody().equals(earth)
+                        && secondContext.currentBody().equals(mars)
+                        && !firstContext.stationId().equals(secondContext.stationId())
+                        && firstContext.region().contains(firstPoint.getX(), firstPoint.getZ())
+                        && secondContext.region().contains(secondPoint.getX(), secondPoint.getZ()),
+                "two stations in the shared orbit Level leaked or aliased observation context");
+        assertTrue(ObservationContextResolver.resolve(orbit, new net.minecraft.world.phys.Vec3(0.5D, 128.0D, 0.5D))
+                        .isEmpty()
+                        && CelestialApi.state(orbit, new net.minecraft.world.phys.Vec3(0.5D, 128.0D, 0.5D), 0.0F)
+                        .isEmpty(),
+                "reserved station-free orbit region borrowed the last station context");
+        CelestialState firstSky = CelestialApi.state(orbit, firstPoint.getCenter(), 0.0F).orElseThrow();
+        CelestialState secondSky = CelestialApi.state(orbit, secondPoint.getCenter(), 0.0F).orElseThrow();
+        assertTrue(firstSky.orbitingBodies().stream().anyMatch(body -> body.id().equals(mars))
+                        && secondSky.orbitingBodies().stream().anyMatch(body -> body.id().equals(mars))
+                        && firstSky.equals(secondSky),
+                "orbit CelestialApi provider did not expose the same complete ephemeris to both contexts");
+
+        BlockPos persistedBlock = firstPoint.below();
+        orbit.setBlockAndUpdate(persistedBlock, Blocks.GOLD_BLOCK.defaultBlockState());
+        assertTrue(orbit.getBlockState(persistedBlock).is(Blocks.GOLD_BLOCK)
+                        && orbit.getBlockState(firstPoint.above(100)).isAir(),
+                "orbit dimension did not preserve an ordinary block or was not void-generated");
+        helper.succeed();
+    }
+
+    @GameTest(template = "celestial_empty", batch = "space_orbit_lighting", timeoutTicks = 240)
+    public static void orbitBlockAndSkyLightPropagateAndClear(GameTestHelper helper) {
+        ServerLevel orbit = helper.getLevel().getServer().getLevel(SpaceDimensions.ORBIT);
+        assertTrue(orbit != null, "orbit level missing for lighting test");
+        long runOffset = Math.floorMod(orbit.getGameTime(), 10_000L) * 32L;
+        BlockPos source = new BlockPos(96 + (int) runOffset, 160, 96);
+        BlockPos neighbor = source.east();
+        BlockPos roof = source.above(8);
+        BlockPos roofSample = roof.below();
+        ChunkPos testChunk = new ChunkPos(source);
+        orbit.setChunkForced(testChunk.x, testChunk.z, true);
+        orbit.getChunkAt(source);
+        orbit.setBlockAndUpdate(source, Blocks.GLOWSTONE.defaultBlockState());
+        orbit.setBlockAndUpdate(roof, Blocks.GOLD_BLOCK.defaultBlockState());
+        helper.runAfterDelay(40, () -> {
+            assertTrue(orbit.getBrightness(LightLayer.BLOCK, source) == 15
+                            && orbit.getBrightness(LightLayer.BLOCK, neighbor) > 0,
+                    "orbit glowstone did not propagate block light");
+            assertTrue(orbit.getBrightness(LightLayer.SKY, roofSample) < 15,
+                    "orbit roof did not obstruct propagated sky light");
+            orbit.setBlockAndUpdate(source, Blocks.AIR.defaultBlockState());
+            orbit.setBlockAndUpdate(roof, Blocks.AIR.defaultBlockState());
+            helper.runAfterDelay(60, () -> {
+                assertTrue(orbit.getBrightness(LightLayer.BLOCK, source) == 0
+                                && orbit.getBrightness(LightLayer.BLOCK, neighbor) == 0,
+                        "orbit retained block light after glowstone removal");
+                assertTrue(orbit.getBrightness(LightLayer.SKY, roofSample) == 15,
+                        "orbit sky light did not recover after roof removal");
+                orbit.setChunkForced(testChunk.x, testChunk.z, false);
+                helper.succeed();
+            });
+        });
+    }
+
+    @GameTest(template = "celestial_empty", batch = "space_station_travel", timeoutTicks = 2600)
+    public static void testEngineGatesAndCompletesStationTravel(GameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        ServerLevel orbit = server.getLevel(SpaceDimensions.ORBIT);
+        assertTrue(orbit != null, "orbit level missing for P5 travel test");
+        SpaceSavedData data = SpaceSavedData.get(server);
+        UUID stationId = UUID.fromString("5cf53992-f72f-45cb-b696-41753e011a75");
+        UUID owner = UUID.fromString("09c848f5-b203-47c8-89ae-6438a16ce76a");
+        if (data.station(stationId).isEmpty()) {
+            StationService.OperationResult created = StationService.create(data, stationId,
+                    "P5 Travel Station", owner,
+                    ResourceLocation.fromNamespaceAndPath("wildfires", "earth"),
+                    CelestialRegistryRuntime.current(), server.overworld().getGameTime());
+            assertTrue(created.successful(), "P5 travel station could not be created");
+        }
+        awaitTravelReady(helper, orbit, stationId, owner, 0);
+    }
+
+    private static void awaitTravelReady(GameTestHelper helper, ServerLevel orbit, UUID stationId,
+                                         UUID owner, int attempts) {
+        StationRecord station = SpaceSavedData.get(orbit.getServer()).station(stationId).orElseThrow();
+        if (station.journey().isPresent()) {
+            if (attempts >= 60) {
+                throw new AssertionError("pre-existing P5 journey did not finish in time");
+            }
+            helper.runAfterDelay(20, () -> awaitTravelReady(helper, orbit, stationId, owner, attempts + 1));
+            return;
+        }
+        assertTrue(station.status() == StationStatus.ACTIVE,
+                "P5 travel station is not active: " + station.status());
+        beginTravelAcceptance(helper, orbit, station, owner);
+    }
+
+    private static void beginTravelAcceptance(GameTestHelper helper, ServerLevel orbit,
+                                              StationRecord station, UUID owner) {
+        BlockPos computerPos = station.region().safePoint();
+        BlockPos enginePos = computerPos.east();
+        orbit.setBlockAndUpdate(computerPos, SpaceContentRegister.STATION_CONTROL_COMPUTER.get()
+                .defaultBlockState());
+        orbit.setBlockAndUpdate(enginePos, Blocks.AIR.defaultBlockState());
+        assertTrue(orbit.getBlockEntity(computerPos) != null,
+                "station control computer block entity was not created");
+
+        ResourceLocation earth = ResourceLocation.fromNamespaceAndPath("wildfires", "earth");
+        ResourceLocation mars = ResourceLocation.fromNamespaceAndPath("wildfires", "mars");
+        ResourceLocation target = station.currentBody().equals(earth) ? mars : earth;
+        ResourceLocation routeId = station.currentBody().equals(earth)
+                ? ResourceLocation.fromNamespaceAndPath("wildfires", "earth_to_mars")
+                : ResourceLocation.fromNamespaceAndPath("wildfires", "mars_to_earth");
+        StationTravelRequest request = new StationTravelRequest(computerPos, station.stationId(),
+                station.revision(), routeId);
+        StationTravelService.ValidationContext validation = new StationTravelService.ValidationContext() {
+            @Override
+            public boolean allReturnCapsulesDocked(StationRecord current) {
+                return current.ownedReturnCapsules().isEmpty();
+            }
+
+            @Override
+            public boolean validControlComputer(StationRecord current, StationTravelRequest intent) {
+                return orbit.getBlockState(intent.computerPos())
+                        .is(SpaceContentRegister.STATION_CONTROL_COMPUTER.get())
+                        && current.region().containsBuildArea(intent.computerPos());
+            }
+
+            @Override
+            public boolean hasLoadedTestEngine(StationRecord current) {
+                return StationDriveIndex.hasLoadedEngine(orbit, current);
+            }
+        };
+        SpaceSavedData data = SpaceSavedData.get(orbit.getServer());
+        StationTravelResult withoutEngine = StationTravelService.start(data, owner, request,
+                StationRouteRuntime.current(), CelestialRegistryRuntime.current(), validation,
+                orbit.getServer().overworld().getGameTime(), UUID.randomUUID());
+        assertTrue(withoutEngine.status() == StationTravelResult.Status.NO_TEST_ENGINE
+                        && data.station(station.stationId()).orElseThrow().revision() == station.revision(),
+                "missing test engine did not reject atomically: " + withoutEngine.status());
+
+        orbit.setBlockAndUpdate(enginePos, SpaceContentRegister.STATION_TEST_ENGINE.get().defaultBlockState());
+        helper.runAfterDelay(2, () -> {
+            StationRecord before = data.station(station.stationId()).orElseThrow();
+            assertTrue(orbit.getBlockEntity(enginePos) != null
+                            && StationDriveIndex.hasLoadedEngine(orbit, before),
+                    "placed test engine was not registered as loaded station drive");
+            StationTravelRequest currentRequest = new StationTravelRequest(computerPos,
+                    before.stationId(), before.revision(), routeId);
+            StationTravelResult started = StationTravelService.start(data, owner, currentRequest,
+                    StationRouteRuntime.current(), CelestialRegistryRuntime.current(), validation,
+                    orbit.getServer().overworld().getGameTime(), UUID.randomUUID());
+            assertTrue(started.successful()
+                            && started.station().orElseThrow().journey().isPresent(),
+                    "loaded test engine did not allow departure: " + started.status());
+            long startedRevision = started.station().orElseThrow().revision();
+            helper.runAfterDelay(1005, () -> {
+                StationRecord arrived = data.station(station.stationId()).orElseThrow();
+                assertTrue(arrived.currentBody().equals(target)
+                                && arrived.journey().isEmpty()
+                                && arrived.status() == StationStatus.ACTIVE
+                                && arrived.revision() == startedRevision + 3L,
+                        "server game-time ticker did not complete the fixed route exactly");
+                orbit.setBlockAndUpdate(enginePos, Blocks.AIR.defaultBlockState());
+                assertTrue(!StationDriveIndex.hasLoadedEngine(orbit, arrived),
+                        "removed test engine remained in the loaded-drive index");
+                helper.succeed();
+            });
+        });
+    }
+
+    private static void prepareTemplate(ServerLevel level) {
+        level.getStructureManager().getOrCreate(EMPTY_TEMPLATE).fillFromWorld(level,
+                new BlockPos(0, 200, 0), new Vec3i(3, 3, 3), false, Blocks.STRUCTURE_VOID);
+    }
+
     private static void verifyApiAndClimateIsolation(ServerLevel level, BlockPos position) {
         float temperature = Climate.getTemperature(level, position);
         float rainfall = Climate.getRainfall(level, position);
@@ -289,6 +586,40 @@ public final class CelestialServerGameTests {
                         && blockLight == level.getBrightness(LightLayer.BLOCK, position)
                         && dayTime == level.getDayTime() && calendarTicks == Calendars.SERVER.getCalendarTicks(),
                 "celestial API query changed actual light or global time");
+        verifyOnlyEarthBindsOverworld(CelestialRegistryRuntime.current());
+    }
+
+    private static void verifyExistingEphemerisAdapter(ServerLevel level, BlockPos position) {
+        CelestialState directState = OverworldCelestialProvider.INSTANCE.state(
+                level, position.getCenter(), 0.0F);
+        CelestialState adaptedState = ExistingCelestialEphemeris.INSTANCE.state(
+                level, position.getCenter(), 0.0F);
+        assertTrue(directState.equals(adaptedState),
+                "existing ephemeris adapter changed the authoritative overworld CelestialState");
+    }
+
+    private static void verifyOnlyEarthBindsOverworld(CelestialRegistrySnapshot snapshot) {
+        ResourceLocation earthId = ResourceLocation.fromNamespaceAndPath("wildfires", "earth");
+        ResourceLocation overworldId = Level.OVERWORLD.location();
+        assertTrue(snapshot.generation() > 0L && snapshot.validation().definitions().size() == 20,
+                "synchronized celestial registry did not load all 20 built-in definitions");
+        long boundCount = snapshot.validation().definitions().values().stream()
+                .filter(definition -> definition.surfaceDimension().isPresent())
+                .count();
+        assertTrue(boundCount == 1L
+                        && snapshot.validation().definitions().get(earthId)
+                        .surfaceDimension().orElseThrow().equals(overworldId),
+                "Earth was not the unique built-in minecraft:overworld surface binding");
+        assertTrue(snapshot.lookup(snapshot.generation(), earthId).status()
+                        == CelestialRegistrySnapshot.LookupStatus.PRESENT
+                        && snapshot.validation().get(earthId).orElseThrow().landingAvailable(),
+                "resolved Earth binding was unavailable for landing");
+        snapshot.validation().resolved().forEach((id, definition) -> {
+            if (!id.equals(earthId)) {
+                assertTrue(definition.surfaceDimension().isEmpty() && !definition.landingAvailable(),
+                        "non-Earth celestial acquired a surface binding: " + id);
+            }
+        });
     }
 
     private static float authoritativeTfeHemisphereScale(ServerLevel level) {

@@ -75,6 +75,7 @@
     "minecraft.EffectRenderingInventoryScreenMixin",
     "minecraft.ItemColorsMixin",
     "minecraft.LevelRendererMixin",
+    "minecraft.OrbitLightTextureMixin",
     "minecraft.ModelMixin",
     "minecraft.StructureBiomeMixin",
     "sophisticatedsorter.ClientUtilsMixin",

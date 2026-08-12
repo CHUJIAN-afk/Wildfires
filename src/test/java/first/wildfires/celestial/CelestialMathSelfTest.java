@@ -54,6 +54,7 @@ public final class CelestialMathSelfTest {
         authoritativeVisualScaleDrivesPixelCoverageOnly();
         orbitalProjectionIsThreeDimensionalAndDeterministic();
         bodyDefinitionsMatchTfccaelumAuthority();
+        satelliteReferencePlanesMatchJplElements();
         configuredPrimaryBodySettingsDriveUnifiedOrbits();
         allSeventeenBodiesAreFiniteHierarchicalAndDeterministic();
         bloodMoonGameplayRulesAreLocalAndFinite();
@@ -1446,23 +1447,23 @@ public final class CelestialMathSelfTest {
 
     private static void bodyDefinitionsMatchTfccaelumAuthority() {
         double[][] expected = {
-                {4879, 87.968, 57.909, 115.88, 7.004, 0.1},
-                {12104, 224.695, 108.210, 583.92, 3.395, 0.1},
-                {6792, 779.94, 227.956, 779.94, 1.848, 0.4},
-                {142984, 4330.595, 778.479, 4330.595, 1.304, 0.125},
-                {120536, 10746.94, 1432.041, 378.09, 2.486, 0.15},
-                {51118, 30588.74, 2867.043, 369.66, 0.770, 0.4},
-                {49528, 59799.9, 4514.953, 367.49, 1.770, 0.4},
+                {4879, 87.9691, 57.909, 115.88, 7.005, 0.1},
+                {12104, 224.701, 108.210, 583.92, 3.3946, 0.1},
+                {6792, 686.980, 227.956, 779.94, 1.850, 0.4},
+                {142984, 4332.59, 778.479, 398.88, 1.303, 0.125},
+                {120536, 10759.22, 1432.041, 378.09, 2.485, 0.15},
+                {51118, 30688.5, 2867.043, 369.66, 0.773, 0.4},
+                {49528, 60182.0, 4514.953, 367.49, 1.770, 0.4},
                 {2376, 90560.0, 5869.656, 366.73, 17.160, 5.0},
                 {50968, 5_478_630.0, 73302.956643, 365.242, 16.0, 5.0},
                 {571936, 4_054_186.2, 14_190_792.6, 365.242, 10.0, 20.0},
                 {5268.2, 7.15455296, 1.0704, 4330.595, 0.2, 1.0},
-                {4820.6, 16.6890184, 1.8827, 4330.595, 0.192, 1.0},
-                {3643.2, 1.769137786, 0.4217, 4330.595, 0.05, 1.0},
-                {3121.6, 3.551181, 0.669151, 4330.595, 0.47, 1.0},
-                {5149.46, 15.945, 1.22187, 378.09, 0.348, 1.0},
-                {2706.8, 5.876854, 1.22187, 367.49, 156.885, 1.0},
-                {1212.5, 6.3872304, 0.709518, 366.73, 0.08, 12.0}
+                {4820.6, 16.6890184, 1.8827, 4330.595, 0.30, 1.0},
+                {3643.2, 1.769137786, 0.4217, 4330.595, 0.0, 1.0},
+                {3121.6, 3.551181, 0.669151, 4330.595, 0.50, 1.0},
+                {5149.46, 15.945, 1.22187, 378.09, 0.30, 1.0},
+                {2706.8, 5.876854, 0.354759, 367.49, 157.3, 1.0},
+                {1212.5, 6.3872304, 0.019596, 366.73, 0.0, 12.0}
         };
         CelestialBodies[] bodies = CelestialBodies.values();
         if (bodies.length != expected.length) {
@@ -1477,8 +1478,8 @@ public final class CelestialMathSelfTest {
             assertClose(row[3], body.synodicDays(), body + " synodic period");
             assertClose(Math.toRadians(row[4]), body.inclinationRadians(), body + " inclination");
             assertClose(row[5], body.scaleFactor(), body + " scale");
-            if (body.retrograde() != (body == CelestialBodies.TITAN)) {
-                throw new AssertionError("TFCCaelum retrograde marker changed for " + body);
+            if (body.retrograde()) {
+                throw new AssertionError("retrograde sense must be encoded by the JPL plane normal for " + body);
             }
         }
         if (CelestialBodies.GANYMEDE.parent() != CelestialBodies.JUPITER
@@ -1490,6 +1491,53 @@ public final class CelestialMathSelfTest {
                 || CelestialBodies.CHARON.parent() != CelestialBodies.PLUTO) {
             throw new AssertionError("TFCCaelum satellite parent table changed");
         }
+        assertClose(686.980D, CelestialBodies.MARS.orbitalDays(),
+                "Mars uses sidereal period instead of the old synodic-period duplication");
+        assertClose(0.354759D, CelestialBodies.TRITON.semiMajorMillionKm(),
+                "Triton physical semi-major axis");
+        assertClose(0.019596D, CelestialBodies.CHARON.semiMajorMillionKm(),
+                "Charon physical semi-major axis");
+    }
+
+    private static void satelliteReferencePlanesMatchJplElements() {
+        if (CelestialBodies.IO.orbitReferenceFrame()
+                != CelestialBodies.OrbitReferenceFrame.J2000_EQUATORIAL_POLE
+                || CelestialBodies.TITAN.orbitReferenceFrame()
+                != CelestialBodies.OrbitReferenceFrame.J2000_EQUATORIAL_POLE
+                || CelestialBodies.TRITON.orbitReferenceFrame()
+                != CelestialBodies.OrbitReferenceFrame.J2000_EQUATORIAL_POLE
+                || CelestialBodies.CHARON.orbitReferenceFrame()
+                != CelestialBodies.OrbitReferenceFrame.PARENT_EQUATOR) {
+            throw new AssertionError("satellite source reference frames no longer match JPL");
+        }
+        assertClose(Math.toRadians(2.17D), angleFromEclipticNorth(
+                CelestialBodies.IO.orbitalReferenceNormalEcliptic()), 0.03D,
+                "Io JPL Laplace plane against ecliptic");
+        assertClose(Math.toRadians(27.99D), angleFromEclipticNorth(
+                CelestialBodies.TITAN.orbitalReferenceNormalEcliptic()), 0.03D,
+                "Titan JPL Laplace plane against ecliptic");
+        if (!(angleFromEclipticNorth(CelestialBodies.TRITON.orbitalPlaneNormalEcliptic())
+                > Math.PI * 0.5D)) {
+            throw new AssertionError("Triton's 157.3 degree JPL orbit lost its retrograde plane");
+        }
+        assertClose(0.0D, angle(CelestialBodies.CHARON.orbitalPlaneNormalEcliptic(),
+                CelestialBodies.PLUTO.spinAxisEcliptic()), 1.0E-6D,
+                "Charon orbit follows Pluto's equator");
+        CelestialVector moonPole = new CelestialVector(
+                Math.sin(Math.toRadians(1.543D)) * Math.cos(Math.toRadians(215.08D)),
+                Math.sin(Math.toRadians(1.543D)) * Math.sin(Math.toRadians(215.08D)),
+                Math.cos(Math.toRadians(1.543D))).normalized();
+        assertClose(Math.toRadians(1.543D), angleFromEclipticNorth(moonPole), 1.0E-9D,
+                "lunar Cassini-state spin pole obliquity");
+    }
+
+    private static double angleFromEclipticNorth(CelestialVector vector) {
+        return angle(vector, new CelestialVector(0.0D, 0.0D, 1.0D));
+    }
+
+    private static double angle(CelestialVector first, CelestialVector second) {
+        return Math.acos(Math.max(-1.0D, Math.min(1.0D,
+                first.normalized().dot(second.normalized()))));
     }
 
     private static void bloodMoonGameplayRulesAreLocalAndFinite() {
@@ -1566,6 +1614,12 @@ public final class CelestialMathSelfTest {
 
     private static void assertClose(double expected, double actual, String name) {
         if (Math.abs(expected - actual) > EPSILON) {
+            throw new AssertionError(name + ": expected " + expected + ", got " + actual);
+        }
+    }
+
+    private static void assertClose(double expected, double actual, double tolerance, String name) {
+        if (Math.abs(expected - actual) > tolerance) {
             throw new AssertionError(name + ": expected " + expected + ", got " + actual);
         }
     }

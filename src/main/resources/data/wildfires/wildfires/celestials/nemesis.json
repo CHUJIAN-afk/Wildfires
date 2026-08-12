@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "kind": "star",
+  "environment": { "total_pressure_kpa": 0.0 },
+  "visual": { "procedural_surface": true }
+}

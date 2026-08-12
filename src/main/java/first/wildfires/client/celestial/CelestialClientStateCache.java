@@ -5,6 +5,7 @@ import first.wildfires.api.celestial.CelestialState;
 import first.wildfires.celestial.CelestialRuntimeSettings;
 import first.wildfires.celestial.CelestialSettingsCache;
 import first.wildfires.tfc.calendar.TfcCalendarRateController;
+import first.wildfires.client.space.SpaceClientState;
 import java.util.Optional;
 import java.util.function.Supplier;
 import net.dries007.tfc.util.calendar.Calendars;
@@ -24,6 +25,7 @@ public final class CelestialClientStateCache {
         CelestialRuntimeSettings settings = CelestialSettingsCache.current();
         CelestialState state = CACHE.get(level, calendarTick, level.getGameTime(), partialTick,
                 level.getRainLevel(partialTick), TfcCalendarRateController.clientMultiplier(), observer, settings,
+                SpaceClientState.cacheIdentity(),
                 () -> CelestialApi.state(level, observer, partialTick).orElse(null));
         return Optional.ofNullable(state);
     }
@@ -43,12 +45,20 @@ public final class CelestialClientStateCache {
         private long observerYBits;
         private long observerZBits;
         private Object settingsIdentity;
+        private Object contextIdentity;
         private boolean initialized;
         private T value;
 
         T get(Object level, long tick, long worldTick, float partialTick, float rainLevel,
               double calendarRate,
               Vec3 observer, Object settings,
+              Supplier<T> factory) {
+            return get(level, tick, worldTick, partialTick, rainLevel, calendarRate,
+                    observer, settings, null, factory);
+        }
+
+        T get(Object level, long tick, long worldTick, float partialTick, float rainLevel,
+              double calendarRate, Vec3 observer, Object settings, Object context,
               Supplier<T> factory) {
             int partialBits = Float.floatToRawIntBits(partialTick);
             int rainBits = Float.floatToRawIntBits(rainLevel);
@@ -60,7 +70,7 @@ public final class CelestialClientStateCache {
                     || partialTickBits != partialBits || rainLevelBits != rainBits || observerXBits != xBits
                     || observerYBits != yBits || observerZBits != zBits
                     || calendarRateBits != rateBits
-                    || settingsIdentity != settings) {
+                    || settingsIdentity != settings || contextIdentity != context) {
                 levelIdentity = level;
                 calendarTick = tick;
                 gameTick = worldTick;
@@ -71,6 +81,7 @@ public final class CelestialClientStateCache {
                 observerYBits = yBits;
                 observerZBits = zBits;
                 settingsIdentity = settings;
+                contextIdentity = context;
                 value = factory.get();
                 initialized = true;
             }
@@ -81,6 +92,7 @@ public final class CelestialClientStateCache {
             initialized = false;
             levelIdentity = null;
             settingsIdentity = null;
+            contextIdentity = null;
             value = null;
         }
     }

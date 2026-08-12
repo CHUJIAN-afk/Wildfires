@@ -1,8 +1,10 @@
 package first.wildfires.mixin.minecraft;
 
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 import first.wildfires.client.celestial.CelestialClientTime;
 import first.wildfires.client.celestial.CelestialClientStateCache;
+import first.wildfires.client.space.OrbitClientIllumination;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.phys.Vec3;
@@ -46,6 +48,15 @@ public abstract class CelestialClientLevelMixin {
     )
     private float wildfires$localLightmapTime(float original, float partialTick) {
         return wildfires$localCameraTime(original, partialTick);
+    }
+
+    @ModifyReturnValue(method = "getSkyDarken", at = @At("RETURN"))
+    private float wildfires$orbitSunBrightness(float original, float partialTick) {
+        ClientLevel level = (ClientLevel) (Object) this;
+        Vec3 observer = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        return OrbitClientIllumination.resolve(level, observer, partialTick)
+                .map(illumination -> (float) illumination.sunlight())
+                .orElse(original);
     }
 
     private float wildfires$localCameraTime(float original, float partialTick) {

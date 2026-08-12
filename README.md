@@ -62,7 +62,15 @@ Wildfires' sky and celestial work builds on ideas and material from the followin
 - [TFC Caelum](https://modrinth.com/mod/tfc-caelum) by Verph, for its TFC calendar bridge, celestial events, visual design and bundled sky assets.
 - [BSC5P-JSON-XYZ](https://github.com/frostoven/BSC5P-JSON-XYZ) by aggregate1166877 / Frostoven, whose generated catalog data is licensed under CC BY 4.0 and is the upstream source of the stellar catalog used through Caelum.
 - [Aurora shader](https://www.shadertoy.com/view/MsjfRG) by Mattenii, licensed under CC BY-NC-SA 3.0 and adapted through TFC Caelum.
+- [VS: Genesis](https://github.com/jamesgreen26/genesis) by jamesgreen26 and contributors, licensed under Apache-2.0, for the square-planet cubemap, mesh, center-star lighting, atmosphere implementation and verbatim Earth/Moon cubemap textures adapted without VS2/Lodestone.
+- [NTM: Space](https://github.com/JameH2/Hbm-s-Nuclear-Tech-GIT) by the NTM: Space contributors, licensed under LGPL-3.0, for the orbit-transfer presentation, station-local eclipse/sunlight/star-visibility contract, six-face night sky, flat Sun/corona, distant point LOD and four redistributed textures.
 
 Thank you to these authors and to the authors of every project listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). That file is the authoritative attribution and license-status index; preserved upstream README, license and metadata snapshots live under [`third_party/`](third_party/README.md).
 
 Wildfires' original code, original assets, and original documentation are [All Rights Reserved](LICENSE). The distributed mod is not a single-license artifact: bundled third-party material retains the separate terms documented in `THIRD_PARTY_NOTICES.md`. Public release remains blocked while any item there is marked unresolved.
+
+| Partition | Paths | Copyright holders | License/source |
+| --- | --- | --- | --- |
+| Wildfires original work | Files not separately listed below | FirstSight and Wildfires contributors | [ARR](LICENSE) |
+| VS: Genesis adaptations and two planet textures | `first/wildfires/thirdparty/genesisadapt/`, `genesis_planet_*` shaders, `textures/third_party/vs_genesis/` | VS: Genesis contributors | [Apache-2.0 evidence](third_party/vs-genesis/1.20.1-0.7.3-local-snapshot/PROVENANCE.md) |
+| NTM: Space adaptations/resources | `OrbitVisualRules.java`, `NtmOrbitSkyRenderer.java`, `OrbitClientIllumination.java`, `textures/third_party/ntm_space/` | NTM: Space contributors | [LGPL-3.0 evidence/source mapping](third_party/ntm-space/1.0.27_X5778-local-snapshot/PROVENANCE.md) |

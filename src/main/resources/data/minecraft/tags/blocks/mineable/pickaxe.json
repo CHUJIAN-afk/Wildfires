@@ -13,6 +13,8 @@
     "wildfires:rhyolite_crushing_wheel",
     "wildfires:basalt_crushing_wheel",
     "wildfires:dacite_crushing_wheel",
-    "wildfires:unrestricted_charcoal_forge"
+    "wildfires:unrestricted_charcoal_forge",
+    "wildfires:station_control_computer",
+    "wildfires:station_test_engine"
   ]
 }

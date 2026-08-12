@@ -3,6 +3,8 @@ package first.wildfires.client.celestial;
 import com.mojang.blaze3d.systems.RenderSystem;
 import first.wildfires.Wildfires;
 import first.wildfires.celestial.CelestialSettingsCache;
+import first.wildfires.client.space.SpaceClientState;
+import first.wildfires.client.space.render.OrbitSkyRenderer;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -15,12 +17,22 @@ public final class CelestialClientForgeEvents {
     private CelestialClientForgeEvents() {}
 
     @SubscribeEvent
+    public static void onLogin(ClientPlayerNetworkEvent.LoggingIn event) {
+        SpaceClientState.clear();
+    }
+
+    @SubscribeEvent
     public static void onLogout(ClientPlayerNetworkEvent.LoggingOut event) {
         CelestialSettingsCache.reset();
+        SpaceClientState.clear();
         if (RenderSystem.isOnRenderThread()) {
             CelestialRenderer.close();
+            OrbitSkyRenderer.close();
         } else {
-            RenderSystem.recordRenderCall(CelestialRenderer::close);
+            RenderSystem.recordRenderCall(() -> {
+                CelestialRenderer.close();
+                OrbitSkyRenderer.close();
+            });
         }
     }
 

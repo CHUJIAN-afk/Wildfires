@@ -15,6 +15,8 @@ The built JAR carries `LICENSE`, this notice, and the complete versioned `third_
 | BSC5P-JSON-XYZ stellar catalog data | CC BY 4.0 |
 | Mattenii-derived aurora shader | CC BY-NC-SA 3.0 |
 | TFC Caelum-derived behavior and 31 PNG files | Unresolved BSD-2-Clause / `BSD 3` conflict; not cleared for public release |
+| VS: Genesis-derived cubemap, mesh and shaders | Apache-2.0 |
+| NTM: Space-derived orbit visual/illumination code and four PNGs | LGPL-3.0-only |
 
 ## Caelum
 
@@ -61,6 +63,32 @@ License status requires resolution before public redistribution. The release JAR
 - Changes: adapted from the TFC Caelum split shader to Minecraft's Forge-managed GLSL 150 pipeline and the `wildfires` namespace; further rendering fixes are documented in the source history.
 
 The attribution and license marker must remain in the shader source. Because this is a non-commercial, share-alike license and a file-level exception to the mod-level MIT declaration, release terms and distribution channels must be checked explicitly before publishing.
+
+## VS: Genesis
+
+- Project: [VS: Genesis](https://github.com/jamesgreen26/genesis)
+- Referenced snapshot/version: `1.20.1-0.7.3`; supplied local tree had no Git metadata
+- Copyright notice in upstream Apache license: Copyright 2025 jamesgreen26, JSJBDEV, Verquinox, jcm236
+- License: Apache License 2.0
+- Use in Wildfires: adapted 3x2 square-planet face contract, static cube mesh, center-star directional surface shader and ray-box atmosphere shader; verbatim upstream Earth and Moon cubemaps.
+- Wildfires partition: `src/main/java/first/wildfires/thirdparty/genesisadapt/` and `src/main/resources/assets/wildfires/shaders/core/genesis_planet_*`.
+- Verbatim texture partition: `src/main/resources/assets/wildfires/textures/third_party/vs_genesis/overworld.png` and `moon.png`.
+- Runtime dependencies intentionally not imported: Valkyrien Skies 2, Lodestone, Genesis and physical ship interfaces.
+- Preserved source evidence and exact file mapping: [`third_party/vs-genesis/1.20.1-0.7.3-local-snapshot/`](third_party/vs-genesis/1.20.1-0.7.3-local-snapshot/PROVENANCE.md)
+
+Each modified source/shader carries an Apache-2.0 notice and change description. The complete upstream Apache license is distributed with the evidence snapshot.
+
+## NTM: Space
+
+- Project: [NTM: Space](https://github.com/JameH2/Hbm-s-Nuclear-Tech-GIT)
+- Referenced snapshot/version: `1.0.27_X5778`; supplied local tree had no Git metadata
+- Copyright holders: NTM: Space contributors; the complete contributor and texture/model credit list is preserved in the upstream `gradle.properties` snapshot
+- License: GNU Lesser General Public License version 3, stated in the upstream README and accompanied by GPLv3 `LICENSE` plus `LICENSE.LESSER`
+- Adapted code: `OrbitVisualRules.java`, `NtmOrbitSkyRenderer.java` and `OrbitClientIllumination.java` (phase semantics, transfer easing, apparent-size/LOD, station-local eclipse/sunlight/star visibility, six-face night sky, flat Sun/corona and distant point passes)
+- Verbatim textures: `night.png`, `kerbol.png`, `sunspike.png`, and `planet.png` under `src/main/resources/assets/wildfires/textures/third_party/ntm_space/`
+- Preserved source evidence, corresponding-source/relinking statement and exact hashes: [`third_party/ntm-space/1.0.27_X5778-local-snapshot/`](third_party/ntm-space/1.0.27_X5778-local-snapshot/PROVENANCE.md)
+
+The root ARR license expressly excludes this LGPL partition. Its modified Java source, exact PNGs, build scripts, GPL/LGPL texts and attribution records are provided with the source distribution and evidence is included in the JAR. Wildfires does not claim authorship of the NTM textures; the inspected upstream snapshot did not provide per-PNG author or license exceptions, so the project-level LGPL claim and complete contributor credits are retained without narrowing them.
 
 ## Dependencies and APIs
 

@@ -75,7 +75,7 @@ public final class CelestialConfig {
                 .comment("Deprecated compatibility key. TFCCaelum 1.2 never read this value and Wildfires does not add blindness.")
                 .define("enableSunBlindness", false);
         CONFIGURABLE_BODIES = new EnumMap<>(CelestialBodies.class);
-        server.comment("TFCCaelum-compatible physical parameters for Earth and Mercury through Pluto.")
+        server.comment("Unified physical parameters for Earth and Mercury through Pluto. Untouched legacy defaults are corrected at load time.")
                 .push("planets");
         server.push("earth");
         CONFIGURED_EARTH = new ConfiguredEarth(
@@ -150,7 +150,8 @@ public final class CelestialConfig {
         List<CelestialBodyParameters> planets = new ArrayList<>(CelestialPlanetSettings.CONFIGURABLE_BODY_COUNT);
         CelestialBodies[] bodies = CelestialBodies.values();
         for (int index = 0; index < CelestialPlanetSettings.CONFIGURABLE_BODY_COUNT; index++) {
-            planets.add(CONFIGURABLE_BODIES.get(bodies[index]).parameters());
+            CelestialBodies body = bodies[index];
+            planets.add(body.migrateLegacyDefaults(CONFIGURABLE_BODIES.get(body).parameters()));
         }
         return new CelestialRuntimeSettings(SYNODIC_DAYS.get(), ANOMALISTIC_DAYS.get(), NODAL_YEARS.get(),
                 Math.toRadians(LUNAR_INCLINATION.get()), BLOOD_MOON_SURFACE_MONSTERS.get(),

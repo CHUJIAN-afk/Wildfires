@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "kind": "moon",
+  "parent": "wildfires:jupiter",
+  "environment": { "total_pressure_kpa": 0.0, "hazards": ["wildfires:volcanic"] },
+  "visual": { "procedural_surface": true }
+}

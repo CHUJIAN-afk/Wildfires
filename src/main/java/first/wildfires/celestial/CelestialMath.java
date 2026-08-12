@@ -211,11 +211,72 @@ public final class CelestialMath {
 
     public static CelestialVector orbitalPosition(double radius, double orbitalDays, double inclination,
                                                    boolean retrograde, double calendarDays) {
+        return orbitalPosition(radius, orbitalDays, inclination, 0.0D, retrograde, calendarDays);
+    }
+
+    /** Circular orbit in the ecliptic frame with an explicit longitude of ascending node. */
+    public static CelestialVector orbitalPosition(double radius, double orbitalDays, double inclination,
+                                                   double ascendingNode, boolean retrograde,
+                                                   double calendarDays) {
         double sign = retrograde ? -1.0D : 1.0D;
         double angle = sign * TAU * calendarDays / orbitalDays;
-        double x = radius * Math.cos(angle);
-        double flat = radius * Math.sin(angle);
-        return new CelestialVector(x, flat * Math.cos(inclination), flat * Math.sin(inclination));
+        double nodeCos = Math.cos(ascendingNode);
+        double nodeSin = Math.sin(ascendingNode);
+        CelestialVector node = new CelestialVector(nodeCos, nodeSin, 0.0D);
+        CelestialVector transverse = new CelestialVector(-nodeSin * Math.cos(inclination),
+                nodeCos * Math.cos(inclination), Math.sin(inclination));
+        return node.scale(radius * Math.cos(angle))
+                .add(transverse.scale(radius * Math.sin(angle)));
+    }
+
+    /**
+     * Satellite orbit relative to its declared source reference plane (ecliptic, equatorial, or
+     * local Laplace). The returned vector is still expressed in the common ecliptic frame, so it
+     * can be added directly to the parent's heliocentric position.
+     */
+    public static CelestialVector satelliteOrbitalPosition(double radius, double orbitalDays,
+                                                            CelestialVector referencePlaneNormal,
+                                                            double relativeInclination,
+                                                            double ascendingNode,
+                                                            boolean retrograde,
+                                                            double calendarDays) {
+        CelestialVector normal = referencePlaneNormal.normalized();
+        if (normal.lengthSquared() < 1.0E-12D) {
+            throw new IllegalArgumentException("Orbit reference-plane normal must be non-zero");
+        }
+        // JPL's node longitudes are measured in J2000-oriented reference frames.  Use the J2000
+        // equatorial north pole (expressed in our ecliptic coordinates) to establish the zero-node
+        // direction; using ecliptic north here silently rotates every Laplace-plane node.
+        CelestialVector equatorialNorth = new CelestialVector(0.0D, Math.sin(AXIAL_TILT),
+                Math.cos(AXIAL_TILT));
+        CelestialVector reference = Math.abs(normal.dot(equatorialNorth)) < 0.95D
+                ? equatorialNorth
+                : new CelestialVector(1.0D, 0.0D, 0.0D);
+        CelestialVector equatorX = cross(reference, normal).normalized();
+        CelestialVector equatorY = cross(normal, equatorX).normalized();
+        CelestialVector node = equatorX.scale(Math.cos(ascendingNode))
+                .add(equatorY.scale(Math.sin(ascendingNode))).normalized();
+        CelestialVector tiltedNormal = rotateAroundAxis(normal, node, relativeInclination).normalized();
+        CelestialVector transverse = cross(tiltedNormal, node).normalized();
+        double sign = retrograde ? -1.0D : 1.0D;
+        double angle = sign * TAU * calendarDays / orbitalDays;
+        return node.scale(radius * Math.cos(angle))
+                .add(transverse.scale(radius * Math.sin(angle)));
+    }
+
+    private static CelestialVector rotateAroundAxis(CelestialVector vector, CelestialVector axis,
+                                                     double angle) {
+        double cosine = Math.cos(angle);
+        double sine = Math.sin(angle);
+        return vector.scale(cosine)
+                .add(cross(axis, vector).scale(sine))
+                .add(axis.scale(axis.dot(vector) * (1.0D - cosine)));
+    }
+
+    private static CelestialVector cross(CelestialVector first, CelestialVector second) {
+        return new CelestialVector(first.y() * second.z() - first.z() * second.y(),
+                first.z() * second.x() - first.x() * second.z(),
+                first.x() * second.y() - first.y() * second.x());
     }
 
     public static double lunarAscendingNode(double calendarDays, double daysInYear, double nodalYears) {

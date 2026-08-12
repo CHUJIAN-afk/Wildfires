@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "kind": "planet",
+  "parent": "wildfires:sun",
+  "environment": { "total_pressure_kpa": 1000.0, "gases_kpa": { "wildfires:hydrogen": 830.0, "wildfires:helium": 150.0, "wildfires:methane": 20.0 }, "hazards": ["wildfires:gas_giant"] },
+  "visual": {
+    "procedural_surface": true,
+    "atmosphere": { "enabled": true, "radius_multiplier": 1.035, "density": 6.0, "color": [0.45, 0.82, 0.9] },
+    "clouds": { "enabled": true, "mapping": "procedural", "procedural": true, "radius_multiplier": 1.018, "opacity": 0.7, "tint": [0.72, 0.95, 1.0], "rotation_period_tfc_days": 0.72, "rotation_axis": [1.0, 0.05, 0.0], "rotation_offset": 0.11, "shadow_strength": 0.45 }
+  }
+}

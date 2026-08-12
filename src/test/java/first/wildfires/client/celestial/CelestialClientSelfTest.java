@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import javax.imageio.ImageIO;
 import net.minecraft.resources.ResourceLocation;
@@ -146,7 +147,14 @@ public final class CelestialClientSelfTest {
         cache.get(level, 1235L, 56L, 0.5F, 0.5F, 600.0D, observer, new Object(), factory);
         cache.clear();
         cache.get(level, 1235L, 56L, 0.5F, 0.5F, 600.0D, observer, settings, factory);
-        if (computations[0] != 10) {
+        Object stationContext = new Object();
+        cache.get(level, 1235L, 56L, 0.5F, 0.5F, 600.0D,
+                observer, settings, stationContext, factory);
+        cache.get(level, 1235L, 56L, 0.5F, 0.5F, 600.0D,
+                observer, settings, stationContext, factory);
+        cache.get(level, 1235L, 56L, 0.5F, 0.5F, 600.0D,
+                observer, settings, new Object(), factory);
+        if (computations[0] != 12) {
             throw new AssertionError("client cache failed to invalidate a position/tick/frame/level/settings key: "
                     + computations[0]);
         }
@@ -773,12 +781,13 @@ public final class CelestialClientSelfTest {
     }
 
     private static void actualJupiterAndSaturnSatellitesOrbitTheirParents() {
-        assertClose(CelestialBodies.JUPITER.inclinationRadians() + CelestialBodies.GANYMEDE.inclinationRadians(),
-                CelestialBodies.GANYMEDE.orbitalPlaneInclinationRadians(),
-                "Ganymede parent-relative orbital plane");
-        assertClose(CelestialBodies.SATURN.inclinationRadians() + CelestialBodies.TITAN.inclinationRadians(),
-                CelestialBodies.TITAN.orbitalPlaneInclinationRadians(),
-                "Titan parent-relative orbital plane");
+        for (CelestialBodies satellite : List.of(CelestialBodies.GANYMEDE, CelestialBodies.TITAN)) {
+            if (satellite.orbitReferenceFrame()
+                    != CelestialBodies.OrbitReferenceFrame.J2000_EQUATORIAL_POLE
+                    || Math.abs(satellite.orbitalReferenceNormalEcliptic().length() - 1.0D) > 1.0E-9D) {
+                throw new AssertionError(satellite + " escaped its JPL local Laplace-plane contract");
+            }
+        }
         assertSatelliteQuarterOrbit(CelestialBodies.GANYMEDE, CelestialBodies.JUPITER, 4321.25D);
         assertSatelliteQuarterOrbit(CelestialBodies.TITAN, CelestialBodies.SATURN, 8765.5D);
     }

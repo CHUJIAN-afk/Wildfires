@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "kind": "planet",
+  "parent": "wildfires:sun",
+  "environment": {
+    "total_pressure_kpa": 0.6,
+    "gases_kpa": { "wildfires:carbon_dioxide": 0.57, "wildfires:inert_air": 0.03 },
+    "hazards": ["wildfires:low_pressure"]
+  },
+  "visual": {
+    "procedural_surface": true,
+    "atmosphere": { "enabled": true, "radius_multiplier": 1.01, "density": 0.02, "color": [0.75, 0.4, 0.25] }
+  }
+}

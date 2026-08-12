@@ -1,0 +1,27 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "srcalpha",
+    "dstrgb": "1-srcalpha"
+  },
+  "vertex": "wildfires:genesis_planet_atmosphere",
+  "fragment": "wildfires:genesis_planet_atmosphere",
+  "attributes": ["Position", "Color"],
+  "samplers": [],
+  "uniforms": [
+    {"name": "ModelViewMat", "type": "matrix4x4", "count": 16, "values": [1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0,0.0,0.0]},
+    {"name": "ProjMat", "type": "matrix4x4", "count": 16, "values": [1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0]},
+    {"name": "CameraPosition", "type": "float", "count": 3, "values": [0.0,0.0,-4.0]},
+    {"name": "LightDirection", "type": "float", "count": 3, "values": [0.0,0.0,1.0]},
+    {"name": "DayColor", "type": "float", "count": 3, "values": [0.35,0.55,1.0]},
+    {"name": "SunsetColor", "type": "float", "count": 3, "values": [0.273,0.341,0.52]},
+    {"name": "NightColor", "type": "float", "count": 3, "values": [0.07,0.055,0.4]},
+    {"name": "RegionBrightness", "type": "float", "count": 3, "values": [1.0,1.0,1.0]},
+    {"name": "LightTransitions", "type": "float", "count": 2, "values": [3.0,4.0]},
+    {"name": "LimbParameters", "type": "float", "count": 2, "values": [0.6,2.0]},
+    {"name": "OpacityExposure", "type": "float", "count": 2, "values": [0.72,1.0]},
+    {"name": "AtmosphereThickness", "type": "float", "count": 1, "values": [1.025]},
+    {"name": "Density", "type": "float", "count": 1, "values": [1.0]},
+    {"name": "Alpha", "type": "float", "count": 1, "values": [1.0]}
+  ]
+}

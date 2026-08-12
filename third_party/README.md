@@ -27,5 +27,7 @@ Snapshots under `upstream/` are immutable evidence. When upstream changes, add a
 | TFC Caelum `1.2` | adapted + 31 verbatim PNGs | JAR metadata, project description, release hashes, file manifest | License conflict must be resolved before release |
 | BSC5P-JSON-XYZ catalog | verbatim data through Caelum | upstream license, catalog hash | CC BY 4.0 attribution recorded |
 | Mattenii aurora shader | adapted shader | source URL and in-file notice | CC BY-NC-SA 3.0 release compatibility must be reviewed |
+| VS: Genesis `1.20.1-0.7.3` | adapted cubemap/mesh/shaders + 2 verbatim planet PNGs | local source-tree digest, README, Apache-2.0 license, metadata and file manifest | Recorded |
+| NTM: Space `1.0.27_X5778` | adapted orbit rendering + 4 verbatim PNGs | local source-tree digest, README, GPL/LGPL texts, contributor credits and file hashes | LGPL-3.0-only partition recorded |
 
 This register is about incorporated or adapted material. Ordinary dependencies may be documented in build files without snapshotting their entire source repositories.

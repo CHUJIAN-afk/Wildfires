@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "kind": "planet",
+  "parent": "wildfires:sun",
+  "surface_dimension": "minecraft:overworld",
+  "landable": true,
+  "environment": {
+    "total_pressure_kpa": 101.325,
+    "gases_kpa": {
+      "wildfires:oxygen": 21.2,
+      "wildfires:inert_air": 80.125
+    }
+  },
+  "visual": {
+    "surface_atlas": "wildfires:textures/third_party/vs_genesis/overworld.png",
+    "procedural_surface": true,
+    "near_body_renderer": "wildfires:cube",
+    "atmosphere": {
+      "enabled": true,
+      "radius_multiplier": 1.025,
+      "density": 1.0,
+      "color": [0.35, 0.55, 1.0],
+      "sunset_color": [0.55, 0.30, 0.14],
+      "night_color": [0.04, 0.03, 0.12],
+      "day_brightness": 1.0,
+      "sunset_brightness": 0.8,
+      "night_brightness": 0.25,
+      "day_transition": 3.0,
+      "night_transition": 4.0,
+      "limb_strength": 0.6,
+      "limb_power": 2.0,
+      "max_opacity": 0.72,
+      "exposure": 1.0
+    },
+    "clouds": {
+      "enabled": true,
+      "mapping": "procedural",
+      "procedural": true,
+      "radius_multiplier": 1.012,
+      "opacity": 0.7,
+      "tint": [1.0, 1.0, 1.0],
+      "rotation_period_tfc_days": 1.08,
+      "rotation_axis": [0.0, 1.0, 0.0],
+      "rotation_offset": 0.0,
+      "shadow_strength": 0.45
+    }
+  }
+}

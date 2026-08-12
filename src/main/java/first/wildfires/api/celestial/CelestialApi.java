@@ -25,7 +25,7 @@ public final class CelestialApi {
 
     public static Optional<CelestialState> state(Level level, Vec3 observer, float partialTick) {
         CelestialProvider provider = PROVIDERS.get(level.dimension());
-        return provider == null ? Optional.empty() : Optional.of(provider.state(level, observer, partialTick));
+        return provider == null ? Optional.empty() : provider.stateOptional(level, observer, partialTick);
     }
 
     public static Optional<DaylightState> daylight(Level level, BlockPos observer) {

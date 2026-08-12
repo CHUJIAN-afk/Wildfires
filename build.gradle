@@ -300,6 +300,49 @@ tasks.register('calendarRateSelfTest', JavaExec) {
     mainClass = 'first.wildfires.tfc.calendar.CalendarRateAccumulatorSelfTest'
 }
 
+tasks.register('spaceCoreSelfTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs plain-Java checks for fixed-station route and journey state transitions.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'first.wildfires.space.SpaceCoreSelfTest'
+}
+
+tasks.register('spacePersistenceSelfTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs plain-Java checks for global station SavedData, region allocation, and recovery.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'first.wildfires.space.SpacePersistenceSelfTest'
+}
+
+tasks.register('spaceObservationSelfTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs plain-Java checks for orbit observation snapshots and packet ordering.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'first.wildfires.space.SpaceObservationSelfTest'
+}
+
+tasks.register('spaceTravelSelfTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs plain-Java checks for atomic station departure transactions and C2S intent.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'first.wildfires.space.SpaceTravelSelfTest'
+}
+
+tasks.register('spaceVisualSelfTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs plain-Java checks for NTM/Genesis orbit visuals, phase turns, and travel LOD.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'first.wildfires.client.space.render.SpaceVisualSelfTest'
+}
+
 tasks.named('check').configure {
-    dependsOn tasks.named('celestialMathSelfTest'), tasks.named('celestialClientSelfTest'), tasks.named('calendarRateSelfTest')
+    dependsOn tasks.named('celestialMathSelfTest'), tasks.named('celestialClientSelfTest'),
+            tasks.named('calendarRateSelfTest'), tasks.named('spaceCoreSelfTest'),
+            tasks.named('spacePersistenceSelfTest'), tasks.named('spaceObservationSelfTest'),
+            tasks.named('spaceTravelSelfTest'), tasks.named('spaceVisualSelfTest')
 }

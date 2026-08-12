@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "kind": "planet",
+  "parent": "wildfires:sun",
+  "environment": { "total_pressure_kpa": 0.0 },
+  "visual": { "procedural_surface": true }
+}

@@ -37,7 +37,7 @@ public final class OverworldCelestialProvider implements CelestialProvider {
                 CelestialBodies.EARTH_SEMI_MAJOR_AXIS, CelestialMath.SUN_ANGULAR_RADIUS,
                 result.solarElevation(), result.daylightFactor(), 1.0D, result.solarEclipse());
         double moonDistance = CelestialMath.MOON_MEAN_DISTANCE_MILLION_KM * result.moonDistance();
-        CelestialBodyState moon = new CelestialBodyState(Wildfires.rl("moon"), null,
+        CelestialBodyState moon = new CelestialBodyState(Wildfires.rl("moon"), Wildfires.rl("earth"),
                 result.moonGeocentric().scale(moonDistance), result.moonDirection(), moonDistance,
                 result.moonAngularRadius(), result.moonElevation(), result.illuminatedFraction(),
                 result.illuminatedFraction(), result.lunarEclipse());

@@ -1,0 +1,5 @@
+{
+  "variants": {
+    "": { "model": "wildfires:block/station_control_computer" }
+  }
+}

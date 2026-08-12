@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "kind": "moon",
+  "parent": "wildfires:earth",
+  "environment": { "total_pressure_kpa": 0.0 },
+  "visual": {
+    "surface_atlas": "wildfires:textures/third_party/vs_genesis/moon.png",
+    "procedural_surface": true
+  }
+}

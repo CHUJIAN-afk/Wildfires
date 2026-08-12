@@ -10,7 +10,7 @@ import software.bernie.geckolib.renderer.GeoArmorRenderer;
 
 public class GeckoSimpleArmorItemRenderer extends GeoArmorRenderer<GeckoSimpleArmorItem> {
 
-    private static final String SHARED_ARMOR_MODEL = "forged_iron_guard_expanded";
+    private static final String SHARED_ARMOR_MODEL = "wrought_iron_guard_expanded";
     private static final String[] SHARED_ARMOR_BONES = {
             "armorBody", "armorRightArm", "armorLeftArm",
             "armorRightLeg", "armorLeftLeg", "armorRightBoot", "armorLeftBoot",

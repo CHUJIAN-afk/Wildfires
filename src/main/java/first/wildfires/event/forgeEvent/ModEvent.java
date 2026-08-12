@@ -43,10 +43,17 @@ public class ModEvent {
     public static void commonSetup(FMLCommonSetupEvent event) {
         if (Wildfires.TFCLoaded) {
             event.enqueueWork(() -> {
-                BlockEntityTypeAccessor accessor = (BlockEntityTypeAccessor) (Object) TFCBlockEntities.CHARCOAL_FORGE.get();
-                Set<Block> validBlocks = new HashSet<>(accessor.wildfires$getValidBlocks());
-                validBlocks.add(BlockRegister.UnrestrictedCharcoalForge.get());
-                accessor.wildfires$setValidBlocks(Set.copyOf(validBlocks));
+                // Add UnrestrictedCharcoalForge to CHARCOAL_FORGE BlockEntity
+                BlockEntityTypeAccessor forgeAccessor = (BlockEntityTypeAccessor) (Object) TFCBlockEntities.CHARCOAL_FORGE.get();
+                Set<Block> forgeValidBlocks = new HashSet<>(forgeAccessor.wildfires$getValidBlocks());
+                forgeValidBlocks.add(BlockRegister.UnrestrictedCharcoalForge.get());
+                forgeAccessor.wildfires$setValidBlocks(Set.copyOf(forgeValidBlocks));
+
+                // Add custom Crucible to CRUCIBLE BlockEntity
+                BlockEntityTypeAccessor crucibleAccessor = (BlockEntityTypeAccessor) (Object) TFCBlockEntities.CRUCIBLE.get();
+                Set<Block> crucibleValidBlocks = new HashSet<>(crucibleAccessor.wildfires$getValidBlocks());
+                crucibleValidBlocks.add(BlockRegister.Crucible.get());
+                crucibleAccessor.wildfires$setValidBlocks(Set.copyOf(crucibleValidBlocks));
             });
         }
 

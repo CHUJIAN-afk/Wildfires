@@ -12,6 +12,7 @@ import first.wildfires.register.SoundRegister;
 import first.wildfires.register.AttributeRegister;
 import first.wildfires.register.BlockRegister;
 import first.wildfires.register.ItemRegister;
+import first.wildfires.structure.AndesiteCasingFrameDetector;
 import first.wildfires.utils.CuriosUtil;
 import first.wildfires.utils.WildfiresUtil;
 import net.dries007.tfc.common.blockentities.CharcoalForgeBlockEntity;
@@ -55,6 +56,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.AddReloadListenerEvent;
+import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.event.server.ServerStartingEvent;
 import net.minecraftforge.event.ItemAttributeModifierEvent;
@@ -86,6 +88,20 @@ public class ForgeEvent {
 	private static final int RAIN_GEAR_DAMAGE_INTERVAL_TICKS = 20 * 10;
 	private static final float HOT_WATER_BOTTLE_BODY_TEMPERATURE_SCALE = 0.01f;
 	private static final float OTHER_HEATED_ITEM_BODY_TEMPERATURE_SCALE = 0.0001f;
+
+	@SubscribeEvent
+	public static void checkAndesiteCasingFramePlaced(BlockEvent.EntityPlaceEvent event) {
+		if (event.getLevel() instanceof Level level) {
+			AndesiteCasingFrameDetector.checkAfterPlacement(level, event.getPos());
+		}
+	}
+
+	@SubscribeEvent
+	public static void checkAndesiteCasingFrameBroken(BlockEvent.BreakEvent event) {
+		if (event.getLevel() instanceof Level level) {
+			AndesiteCasingFrameDetector.checkAfterBreak(level, event.getPos());
+		}
+	}
 
 	private static final Map<String, Integer> RAIN_PROTECTION = Map.of(
 			"wildfires:umbrella_hat", 80,

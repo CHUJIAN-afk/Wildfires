@@ -54,11 +54,14 @@ public class BlockRendererMixin {
         BlockPos.MutableBlockPos scratch = SCRATCH_POS.get();
         for (Direction direction : Direction.values()) {
             scratch.set(pos).move(direction);
-            for (int distance = 0; distance < 2; distance++) {
-                if (!(level.getBlockState(scratch).getBlock() instanceof ILeavesBlock)) {
-                    return false;
-                }
-                scratch.move(direction);
+            // Check first layer
+            if (!(level.getBlockState(scratch).getBlock() instanceof ILeavesBlock)) {
+                return false;
+            }
+            // Check second layer
+            scratch.move(direction);
+            if (!(level.getBlockState(scratch).getBlock() instanceof ILeavesBlock)) {
+                return false;
             }
         }
         return true;

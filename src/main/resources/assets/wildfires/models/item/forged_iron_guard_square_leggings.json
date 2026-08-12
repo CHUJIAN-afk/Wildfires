@@ -1,6 +1,0 @@
-{
-  "parent": "item/generated",
-  "textures": {
-    "layer0": "wildfires:item/armor/forged_iron_guard_square_leggings_icon"
-  }
-}

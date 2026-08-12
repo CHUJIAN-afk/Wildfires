@@ -11,8 +11,10 @@ pluginManagement {
     }
 }
 
-plugins {
-    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.7.0'
-}
+// The project supplies its Java toolchain through JAVA_HOME/IDE settings.
+// Keep startup independent of the optional Foojay plugin and its download.
+// plugins {
+//     id 'org.gradle.toolchains.foojay-resolver-convention' version '0.7.0'
+// }
 
 rootProject.name = 'wildfires'

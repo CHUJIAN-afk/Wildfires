@@ -3,7 +3,6 @@ package first.wildfires.space.station;
 import first.wildfires.space.celestial.CelestialRegistrySnapshot;
 import first.wildfires.space.route.StationRouteDefinition;
 import first.wildfires.space.route.StationRouteSnapshot;
-import net.minecraft.resources.ResourceLocation;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -51,13 +50,8 @@ public final class StationJourneyTickService {
                 && route.id().equals(journey.routeId())
                 && route.fromBody().equals(journey.fromBody())
                 && route.toBody().equals(journey.toBody())
-                && present(celestials, route.fromBody())
-                && present(celestials, route.toBody());
-    }
-
-    private static boolean present(CelestialRegistrySnapshot celestials, ResourceLocation id) {
-        return celestials.lookup(celestials.generation(), id).status()
-                == CelestialRegistrySnapshot.LookupStatus.PRESENT;
+                && StationRouteSnapshot.isTravelBody(celestials, route.fromBody())
+                && StationRouteSnapshot.isTravelBody(celestials, route.toBody());
     }
 
     public record TickResult(StationJourneyService.State state, StationStatus status,

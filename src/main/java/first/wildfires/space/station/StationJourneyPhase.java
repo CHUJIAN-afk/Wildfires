@@ -11,6 +11,9 @@ public enum StationJourneyPhase {
     ORBITING("orbiting", false),
     DEPARTING("departing", true),
     CRUISE("cruise", true),
+    JUMP_ACCELERATING("jump_accelerating", true),
+    JUMP_CRUISING("jump_cruising", true),
+    JUMP_DECELERATING("jump_decelerating", true),
     ARRIVING("arriving", true),
     FAULTED("faulted", true);
 
@@ -42,6 +45,11 @@ public enum StationJourneyPhase {
     /** Returns whether this phase may be stored inside an active {@link StationJourney}. */
     public boolean isJourneyPhase() {
         return journeyPhase;
+    }
+
+    /** True only for the relativistic portion between normal departure and normal arrival. */
+    public boolean isJumpPhase() {
+        return this == JUMP_ACCELERATING || this == JUMP_CRUISING || this == JUMP_DECELERATING;
     }
 
     public static Optional<StationJourneyPhase> fromId(String id) {

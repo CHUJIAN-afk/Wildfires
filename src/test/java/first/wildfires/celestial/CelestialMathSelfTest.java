@@ -8,6 +8,7 @@ import io.netty.buffer.Unpooled;
 import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Method;
 import java.util.HashSet;
+import java.util.Random;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.level.Level;
 
@@ -57,6 +58,7 @@ public final class CelestialMathSelfTest {
         satelliteReferencePlanesMatchJplElements();
         configuredPrimaryBodySettingsDriveUnifiedOrbits();
         allSeventeenBodiesAreFiniteHierarchicalAndDeterministic();
+        creationEphemerisIsRandomPersistentAndNonAligned();
         bloodMoonGameplayRulesAreLocalAndFinite();
         overworldFrameContextIsExactlyEquivalentAtEveryLatitude();
         tfeHemisphereMethodHandleIsStrictAndFinite();
@@ -1571,10 +1573,11 @@ public final class CelestialMathSelfTest {
                 .withEarth(CelestialBodies.EARTH_DIAMETER_KM + 5.0D,
                         CelestialBodies.EARTH_ORBITAL_DAYS + 6.0D,
                         CelestialBodies.EARTH_SEMI_MAJOR_AXIS + 7.0D);
+        CelestialOrbitalPhases phases = CelestialOrbitalPhases.random(new Random(0x5EEDL), planets);
         CelestialRuntimeSettings expected = new CelestialRuntimeSettings(21.25D, 19.75D, 11.5D,
                 Math.toRadians(7.25D), false, 4.5D, 0.81D, 1.17D,
                 CelestialRuntimeSettings.LunarPeriodPreset.CUSTOM,
-                planets);
+                planets, phases);
         FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
         new CelestialSettingsSyncPacket(expected).encode(buffer);
         CelestialSettingsSyncPacket decoded = new CelestialSettingsSyncPacket(buffer);
@@ -1582,6 +1585,62 @@ public final class CelestialMathSelfTest {
             throw new AssertionError("celestial settings packet did not round-trip exactly");
         }
         buffer.release();
+    }
+
+    private static void creationEphemerisIsRandomPersistentAndNonAligned() {
+        CelestialPlanetSettings settings = CelestialPlanetSettings.DEFAULT;
+        CelestialOrbitalPhases first = CelestialOrbitalPhases.random(new Random(123456789L), settings);
+        CelestialOrbitalPhases repeated = CelestialOrbitalPhases.random(new Random(123456789L), settings);
+        CelestialOrbitalPhases otherWorld = CelestialOrbitalPhases.random(new Random(987654321L), settings);
+        if (!first.equals(repeated)) {
+            throw new AssertionError("same creation entropy did not reproduce the same test ephemeris");
+        }
+        if (first.equals(otherWorld)) {
+            throw new AssertionError("different creation entropy produced an identical ephemeris");
+        }
+        int heliocentricCount = 1;
+        for (CelestialBodies body : CelestialBodies.values()) {
+            if (body.parent() == null) {
+                heliocentricCount++;
+            }
+        }
+        double guaranteedGap = 0.6D / heliocentricCount;
+        if (first.minimumInitialHeliocentricGap(settings) + 1.0E-12D < guaranteedGap) {
+            throw new AssertionError("creation ephemeris permits an initial planetary alignment: "
+                    + first.minimumInitialHeliocentricGap(settings));
+        }
+
+        net.minecraft.nbt.CompoundTag encoded = new CelestialEphemerisSavedDataForTest(first).save();
+        CelestialEphemerisSavedData decoded = CelestialEphemerisSavedData.load(encoded);
+        if (!first.equals(decoded.phases())) {
+            throw new AssertionError("creation ephemeris did not persist exactly");
+        }
+
+        double day = 123.25D;
+        CelestialMath.Result frame = calculateAtDay(day);
+        double years = day / CelestialMath.daysInYear(8);
+        var positions = CelestialBodies.calculate(frame, years, settings, first);
+        var later = CelestialBodies.calculate(frame, years + 1.0D, settings, first);
+        if (positions.equals(later)) {
+            throw new AssertionError("persisted creation phases stopped normal orbital motion");
+        }
+    }
+
+    /** Uses the public NBT contract without exposing a production mutation hook. */
+    private record CelestialEphemerisSavedDataForTest(CelestialOrbitalPhases phases) {
+        net.minecraft.nbt.CompoundTag save() {
+            net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
+            tag.putInt("data_version", CelestialEphemerisSavedData.DATA_VERSION);
+            net.minecraft.nbt.ListTag entries = new net.minecraft.nbt.ListTag();
+            for (var id : CelestialOrbitalPhases.orderedIds()) {
+                net.minecraft.nbt.CompoundTag entry = new net.minecraft.nbt.CompoundTag();
+                entry.putString("body", id.toString());
+                entry.putDouble("turns", phases.turns(id));
+                entries.add(entry);
+            }
+            tag.put("phases", entries);
+            return tag;
+        }
     }
 
     private static CelestialMath.Result calculateAtDay(double day) {

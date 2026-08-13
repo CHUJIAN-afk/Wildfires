@@ -115,6 +115,7 @@ gradle-app.setting
 
 # Common working directory
 run/
+run-gametest/
 runs/
 /logs/
 

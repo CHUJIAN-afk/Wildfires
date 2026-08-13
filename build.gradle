@@ -25,10 +25,12 @@ base {
     archivesName = mod_id
 }
 
-ext.tfeVersion = '1.1.3'
-ext.tfeSourceCommit = '94d23b0312b5b98fc834b29b62ff6369ca3def9b'
-ext.tfeSourceRepository = 'https://github.com/jc-cy/TerraFirmaEarth-1.20.1.git'
-ext.tfeLocalJar = file("run/mods/Wildfire_TerraFirmaEarth-1.20.1-forge-${tfeVersion}.jar")
+ext.tfeVersion = '2.0.1'
+ext.tfeReleaseSha256 = '029AD1A7368B687BCD435B4321257BA8DD9E9D3B8533FC248BD43CEB5CE5A308'
+ext.tfeLocalJar = file(".wildfires-cache/tfe-release/Wildfire_TerraFirmaEarth-1.20.1-forge-${tfeVersion}.jar")
+ext.tfeUserdevInputVersion = "${tfeVersion}-wildfires-userdev-1"
+ext.tfeUserdevInputSha256 = 'D92F9CF012E0F8C90BA36F4C69F469FD15B8D4DD8CC3E331CE55B905AB5371CF'
+ext.tfeUserdevInputJar = file(".wildfires-cache/tfe-userdev-input/Wildfire_TerraFirmaEarth-1.20.1-forge-${tfeUserdevInputVersion}.jar")
 
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -114,6 +116,7 @@ minecraft {
         // By default, the server will crash when no gametests are provided.
         // The gametest system is also enabled by default for other run configs under the /test command.
         gameTestServer {
+            workingDirectory project.file('run-gametest')
             property 'forge.enabledGameTestNamespaces', mod_id
             mods {
                 "${mod_id}" {
@@ -144,7 +147,7 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 repositories {
     flatDir {
         name = "Local TerraFirmaEarth"
-        dirs "run/mods"
+        dirs ".wildfires-cache/tfe-userdev-input"
     }
     maven {
         // location of the maven that hosts JEI files since January 2023
@@ -181,9 +184,10 @@ dependencies {
     implementation("io.github.llamalad7:mixinextras-forge:0.4.1")
     //tfc
     implementation fg.deobf("curse.maven:terrafirmacraft-302973:7442504")
-    // TerraFirmaEarth is a local-only development dependency. Use its named dev jar; production @Overwrite methods cannot be remapped safely by fg.deobf.
-    compileOnly "local.tfe:Wildfire_TerraFirmaEarth-1.20.1-forge:${tfeVersion}"
-    runtimeOnly "local.tfe:Wildfire_TerraFirmaEarth-1.20.1-forge:${tfeVersion}"
+    // TFE 2.0.1 has no matching public source/tag or named dev release. A verified, local-only preprocessing task
+    // prevents its NTELeopardSeal helper from colliding with Minecraft's mapped isFood method in ForgeGradle userdev.
+    compileOnly fg.deobf("local.tfe:Wildfire_TerraFirmaEarth-1.20.1-forge:${tfeUserdevInputVersion}")
+    runtimeOnly fg.deobf("local.tfe:Wildfire_TerraFirmaEarth-1.20.1-forge:${tfeUserdevInputVersion}")
 
     //patchouli
     implementation fg.deobf("curse.maven:patchouli-306770:6164575")
@@ -341,9 +345,18 @@ tasks.register('spaceVisualSelfTest', JavaExec) {
     mainClass = 'first.wildfires.client.space.render.SpaceVisualSelfTest'
 }
 
+tasks.register('returnCapsuleSelfTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs pure Forge-fluid, ticket and stable-state checks for the reusable return capsule.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'first.wildfires.space.ReturnCapsuleSelfTest'
+}
+
 tasks.named('check').configure {
     dependsOn tasks.named('celestialMathSelfTest'), tasks.named('celestialClientSelfTest'),
             tasks.named('calendarRateSelfTest'), tasks.named('spaceCoreSelfTest'),
             tasks.named('spacePersistenceSelfTest'), tasks.named('spaceObservationSelfTest'),
             tasks.named('spaceTravelSelfTest'), tasks.named('spaceVisualSelfTest')
+    dependsOn tasks.named('returnCapsuleSelfTest')
 }

@@ -7,6 +7,8 @@ import first.wildfires.Wildfires;
 import first.wildfires.api.celestial.CelestialState;
 import first.wildfires.api.celestial.CelestialVector;
 import first.wildfires.client.celestial.CelestialClientStateCache;
+import first.wildfires.client.space.OrbitVisualDebugClock;
+import first.wildfires.tfc.calendar.TfcCalendarRateController;
 import first.wildfires.space.celestial.CelestialDefinition;
 import first.wildfires.space.celestial.CelestialDefinitionRegistry;
 import first.wildfires.space.celestial.CelestialKind;
@@ -15,6 +17,7 @@ import first.wildfires.space.celestial.ObservationContext;
 import first.wildfires.space.celestial.ObservationContextResolver;
 import first.wildfires.thirdparty.genesisadapt.GenesisPlanetMesh;
 import first.wildfires.thirdparty.genesisadapt.GenesisPlanetShader;
+import net.dries007.tfc.util.calendar.Calendars;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -47,20 +50,42 @@ public final class OrbitSkyRenderer {
         CelestialState celestial = CelestialClientStateCache.state(
                 level, camera.getPosition(), partialTick).orElse(null);
         if (context == null || celestial == null) {
+            // Never reveal the orbit dimension's clear/fog colour during a missing or not-yet-synced
+            // observation context. A black vacuum is truthful without inventing a station/body state.
+            RenderSystem.depthMask(false);
+            RenderSystem.disableDepthTest();
+            RenderSystem.disableCull();
+            try {
+                NtmOrbitSkyRenderer.drawVacuumBackdrop(poseStack, projectionMatrix);
+            } finally {
+                VertexBuffer.unbind();
+                RenderSystem.enableDepthTest();
+                RenderSystem.depthMask(true);
+                RenderSystem.enableCull();
+                RenderSystem.disableBlend();
+                RenderSystem.defaultBlendFunc();
+                setupFog.run();
+            }
             return;
         }
 
-        double gameTime = level.getGameTime() + partialTick;
-        OrbitVisualRules.Frame frame = OrbitVisualRules.frame(context, celestial, gameTime);
+        double gameTime = OrbitVisualDebugClock.gameTime()
+                .orElse(level.getGameTime() + partialTick);
+        double calendarTicks = OrbitVisualDebugClock.calendarTicks()
+                .orElse(celestial.calendarTicks());
+        double calendarRate = OrbitVisualDebugClock.calendarTicks().isPresent()
+                ? 0.0D : TfcCalendarRateController.clientMultiplier();
+        OrbitVisualRules.Frame frame = OrbitVisualRules.frame(context, celestial, gameTime, calendarTicks,
+                calendarRate, Calendars.get(level).getCalendarDaysInMonth());
         GenesisPlanetMesh.ensure();
         RenderSystem.depthMask(false);
         RenderSystem.disableDepthTest();
         RenderSystem.disableCull();
         poseStack.pushPose();
-        poseStack.mulPose(viewOrientation(frame.viewRotationRadians()));
+        poseStack.mulPose(viewOrientation(frame));
         try {
             NtmOrbitSkyRenderer.drawNight(poseStack, projectionMatrix,
-                    frame.illumination().starVisibility());
+                    frame.illumination().starVisibility(), frame.relativity(), frame.velocityDirection());
             RenderSystem.enableDepthTest();
             RenderSystem.depthMask(true);
             boolean sunDrawn = false;
@@ -69,7 +94,7 @@ public final class OrbitSkyRenderer {
                     drawSunLayer(frame.sun(), poseStack);
                     sunDrawn = true;
                 }
-                drawBodyLayer(body, level, context, celestial, poseStack, projectionMatrix);
+                drawBodyLayer(body, level, context, calendarTicks, poseStack, projectionMatrix);
             }
             if (!sunDrawn) {
                 drawSunLayer(frame.sun(), poseStack);
@@ -103,7 +128,8 @@ public final class OrbitSkyRenderer {
     }
 
     private static void drawBodyLayer(OrbitVisualRules.BodyLayer body, ClientLevel level,
-                                      ObservationContext context, CelestialState celestial,
+                                      ObservationContext context,
+                                      double calendarTicks,
                                       PoseStack poseStack, Matrix4f projectionMatrix) {
         RenderSystem.disableCull();
         RenderSystem.depthMask(false);
@@ -116,7 +142,7 @@ public final class OrbitSkyRenderer {
             if (definition != null && definition.kind() != CelestialKind.STAR
                     && definition.visual().nearBodyRenderer().equals(CUBE_RENDERER)) {
                 drawCubeBody(body, definition.visual(), context.celestialRegistryGeneration(),
-                        celestial.calendarTicks(), poseStack, projectionMatrix);
+                        calendarTicks, poseStack, projectionMatrix);
             }
         }
         clearLayerDepth();
@@ -153,19 +179,24 @@ public final class OrbitSkyRenderer {
         RenderSystem.setShaderTexture(0, surface.location());
         surfaceShader.safeGetUniform("LightDirection").set(lightLocal.x, lightLocal.y, lightLocal.z);
         surfaceShader.safeGetUniform("Alpha").set((float) body.cubeAlpha());
-        surfaceShader.safeGetUniform("LayerColor").set(1.0F, 1.0F, 1.0F, 1.0F);
+        RelativisticVisualRules.Tint tint = body.tint();
+        surfaceShader.safeGetUniform("LayerColor").set((float) tint.red(), (float) tint.green(),
+                (float) tint.blue(), 1.0F);
+        surfaceShader.safeGetUniform("ReceiverRadius").set(1.0F);
+        configureSatelliteShadows(surfaceShader, body, rotation, calendarTicks);
         GenesisPlanetMesh.drawSurface(poseStack, projectionMatrix);
 
-        drawClouds(body, visual.clouds(), generation, lightLocal,
+        drawClouds(body, visual.clouds(), generation, rotation, calendarTicks, lightLocal,
                 poseStack, projectionMatrix);
         drawAtmosphere(body, visual.atmosphere(), center, rotation, lightLocal,
-                halfSize, poseStack, projectionMatrix);
+                halfSize, calendarTicks, poseStack, projectionMatrix);
         poseStack.popPose();
     }
 
     private static void drawClouds(OrbitVisualRules.BodyLayer body,
                                    CelestialVisualDefinition.CloudLayer clouds,
-                                   long generation, Vector3f lightLocal, PoseStack poseStack,
+                                   long generation, Quaternionf rotation, double calendarTicks,
+                                   Vector3f lightLocal, PoseStack poseStack,
                                    Matrix4f projectionMatrix) {
         ShaderInstance shader = GenesisPlanetShader.textured();
         if (shader == null || !clouds.enabled() || clouds.opacity() <= 0.001D) {
@@ -177,25 +208,30 @@ public final class OrbitSkyRenderer {
         // motion remains available through cloudTexturePhase for the future material cloud pass.
         Vector3f cloudLight = new Vector3f(lightLocal);
         CelestialVisualDefinition.Color tint = clouds.tint();
+        RelativisticVisualRules.Tint relativityTint = body.tint();
 
         poseStack.pushPose();
         if (clouds.shadowStrength() > 0.001D) {
             drawCloudShell(shader, texture.location(), cloudLight, 1.001F,
                     0.0F, 0.0F, 0.0F,
                     (float) (clouds.opacity() * clouds.shadowStrength() * body.cubeAlpha()),
-                    poseStack, projectionMatrix);
+                    body, rotation, calendarTicks, poseStack, projectionMatrix);
         }
         drawCloudShell(shader, texture.location(), cloudLight,
-                (float) clouds.radiusMultiplier(), (float) tint.red(), (float) tint.green(),
-                (float) tint.blue(), (float) (clouds.opacity() * body.cubeAlpha()),
-                poseStack, projectionMatrix);
+                (float) clouds.radiusMultiplier(), (float) (tint.red() * relativityTint.red()),
+                (float) (tint.green() * relativityTint.green()),
+                (float) (tint.blue() * relativityTint.blue()),
+                (float) (clouds.opacity() * body.cubeAlpha()),
+                body, rotation, calendarTicks, poseStack, projectionMatrix);
         poseStack.popPose();
     }
 
     private static void drawCloudShell(ShaderInstance shader, ResourceLocation texture,
                                        Vector3f lightLocal, float scale,
                                        float red, float green, float blue, float alpha,
-                                       PoseStack poseStack, Matrix4f projectionMatrix) {
+                                       OrbitVisualRules.BodyLayer body, Quaternionf rotation,
+                                       double calendarTicks, PoseStack poseStack,
+                                       Matrix4f projectionMatrix) {
         poseStack.pushPose();
         poseStack.scale(scale, scale, scale);
         RenderSystem.depthMask(false);
@@ -206,6 +242,8 @@ public final class OrbitSkyRenderer {
         shader.safeGetUniform("LightDirection").set(lightLocal.x, lightLocal.y, lightLocal.z);
         shader.safeGetUniform("Alpha").set(alpha);
         shader.safeGetUniform("LayerColor").set(red, green, blue, 1.0F);
+        shader.safeGetUniform("ReceiverRadius").set(scale);
+        configureSatelliteShadows(shader, body, rotation, calendarTicks);
         GenesisPlanetMesh.drawSurface(poseStack, projectionMatrix);
         RenderSystem.depthMask(true);
         poseStack.popPose();
@@ -214,7 +252,8 @@ public final class OrbitSkyRenderer {
     private static void drawAtmosphere(OrbitVisualRules.BodyLayer body,
                                        CelestialVisualDefinition.Atmosphere atmosphere,
                                        Vec3 center, Quaternionf rotation, Vector3f lightLocal,
-                                       float halfSize, PoseStack poseStack, Matrix4f projectionMatrix) {
+                                       float halfSize, double calendarTicks, PoseStack poseStack,
+                                       Matrix4f projectionMatrix) {
         ShaderInstance shader = GenesisPlanetShader.atmosphere();
         if (shader == null || !atmosphere.enabled()) {
             return;
@@ -227,6 +266,7 @@ public final class OrbitSkyRenderer {
         CelestialVisualDefinition.Color nightColor = atmosphere.resolvedNightColor();
         float thickness = (float) atmosphere.radiusMultiplier();
         float density = (float) atmosphere.density();
+        RelativisticVisualRules.Tint relativityTint = body.tint();
 
         poseStack.pushPose();
         poseStack.scale(thickness, thickness, thickness);
@@ -236,12 +276,12 @@ public final class OrbitSkyRenderer {
         RenderSystem.setShader(() -> shader);
         shader.safeGetUniform("CameraPosition").set(cameraLocal.x, cameraLocal.y, cameraLocal.z);
         shader.safeGetUniform("LightDirection").set(lightLocal.x, lightLocal.y, lightLocal.z);
-        shader.safeGetUniform("DayColor").set((float) dayColor.red(), (float) dayColor.green(),
-                (float) dayColor.blue());
-        shader.safeGetUniform("SunsetColor").set((float) sunsetColor.red(), (float) sunsetColor.green(),
-                (float) sunsetColor.blue());
-        shader.safeGetUniform("NightColor").set((float) nightColor.red(), (float) nightColor.green(),
-                (float) nightColor.blue());
+        shader.safeGetUniform("DayColor").set((float) (dayColor.red() * relativityTint.red()),
+                (float) (dayColor.green() * relativityTint.green()), (float) (dayColor.blue() * relativityTint.blue()));
+        shader.safeGetUniform("SunsetColor").set((float) (sunsetColor.red() * relativityTint.red()),
+                (float) (sunsetColor.green() * relativityTint.green()), (float) (sunsetColor.blue() * relativityTint.blue()));
+        shader.safeGetUniform("NightColor").set((float) (nightColor.red() * relativityTint.red()),
+                (float) (nightColor.green() * relativityTint.green()), (float) (nightColor.blue() * relativityTint.blue()));
         shader.safeGetUniform("RegionBrightness").set((float) atmosphere.dayBrightness(),
                 (float) atmosphere.sunsetBrightness(), (float) atmosphere.nightBrightness());
         shader.safeGetUniform("LightTransitions").set((float) atmosphere.dayTransition(),
@@ -253,6 +293,7 @@ public final class OrbitSkyRenderer {
         shader.safeGetUniform("AtmosphereThickness").set(thickness);
         shader.safeGetUniform("Density").set(density);
         shader.safeGetUniform("Alpha").set((float) body.cubeAlpha());
+        configureSatelliteShadows(shader, body, rotation, calendarTicks);
         GenesisPlanetMesh.drawAtmosphere(poseStack, projectionMatrix);
         RenderSystem.depthMask(true);
         poseStack.popPose();
@@ -268,8 +309,8 @@ public final class OrbitSkyRenderer {
      * Heading remains zero in ordinary orbit so the already-moving observer produces a visible
      * 8000-tick circuit; only departure/cruise/arrival apply an additional route heading.
      */
-    static Quaternionf viewOrientation(double headingRadians) {
-        return OrbitVisualRules.stationViewOrientation(headingRadians);
+    static Quaternionf viewOrientation(OrbitVisualRules.Frame frame) {
+        return OrbitVisualRules.frameViewOrientation(frame);
     }
 
     private static Vector3f localVector(CelestialVector vector,
@@ -282,6 +323,44 @@ public final class OrbitSkyRenderer {
             local.normalize();
         }
         return local;
+    }
+
+    /** Uploads a small fixed set of OBB casters; no shadow texture or framebuffer is allocated. */
+    private static void configureSatelliteShadows(ShaderInstance shader,
+                                                  OrbitVisualRules.BodyLayer body,
+                                                  Quaternionf parentRotation,
+                                                  double calendarTicks) {
+        shader.safeGetUniform("ShadowCount").set(body.satelliteShadows().size());
+        shader.safeGetUniform("SunHalfTangent").set((float) body.sunHalfTangent());
+        Quaternionf parentInverse = new Quaternionf(parentRotation).conjugate();
+        for (int index = 0; index < body.satelliteShadows().size(); index++) {
+            OrbitVisualRules.SatelliteShadow shadow = body.satelliteShadows().get(index);
+            Vector3f center = vector3f(shadow.relativePosition());
+            parentInverse.transform(center);
+            center.div((float) body.radius());
+
+            Quaternionf satelliteRotation = bodyRotation(shadow.satellite(), calendarTicks);
+            Vector3f axisX = new Vector3f(1.0F, 0.0F, 0.0F);
+            Vector3f axisY = new Vector3f(0.0F, 1.0F, 0.0F);
+            Vector3f axisZ = new Vector3f(0.0F, 0.0F, 1.0F);
+            satelliteRotation.transform(axisX);
+            satelliteRotation.transform(axisY);
+            satelliteRotation.transform(axisZ);
+            parentInverse.transform(axisX).normalize();
+            parentInverse.transform(axisY).normalize();
+            parentInverse.transform(axisZ).normalize();
+
+            String suffix = Integer.toString(index);
+            shader.safeGetUniform("ShadowCenter" + suffix).set(center.x, center.y, center.z);
+            shader.safeGetUniform("ShadowHalfSize" + suffix).set((float) shadow.halfSize());
+            shader.safeGetUniform("ShadowAxisX" + suffix).set(axisX.x, axisX.y, axisX.z);
+            shader.safeGetUniform("ShadowAxisY" + suffix).set(axisY.x, axisY.y, axisY.z);
+            shader.safeGetUniform("ShadowAxisZ" + suffix).set(axisZ.x, axisZ.y, axisZ.z);
+        }
+    }
+
+    private static Vector3f vector3f(CelestialVector vector) {
+        return new Vector3f((float) vector.x(), (float) vector.y(), (float) vector.z());
     }
 
     private static Vec3 vector(CelestialVector vector) {

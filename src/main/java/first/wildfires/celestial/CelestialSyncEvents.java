@@ -4,6 +4,7 @@ import first.wildfires.Wildfires;
 import first.wildfires.network.CelestialSettingsSyncPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
@@ -12,6 +13,12 @@ import net.minecraftforge.fml.common.Mod;
 public final class CelestialSyncEvents {
 
     private CelestialSyncEvents() {
+    }
+
+    /** Creates and dirties the world-specific ephemeris as part of world startup, before any login sync. */
+    @SubscribeEvent
+    public static void onServerStarted(ServerStartedEvent event) {
+        CelestialEphemerisSavedData.get(event.getServer());
     }
 
     @SubscribeEvent
@@ -31,7 +38,8 @@ public final class CelestialSyncEvents {
 
     private static void sync(net.minecraft.world.entity.player.Player player) {
         if (player instanceof ServerPlayer serverPlayer) {
-            new CelestialSettingsSyncPacket(CelestialConfig.serverSettings()).sendTo(serverPlayer);
+            new CelestialSettingsSyncPacket(CelestialConfig.serverSettings().withOrbitalPhases(
+                    CelestialEphemerisSavedData.get(serverPlayer.server).phases())).sendTo(serverPlayer);
         }
     }
 }

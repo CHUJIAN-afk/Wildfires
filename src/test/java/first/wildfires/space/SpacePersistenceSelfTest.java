@@ -5,6 +5,9 @@ import com.mojang.serialization.JsonOps;
 import first.wildfires.space.celestial.CelestialDefinition;
 import first.wildfires.space.celestial.CelestialRegistrySnapshot;
 import first.wildfires.space.route.StationRouteDefinition;
+import first.wildfires.space.route.StationTravelMode;
+import first.wildfires.space.station.StationJourney;
+import first.wildfires.space.station.StationJourneyPhase;
 import first.wildfires.space.station.SpaceSavedData;
 import first.wildfires.space.station.StationAuditEntry;
 import first.wildfires.space.station.StationPermission;
@@ -46,6 +49,7 @@ public final class SpacePersistenceSelfTest {
         stationPermissionsRevisionAndDirtyStateAreAuthoritative();
         stationLimitsAreEnforced();
         savedDataRoundTripsAndNewerVersionsStayReadOnly();
+        jumpJourneyRoundTripsWithoutBlockingSpaceData();
         oneThousandStationsAllocateWithoutConflict();
         retiredRegionsAreNotAutomaticallyReused();
         removedDefinitionsFaultAndOrphanWithoutOverworldFallback();
@@ -205,6 +209,35 @@ public final class SpacePersistenceSelfTest {
         malformedLegacy.putString("stations", "not-a-list");
         assertFalse(SpaceSavedData.load(malformedLegacy).writable(),
                 "wrong legacy NBT type is not silently replaced during migration");
+    }
+
+    private static void jumpJourneyRoundTripsWithoutBlockingSpaceData() {
+        SpaceSavedData data = new SpaceSavedData();
+        CelestialRegistrySnapshot definitions = builtInSnapshot(1L, loadBuiltInCelestials());
+        UUID stationId = uuid("jump-roundtrip-station");
+        UUID owner = uuid("jump-roundtrip-owner");
+        StationRecord created = StationService.create(data, stationId, "Jump Round Trip", owner,
+                EARTH, definitions, 320L).station().orElseThrow();
+        StationJourney journey = new StationJourney(uuid("jump-roundtrip-journey"),
+                id("orbital_transfer/earth_to/mars"), EARTH, MARS, StationTravelMode.JUMP,
+                StationJourneyPhase.JUMP_CRUISING, 400L, 160L, owner);
+        StationJourneyService.State active = new StationJourneyService.State(EARTH,
+                Optional.of(journey), created.revision() + 1L);
+        StationService.OperationResult applied = StationService.applyJourneyStateSystem(data, stationId,
+                active, StationStatus.ACTIVE, 400L);
+        assertEquals(StationService.OperationStatus.SUCCESS, applied.status(),
+                "jump journey stored before SavedData round-trip");
+
+        SpaceSavedData decoded = SpaceSavedData.load(data.save(new CompoundTag()));
+        assertTrue(decoded.writable(), "schema-2 jump journey keeps space data writable");
+        StationRecord restored = decoded.station(stationId).orElseThrow();
+        StationJourney restoredJourney = restored.journey().orElseThrow();
+        assertEquals(journey, restoredJourney, "schema-2 jump journey fields round-trip exactly");
+        assertEquals(StationTravelMode.JUMP, restoredJourney.mode(), "jump mode survives NBT reload");
+        assertEquals(stationId,
+                decoded.stationAt(restored.region().centerX(), restored.region().centerZ())
+                        .orElseThrow().stationId(),
+                "station region lookup survives active jump reload");
     }
 
     private static void oneThousandStationsAllocateWithoutConflict() {

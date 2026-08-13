@@ -1,0 +1,10 @@
+{
+  "loader": "forge:obj",
+  "flip_v": true,
+  "model": "wildfires:models/third_party/ntm_space/docking_port.obj",
+  "mtl_override": "wildfires:models/third_party/ntm_space/docking_port.mtl",
+  "automatic_culling": false,
+  "textures": {
+    "particle": "wildfires:third_party/ntm_space/docking_port"
+  }
+}

@@ -30,7 +30,8 @@ public final class CelestialConfigEvents {
         var server = ServerLifecycleHooks.getCurrentServer();
         if (server != null) {
             server.execute(() -> server.getPlayerList().getPlayers().forEach(player ->
-                    new CelestialSettingsSyncPacket(CelestialConfig.serverSettings()).sendTo(player)));
+                    new CelestialSettingsSyncPacket(CelestialConfig.serverSettings().withOrbitalPhases(
+                            CelestialEphemerisSavedData.get(server).phases())).sendTo(player)));
         }
     }
 }

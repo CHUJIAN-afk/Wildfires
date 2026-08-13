@@ -3,6 +3,7 @@ package first.wildfires.network;
 import first.wildfires.space.celestial.ObservationContext;
 import first.wildfires.space.celestial.ObservationJourney;
 import first.wildfires.space.station.StationJourneyPhase;
+import first.wildfires.space.route.StationTravelMode;
 import first.wildfires.space.station.StationRegion;
 import first.wildfires.space.station.StationStatus;
 import net.minecraft.network.FriendlyByteBuf;
@@ -31,6 +32,7 @@ final class SpacePacketCodecs {
         context.journey().ifPresent(journey -> {
             writeResourceId(buffer, journey.fromBody());
             writeResourceId(buffer, journey.toBody());
+            buffer.writeUtf(journey.mode().id(), MAX_STABLE_ID_LENGTH);
             buffer.writeUtf(journey.phase().id(), MAX_STABLE_ID_LENGTH);
             buffer.writeLong(journey.phaseStartedGameTime());
             buffer.writeLong(journey.phaseDurationTicks());
@@ -50,12 +52,14 @@ final class SpacePacketCodecs {
         if (buffer.readBoolean()) {
             ResourceLocation from = readResourceId(buffer);
             ResourceLocation to = readResourceId(buffer);
+            StationTravelMode mode = StationTravelMode.fromId(buffer.readUtf(MAX_STABLE_ID_LENGTH))
+                    .orElseThrow(() -> new IllegalArgumentException("Unknown station travel mode"));
             String phaseId = buffer.readUtf(MAX_STABLE_ID_LENGTH);
             StationJourneyPhase phase = StationJourneyPhase.fromId(phaseId)
                     .orElseThrow(() -> new IllegalArgumentException("Unknown station journey phase: " + phaseId));
             long started = requireNonNegative(buffer.readLong(), "journey start");
             long duration = requireNonNegative(buffer.readLong(), "journey duration");
-            journey = Optional.of(new ObservationJourney(from, to, phase, started, duration));
+            journey = Optional.of(new ObservationJourney(from, to, mode, phase, started, duration));
         }
         long generation = requireNonNegative(buffer.readLong(), "celestial registry generation");
         return new ObservationContext(stationId, revision, region, currentBody, status, journey, generation);

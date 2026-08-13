@@ -3,7 +3,8 @@
  * Copyright NTM: Space contributors.
  * SPDX-License-Identifier: LGPL-3.0-only
  * Wildfires modifications: ported fixed-function GL rendering to Forge 1.20.1 buffers and
- * RenderSystem state, and consumes Wildfires CelestialState-derived visual layers.
+ * RenderSystem state, consumes Wildfires CelestialState-derived visual layers, and keeps the
+ * cubemap rigid while a Wildfires shader slides its atlas sampling during jumps.
  */
 package first.wildfires.client.space.render;
 
@@ -17,6 +18,7 @@ import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexBuffer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
@@ -52,7 +54,37 @@ public final class NtmOrbitSkyRenderer {
     private NtmOrbitSkyRenderer() {
     }
 
-    public static void drawNight(PoseStack poseStack, Matrix4f projectionMatrix, double starVisibility) {
+    public static void drawNight(PoseStack poseStack, Matrix4f projectionMatrix, double starVisibility,
+                                 RelativisticVisualRules.State relativity,
+                                 first.wildfires.api.celestial.CelestialVector velocityDirection) {
+        ensure();
+        drawVacuumBackdrop(poseStack, projectionMatrix);
+
+        enableAdditiveBlend();
+        ShaderInstance relativisticSky = relativity.active() ? RelativisticSkyShader.get() : null;
+        RenderSystem.setShader(relativisticSky == null ? GameRenderer::getPositionTexShader : () -> relativisticSky);
+        RenderSystem.setShaderTexture(0, NIGHT);
+        float visualStarAlpha = (float) RelativisticVisualRules.starVisibility(starVisibility, relativity);
+        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, visualStarAlpha);
+        poseStack.pushPose();
+        poseStack.scale(106.0F, 106.0F, 106.0F);
+        nightSkybox.bind();
+        if (relativisticSky != null) {
+            relativisticSky.safeGetUniform("Velocity").set((float) velocityDirection.x(),
+                    (float) velocityDirection.y(), (float) velocityDirection.z());
+            relativisticSky.safeGetUniform("Beta").set((float) relativity.beta());
+            relativisticSky.safeGetUniform("AberrationBeta").set((float) relativity.aberrationBeta());
+            // The shader applies direction-dependent RGB/brightness. Keep this only as the NTM
+            // atlas' global visibility/opacity gate, so gameplay light remains untouched.
+            RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, visualStarAlpha);
+        }
+        nightSkybox.drawWithShader(poseStack.last().pose(), projectionMatrix, RenderSystem.getShader());
+        VertexBuffer.unbind();
+        poseStack.popPose();
+    }
+
+    /** Opaque NTM vacuum used even while station/celestial context is temporarily unavailable. */
+    public static void drawVacuumBackdrop(PoseStack poseStack, Matrix4f projectionMatrix) {
         ensure();
         // NTM orbit's WorldProvider returns exactly black sky/fog. The 1.20 renderer otherwise
         // leaves the clear/fog colour behind the additive atlas, producing the incorrect blue void.
@@ -64,18 +96,11 @@ public final class NtmOrbitSkyRenderer {
         blackSkybox.drawWithShader(poseStack.last().pose(), projectionMatrix, RenderSystem.getShader());
         VertexBuffer.unbind();
         poseStack.popPose();
+    }
 
-        enableAdditiveBlend();
-        RenderSystem.setShader(GameRenderer::getPositionTexShader);
-        RenderSystem.setShaderTexture(0, NIGHT);
-        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F,
-                (float) Math.max(0.0D, Math.min(0.6D, starVisibility * 0.6D)));
-        poseStack.pushPose();
-        poseStack.scale(106.0F, 106.0F, 106.0F);
-        nightSkybox.bind();
-        nightSkybox.drawWithShader(poseStack.last().pose(), projectionMatrix, RenderSystem.getShader());
-        VertexBuffer.unbind();
-        poseStack.popPose();
+    public static void drawNight(PoseStack poseStack, Matrix4f projectionMatrix, double starVisibility) {
+        drawNight(poseStack, projectionMatrix, starVisibility, new RelativisticVisualRules.State(0.0D),
+                new first.wildfires.api.celestial.CelestialVector(0.0D, 0.0D, 1.0D));
     }
 
     public static void drawSun(OrbitVisualRules.SunLayer sun, PoseStack poseStack) {
@@ -85,12 +110,14 @@ public final class NtmOrbitSkyRenderer {
         // old fixed-function path and creates black rims/stripes on modern drivers.
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
+        RelativisticVisualRules.Tint tint = sun.tint();
         drawBillboardAt(SUN, direction, sun.renderDistance(), sun.renderHalfSize(),
-                1.0F, 1.0F, 1.0F, 1.0F, poseStack);
+                (float) tint.red(), (float) tint.green(), (float) tint.blue(), 1.0F, poseStack);
         enableAdditiveBlend();
         // NTM draws the large additive flare after the photosphere.
         drawBillboardAt(SUN_SPIKE, direction, sun.renderDistance() - 0.1D,
-                sun.renderHalfSize() * 3.0D, 1.0F, 1.0F, 1.0F, 1.0F, poseStack);
+                sun.renderHalfSize() * 3.0D, (float) tint.red(), (float) tint.green(),
+                (float) tint.blue(), 1.0F, poseStack);
     }
 
     public static void drawPoint(OrbitVisualRules.BodyLayer body, PoseStack poseStack) {
@@ -98,10 +125,12 @@ public final class NtmOrbitSkyRenderer {
             return;
         }
         OrbitProceduralTexture.Rgba color = OrbitProceduralTexture.pointColor(body.body());
+        RelativisticVisualRules.Tint tint = body.tint();
         double pointHalfSize = body.renderDistance() / 100.0D;
         enableAdditiveBlend();
         drawBillboardAt(PLANET_POINT, vector(body.direction()), body.renderDistance(), pointHalfSize,
-                (float) color.red(), (float) color.green(), (float) color.blue(),
+                (float) (color.red() * tint.red()), (float) (color.green() * tint.green()),
+                (float) (color.blue() * tint.blue()),
                 (float) body.pointAlpha(), poseStack);
     }
 

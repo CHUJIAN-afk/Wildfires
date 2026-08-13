@@ -7,12 +7,14 @@ import com.mojang.brigadier.context.CommandContext;
 import first.wildfires.Wildfires;
 import first.wildfires.space.celestial.CelestialRegistryRuntime;
 import first.wildfires.space.SpaceDimensions;
+import first.wildfires.space.content.StationCoreService;
 import first.wildfires.space.station.SpaceSavedData;
 import first.wildfires.space.station.StationRecord;
 import first.wildfires.space.station.StationService;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.UuidArgument;
+import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -40,7 +42,14 @@ public final class SpaceStationCommand {
                                         .executes(SpaceStationCommand::teleport)))
                         .then(Commands.literal("recover")
                                 .then(Commands.argument("station", UuidArgument.uuid())
-                                        .executes(SpaceStationCommand::recover))));
+                                        .executes(SpaceStationCommand::recover))))
+                .then(Commands.literal("returncapsule")
+                        .then(Commands.literal("info")
+                                .then(Commands.argument("capsule", EntityArgument.entity())
+                                        .executes(SpaceStationCommand::capsuleInfo)))
+                        .then(Commands.literal("recover")
+                                .then(Commands.argument("capsule", EntityArgument.entity())
+                                        .executes(SpaceStationCommand::capsuleRecover))));
     }
 
     private static int create(CommandContext<CommandSourceStack> context) {
@@ -57,6 +66,7 @@ public final class SpaceStationCommand {
                 StringArgumentType.getString(context, "name"), player.getUUID(),
                 Wildfires.rl("earth"), CelestialRegistryRuntime.current(),
                 source.getServer().overworld().getGameTime());
+        result.station().ifPresent(station -> StationCoreService.ensureCore(source.getServer(), station));
         return sendResult(source, result);
     }
 
@@ -133,6 +143,50 @@ public final class SpaceStationCommand {
                 SpaceSavedData.get(source.getServer()), stationId, actor, true,
                 CelestialRegistryRuntime.current(), source.getServer().overworld().getGameTime());
         return sendResult(source, result);
+    }
+
+    private static int capsuleInfo(CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        net.minecraft.world.entity.Entity entity;
+        try {
+            entity = EntityArgument.getEntity(context, "capsule");
+        } catch (com.mojang.brigadier.exceptions.CommandSyntaxException exception) {
+            source.sendFailure(Component.literal(exception.getRawMessage().getString()));
+            return 0;
+        }
+        if (!(entity instanceof first.wildfires.space.capsule.ReusableReturnCapsuleEntity capsule)) {
+            source.sendFailure(Component.literal("Selected entity is not a reusable return capsule"));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("capsule=" + capsule.getUUID()
+                + " state=" + capsule.capsuleState() + " fuel=" + capsule.fuelMb() + "/4000mB"
+                + " station=" + capsule.stationId().map(UUID::toString).orElse("none")
+                + " revision=" + capsule.revision() + " ticket="
+                + capsule.transitionTicket().map(value -> value.ticketId() + "/" + value.stage())
+                .orElse("none")), false);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static int capsuleRecover(CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        net.minecraft.world.entity.Entity entity;
+        try {
+            entity = EntityArgument.getEntity(context, "capsule");
+        } catch (com.mojang.brigadier.exceptions.CommandSyntaxException exception) {
+            source.sendFailure(Component.literal(exception.getRawMessage().getString()));
+            return 0;
+        }
+        if (!(entity instanceof first.wildfires.space.capsule.ReusableReturnCapsuleEntity capsule)) {
+            source.sendFailure(Component.literal("Selected entity is not a reusable return capsule"));
+            return 0;
+        }
+        var result = first.wildfires.space.capsule.ReturnCapsuleService.recoverTransaction(capsule);
+        if (!result.successful()) {
+            source.sendFailure(Component.translatable(result.translationKey()));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.translatable(result.translationKey()), true);
+        return Command.SINGLE_SUCCESS;
     }
 
     private static int sendResult(CommandSourceStack source, StationService.OperationResult result) {

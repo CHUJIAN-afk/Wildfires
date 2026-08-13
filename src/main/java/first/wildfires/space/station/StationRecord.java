@@ -37,7 +37,7 @@ public record StationRecord(
 
     public static final int RECORD_VERSION = 1;
     private static final List<String> JOURNEY_KEYS = List.of(
-            "schema_version", "journey_id", "route_id", "from_body", "to_body", "phase",
+            "schema_version", "journey_id", "route_id", "from_body", "to_body", "mode", "phase",
             "phase_started_game_time", "phase_duration_ticks", "requested_by");
 
     public StationRecord {
@@ -142,6 +142,17 @@ public record StationRecord(
             return this;
         }
         return copy(name, members, currentBody, newJourney, newStatus, docks, ownedReturnCapsules,
+                landingTargets, nextRevision(), gameTime);
+    }
+
+    public StationRecord withReturnCapsule(UUID capsuleId, boolean owned, long gameTime) {
+        Objects.requireNonNull(capsuleId, "capsuleId");
+        Set<UUID> updated = new LinkedHashSet<>(ownedReturnCapsules);
+        boolean changed = owned ? updated.add(capsuleId) : updated.remove(capsuleId);
+        if (!changed) {
+            return this;
+        }
+        return copy(name, members, currentBody, journey, status, docks, updated,
                 landingTargets, nextRevision(), gameTime);
     }
 

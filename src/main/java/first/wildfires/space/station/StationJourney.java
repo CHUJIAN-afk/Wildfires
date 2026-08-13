@@ -1,6 +1,7 @@
 package first.wildfires.space.station;
 
 import net.minecraft.resources.ResourceLocation;
+import first.wildfires.space.route.StationTravelMode;
 
 import java.util.Map;
 import java.util.Objects;
@@ -12,24 +13,35 @@ public record StationJourney(
         ResourceLocation routeId,
         ResourceLocation fromBody,
         ResourceLocation toBody,
+        StationTravelMode mode,
         StationJourneyPhase phase,
         long phaseStartedGameTime,
         long phaseDurationTicks,
         UUID requestedBy) {
 
-    public static final int SNAPSHOT_VERSION = 1;
+    public static final int SNAPSHOT_VERSION = 2;
+
+    /** Source-compatible constructor for legacy normal journeys and tests. */
+    public StationJourney(UUID journeyId, ResourceLocation routeId, ResourceLocation fromBody,
+                          ResourceLocation toBody, StationJourneyPhase phase,
+                          long phaseStartedGameTime, long phaseDurationTicks, UUID requestedBy) {
+        this(journeyId, routeId, fromBody, toBody, StationTravelMode.NORMAL, phase,
+                phaseStartedGameTime, phaseDurationTicks, requestedBy);
+    }
 
     public StationJourney {
         Objects.requireNonNull(journeyId, "journeyId");
         Objects.requireNonNull(routeId, "routeId");
         Objects.requireNonNull(fromBody, "fromBody");
         Objects.requireNonNull(toBody, "toBody");
+        Objects.requireNonNull(mode, "mode");
         Objects.requireNonNull(phase, "phase");
         Objects.requireNonNull(requestedBy, "requestedBy");
         if (fromBody.equals(toBody)) {
             throw new IllegalArgumentException("A station journey cannot target its origin: " + fromBody);
         }
-        if (!phase.isJourneyPhase()) {
+        if (!phase.isJourneyPhase() || (mode == StationTravelMode.NORMAL && phase.isJumpPhase())
+                || (mode == StationTravelMode.JUMP && phase == StationJourneyPhase.CRUISE)) {
             throw new IllegalArgumentException("An active journey cannot store phase: " + phase.id());
         }
         if (phaseStartedGameTime < 0L) {
@@ -58,7 +70,7 @@ public record StationJourney(
     }
 
     public StationJourney withPhase(StationJourneyPhase nextPhase, long startedGameTime, long durationTicks) {
-        return new StationJourney(journeyId, routeId, fromBody, toBody, nextPhase,
+        return new StationJourney(journeyId, routeId, fromBody, toBody, mode, nextPhase,
                 startedGameTime, durationTicks, requestedBy);
     }
 
@@ -73,6 +85,7 @@ public record StationJourney(
                 "route_id", routeId.toString(),
                 "from_body", fromBody.toString(),
                 "to_body", toBody.toString(),
+                "mode", mode.id(),
                 "phase", phase.id(),
                 "phase_started_game_time", Long.toString(phaseStartedGameTime),
                 "phase_duration_ticks", Long.toString(phaseDurationTicks),
@@ -82,7 +95,7 @@ public record StationJourney(
     public static StationJourney fromSnapshot(Map<String, String> snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
         int version = parseInt(required(snapshot, "schema_version"), "schema_version");
-        if (version != SNAPSHOT_VERSION) {
+        if (version != 1 && version != SNAPSHOT_VERSION) {
             throw new IllegalArgumentException("Unsupported station journey snapshot version: " + version);
         }
         return new StationJourney(
@@ -90,6 +103,9 @@ public record StationJourney(
                 parseResourceLocation(required(snapshot, "route_id"), "route_id"),
                 parseResourceLocation(required(snapshot, "from_body"), "from_body"),
                 parseResourceLocation(required(snapshot, "to_body"), "to_body"),
+                version == 1 ? StationTravelMode.NORMAL : StationTravelMode.fromId(required(snapshot, "mode"))
+                        .orElseThrow(() -> new IllegalArgumentException("Unknown station travel mode: "
+                                + snapshot.get("mode"))),
                 StationJourneyPhase.fromId(required(snapshot, "phase"))
                         .orElseThrow(() -> new IllegalArgumentException(
                                 "Unknown station journey phase id: " + snapshot.get("phase"))),

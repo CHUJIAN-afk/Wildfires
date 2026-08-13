@@ -1,0 +1,8 @@
+{
+  "type": "minecraft:block",
+  "pools": [{
+    "rolls": 1,
+    "entries": [{ "type": "minecraft:item", "name": "wildfires:station_jump_test_engine" }],
+    "conditions": [{ "condition": "minecraft:survives_explosion" }]
+  }]
+}

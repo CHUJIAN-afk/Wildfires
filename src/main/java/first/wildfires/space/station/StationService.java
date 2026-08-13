@@ -1,6 +1,7 @@
 package first.wildfires.space.station;
 
 import first.wildfires.space.celestial.CelestialRegistrySnapshot;
+import first.wildfires.space.route.StationRouteSnapshot;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 
@@ -33,10 +34,9 @@ public final class StationService {
         if (data.stations().size() >= SpaceConstants.MAX_STATIONS) {
             return rejected(OperationStatus.STATION_LIMIT, "Station limit reached");
         }
-        if (definitions.lookup(definitions.generation(), initialBody).status()
-                != CelestialRegistrySnapshot.LookupStatus.PRESENT) {
+        if (!StationRouteSnapshot.isTravelBody(definitions, initialBody)) {
             return rejected(OperationStatus.BODY_UNAVAILABLE,
-                    "Initial celestial definition is unavailable: " + initialBody);
+                    "Initial celestial is unavailable or not a non-stellar travel body: " + initialBody);
         }
         try {
             StationRegionAllocator.Allocation allocation = StationRegionAllocator.allocate(
@@ -181,9 +181,7 @@ public final class StationService {
         if (precondition != null) {
             return precondition;
         }
-        CelestialRegistrySnapshot.Lookup lookup = definitions.lookup(
-                definitions.generation(), station.currentBody());
-        if (lookup.status() != CelestialRegistrySnapshot.LookupStatus.PRESENT) {
+        if (!StationRouteSnapshot.isTravelBody(definitions, station.currentBody())) {
             return rejected(OperationStatus.RECOVERY_REQUIRES_VALID_BODY,
                     "Current celestial remains unavailable; explicit future reassignment is required: "
                             + station.currentBody());
@@ -226,20 +224,47 @@ public final class StationService {
     }
 
     public static Optional<BlockPos> safePoint(SpaceSavedData data, UUID stationId) {
+        // The primary dock is now physically occupied by the immutable station core. Player/admin
+        // teleports use the adjacent deck point so nobody materializes inside that anchor block.
         return data.station(stationId).map(StationRecord::primaryDock)
-                .map(StationDockRecord::position);
+                .map(StationDockRecord::position).map(position -> position.above().south(3));
+    }
+
+    public static OperationResult setReturnCapsule(SpaceSavedData data, UUID stationId, UUID capsuleId,
+                                                   boolean owned, long gameTime) {
+        Objects.requireNonNull(data, "data");
+        Objects.requireNonNull(stationId, "stationId");
+        Objects.requireNonNull(capsuleId, "capsuleId");
+        if (!data.writable()) {
+            return rejected(OperationStatus.DATA_READ_ONLY,
+                    data.writeBlockReason().orElse("Space data is read-only"));
+        }
+        StationRecord station = data.station(stationId).orElse(null);
+        if (station == null) {
+            return rejected(OperationStatus.UNKNOWN_STATION, "Unknown station UUID");
+        }
+        try {
+            StationRecord updated = station.withReturnCapsule(capsuleId, owned, requireGameTime(gameTime));
+            if (updated == station) {
+                return noChange(station, "Return capsule ownership is unchanged");
+            }
+            data.replaceStation(updated, Optional.empty(),
+                    StationAuditEntry.Action.RETURN_CAPSULE_CHANGED,
+                    (owned ? "bound=" : "unbound=") + capsuleId, gameTime);
+            return success(updated, owned ? "Return capsule bound" : "Return capsule unbound");
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            return rejected(OperationStatus.INVALID_REQUEST, exception.getMessage());
+        }
     }
 
     private static StationStatus requiredStatus(StationRecord station,
                                                 CelestialRegistrySnapshot definitions) {
-        if (definitions.lookup(definitions.generation(), station.currentBody()).status()
-                != CelestialRegistrySnapshot.LookupStatus.PRESENT) {
+        if (!StationRouteSnapshot.isTravelBody(definitions, station.currentBody())) {
             return StationStatus.ORPHANED;
         }
         if (station.journey().isPresent()) {
             ResourceLocation target = station.journey().orElseThrow().toBody();
-            if (definitions.lookup(definitions.generation(), target).status()
-                    != CelestialRegistrySnapshot.LookupStatus.PRESENT) {
+            if (!StationRouteSnapshot.isTravelBody(definitions, target)) {
                 return StationStatus.FAULTED;
             }
         }

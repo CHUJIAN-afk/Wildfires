@@ -5,14 +5,12 @@ import first.wildfires.space.celestial.CelestialRegistryRuntime;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.AddReloadListenerEvent;
 import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import org.slf4j.Logger;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 
 /** Server runtime holder for the current validated station-route generation. */
 public final class StationRouteRuntime {
@@ -32,7 +30,6 @@ public final class StationRouteRuntime {
             if (forgeRegistered) return;
             forgeRegistered = true;
         }
-        MinecraftForge.EVENT_BUS.addListener(StationRouteRuntime::onReload);
         MinecraftForge.EVENT_BUS.addListener(StationRouteRuntime::onStopped);
     }
 
@@ -42,14 +39,12 @@ public final class StationRouteRuntime {
         }
     }
 
-    private static void onReload(AddReloadListenerEvent event) {
-        RegistryAccess access = event.getRegistryAccess();
-        event.addListener((barrier, resources, prep, reload, background, game) ->
-                CompletableFuture.supplyAsync(() -> Boolean.TRUE, background)
-                        .thenCompose(barrier::wait).thenRunAsync(() -> refresh(access), game));
-    }
-
-    private static void refresh(RegistryAccess access) {
+    /**
+     * Called by {@link CelestialRegistryRuntime} after it has atomically published the matching
+     * celestial generation.  A separate Forge reload listener races that publication and can
+     * otherwise validate every route against the initial empty snapshot.
+     */
+    public static void refreshAfterCelestials(RegistryAccess access) {
         Map<ResourceLocation, StationRouteDefinition> routes = new LinkedHashMap<>();
         StationRouteRegistry.get(access).entrySet().forEach(entry ->
                 routes.put(entry.getKey().location(), entry.getValue()));

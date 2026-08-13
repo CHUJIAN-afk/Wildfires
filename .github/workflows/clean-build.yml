@@ -25,14 +25,17 @@ jobs:
       - name: Configure Gradle cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Cache pinned TFE dev artifact
+      - name: Restore pinned TFE 2.0.1 local dependency
+        id: tfe-cache
         uses: actions/cache@v4
         with:
-          path: |
-            .wildfires-cache
-            run/mods/Wildfire_TerraFirmaEarth-1.20.1-forge-1.1.3.jar
-            run/mods/.wildfires-tfe-dev.properties
-          key: tfe-${{ runner.os }}-1.1.3-94d23b0312b5-${{ hashFiles('build.gradle', 'gradle/tfe-dev-bootstrap.gradle') }}
+          path: .wildfires-cache/tfe-release/Wildfire_TerraFirmaEarth-1.20.1-forge-2.0.1.jar
+          key: tfe-${{ runner.os }}-2.0.1-029ad1a7368b
+
+      - name: Require authorized TFE release cache
+        if: steps.tfe-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: throw 'The fixed-hash TFE 2.0.1 release is absent from the private dependency cache; refusing to build against old or unverified source.'
 
       - name: Build and verify pinned runtime
         run: .\gradlew.bat --no-daemon --console=plain build verifyTfeRuntime

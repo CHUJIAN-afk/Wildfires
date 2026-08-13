@@ -64,6 +64,9 @@ public final class SpaceCoreSelfTest {
                 StationJourneyPhase.ORBITING, "orbiting",
                 StationJourneyPhase.DEPARTING, "departing",
                 StationJourneyPhase.CRUISE, "cruise",
+                StationJourneyPhase.JUMP_ACCELERATING, "jump_accelerating",
+                StationJourneyPhase.JUMP_CRUISING, "jump_cruising",
+                StationJourneyPhase.JUMP_DECELERATING, "jump_decelerating",
                 StationJourneyPhase.ARRIVING, "arriving",
                 StationJourneyPhase.FAULTED, "faulted");
         Set<String> uniqueIds = new HashSet<>();
@@ -148,7 +151,7 @@ public final class SpaceCoreSelfTest {
         assertEquals(original, StationJourney.fromSnapshot(snapshot), "snapshot round-trip");
 
         Map<String, String> unknownVersion = new HashMap<>(snapshot);
-        unknownVersion.put("schema_version", "2");
+        unknownVersion.put("schema_version", "3");
         assertThrows(IllegalArgumentException.class,
                 () -> StationJourney.fromSnapshot(unknownVersion), "unknown snapshot version");
 

@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "IRI",
+    "RPR",
+    "IRI"
+  ],
+  "key": {
+    "I": { "item": "minecraft:iron_nugget" },
+    "R": { "item": "minecraft:redstone" },
+    "P": { "item": "minecraft:paper" }
+  },
+  "result": {
+    "item": "wildfires:station_id_tape",
+    "count": 1
+  }
+}

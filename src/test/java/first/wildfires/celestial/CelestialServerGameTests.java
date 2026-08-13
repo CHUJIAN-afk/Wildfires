@@ -12,8 +12,14 @@ import first.wildfires.space.route.StationRouteRuntime;
 import first.wildfires.space.route.StationTravelRequest;
 import first.wildfires.space.route.StationTravelResult;
 import first.wildfires.space.route.StationTravelService;
+import first.wildfires.space.route.StationTravelMode;
 import first.wildfires.space.content.SpaceContentRegister;
 import first.wildfires.space.content.StationDriveIndex;
+import first.wildfires.space.content.StationJumpDriveIndex;
+import first.wildfires.space.content.StationCoreBlockEntity;
+import first.wildfires.space.content.StationCoreService;
+import first.wildfires.space.capsule.ReusableReturnCapsuleEntity;
+import first.wildfires.space.capsule.ReturnCapsuleFuelTank;
 import first.wildfires.space.station.SpaceSavedData;
 import first.wildfires.space.station.StationRecord;
 import first.wildfires.space.station.StationService;
@@ -27,6 +33,7 @@ import net.dries007.tfc.ForgeEventHandler;
 import net.dries007.tfc.util.calendar.Calendars;
 import net.dries007.tfc.util.climate.Climate;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.Vec3i;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.gametest.framework.GameTest;
@@ -39,15 +46,32 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.LocalMobCapCalculator;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.material.Fluids;
+import net.minecraftforge.fluids.FluidStack;
+import net.minecraftforge.fluids.capability.IFluidHandler;
+import net.minecraftforge.common.util.FakePlayerFactory;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.TransientCraftingContainer;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.context.UseOnContext;
+import net.minecraft.world.item.crafting.CraftingRecipe;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.MobSpawnEvent;
 import net.minecraftforge.event.server.ServerStartingEvent;
@@ -297,6 +321,20 @@ public final class CelestialServerGameTests {
     @GameTest(template = "celestial_empty", batch = "space_station_persistence", timeoutTicks = 200)
     public static void globalStationDataPersistsFromOverworld(GameTestHelper helper) {
         var server = helper.getLevel().getServer();
+        CelestialEphemerisSavedData directEphemeris = server.overworld().getDataStorage().computeIfAbsent(
+                CelestialEphemerisSavedData::load, CelestialEphemerisSavedData::new,
+                CelestialEphemerisSavedData.FILE_ID);
+        CelestialOrbitalPhases startupPhases = directEphemeris.phases();
+        CelestialEphemerisSavedData ephemeris = CelestialEphemerisSavedData.get(server);
+        assertTrue(ephemeris == directEphemeris,
+                "creation ephemeris was not initialized at server startup in overworld DataStorage");
+        CelestialOrbitalPhases phases = ephemeris.phases();
+        assertTrue(phases.equals(startupPhases) && phases.equals(CelestialEphemerisSavedData.load(
+                        ephemeris.save(new CompoundTag())).phases())
+                        && phases.minimumInitialHeliocentricGap(
+                        CelestialConfig.serverSettings().planetSettings())
+                        >= 0.6D / 11.0D - 1.0E-12D,
+                "creation ephemeris did not persist or allowed an initial planetary alignment");
         SpaceSavedData data = SpaceSavedData.get(server);
         SpaceSavedData directOverworldData = server.overworld().getDataStorage().computeIfAbsent(
                 SpaceSavedData::load, SpaceSavedData::new, SpaceSavedData.FILE_ID);
@@ -333,7 +371,7 @@ public final class CelestialServerGameTests {
                         && station.status() == StationStatus.ACTIVE && station.revision() >= 1L,
                 "fixed GameTest station did not retain its authoritative identity or Earth state");
         BlockPos safePoint = StationService.safePoint(data, stationId).orElseThrow();
-        assertTrue(safePoint.equals(station.primaryDock().position())
+        assertTrue(safePoint.equals(station.primaryDock().position().above().south(3))
                         && data.stationAt(safePoint.getX(), safePoint.getZ())
                         .map(value -> value.stationId().equals(stationId)).orElse(false),
                 "station safe point did not resolve back to its allocated region");
@@ -353,15 +391,23 @@ public final class CelestialServerGameTests {
         ServerLevel orbit = server.getLevel(SpaceDimensions.ORBIT);
         assertTrue(orbit != null && orbit.dimension() == SpaceDimensions.ORBIT,
                 "the required wildfires:orbit dimension was not loaded");
-        assertTrue(StationRouteRuntime.current().definitions().size() == 2
-                        && StationRouteRuntime.current().rejected().isEmpty(),
-                "the two built-in P5 test routes were not loaded and validated");
+        ResourceLocation earth = ResourceLocation.fromNamespaceAndPath("wildfires", "earth");
+        ResourceLocation mars = ResourceLocation.fromNamespaceAndPath("wildfires", "mars");
+        ResourceLocation moon = ResourceLocation.fromNamespaceAndPath("wildfires", "moon");
+        var routes = StationRouteRuntime.current();
+        assertTrue(routes.definitions().size() == 306 && routes.rejected().isEmpty()
+                        && routes.route(ResourceLocation.fromNamespaceAndPath("wildfires", "earth_to_mars"))
+                        .isPresent()
+                        && routes.route(first.wildfires.space.route.StationRouteDefinition
+                        .freeTransferId(earth, moon)).isPresent()
+                        && routes.route(first.wildfires.space.route.StationRouteDefinition
+                        .freeTransferId(mars, moon)).isPresent(),
+                "the 18-body stable-orbit transfer graph was not loaded and validated");
         assertTrue(!orbit.dimensionType().bedWorks() && !orbit.dimensionType().respawnAnchorWorks()
                         && !orbit.dimensionType().natural(),
                 "orbit dimension unexpectedly allowed beds, anchors or natural-world semantics");
 
         SpaceSavedData data = SpaceSavedData.get(server);
-        ResourceLocation earth = ResourceLocation.fromNamespaceAndPath("wildfires", "earth");
         UUID firstId = UUID.fromString("d650b0ee-85d2-4b9a-9e73-ad4aa30d6610");
         UUID firstOwner = UUID.fromString("38cf1b16-c614-4558-8808-d7af921c0d1b");
         if (data.station(firstId).isEmpty()) {
@@ -371,7 +417,6 @@ public final class CelestialServerGameTests {
             assertTrue(created.successful(), "first orbit GameTest station could not be created");
         }
         UUID secondId = UUID.fromString("e54121d1-7573-4ba3-ae30-6b8e02006b25");
-        ResourceLocation mars = ResourceLocation.fromNamespaceAndPath("wildfires", "mars");
         if (data.station(secondId).isEmpty()) {
             StationService.OperationResult created = StationService.create(data, secondId,
                     "Second Context Station", UUID.fromString("48c1feef-d155-4382-867a-a04cbd493758"),
@@ -465,6 +510,570 @@ public final class CelestialServerGameTests {
         awaitTravelReady(helper, orbit, stationId, owner, 0);
     }
 
+    @GameTest(template = "celestial_empty", batch = "space_capsule_core", timeoutTicks = 240)
+    public static void stationCoreSelfHealsAndCapsuleUsesForgeWater(GameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        ServerLevel orbit = server.getLevel(SpaceDimensions.ORBIT);
+        assertTrue(orbit != null, "orbit level missing for capsule/core acceptance");
+        SpaceSavedData data = SpaceSavedData.get(server);
+        UUID stationId = UUID.fromString("16f42077-81da-4d4c-a950-d06af305ce56");
+        UUID owner = UUID.fromString("0bda69bf-aa55-4a14-bf05-984743cb83ca");
+        if (data.station(stationId).isEmpty()) {
+            StationService.OperationResult created = StationService.create(data, stationId,
+                    "Capsule Core Station", owner,
+                    ResourceLocation.fromNamespaceAndPath("wildfires", "earth"),
+                    CelestialRegistryRuntime.current(), server.overworld().getGameTime());
+            assertTrue(created.successful(), "capsule/core station could not be created");
+        }
+        StationRecord station = data.station(stationId).orElseThrow();
+        BlockPos corePos = station.primaryDock().position();
+        ChunkPos chunk = new ChunkPos(corePos);
+        orbit.setChunkForced(chunk.x, chunk.z, true);
+        orbit.getChunkAt(corePos);
+        assertTrue(StationCoreService.ensureCore(server, station), "station core did not materialize");
+        assertTrue(orbit.getBlockState(corePos).is(SpaceContentRegister.STATION_CORE.get())
+                        && orbit.getBlockEntity(corePos) instanceof StationCoreBlockEntity core
+                        && core.stationId().filter(stationId::equals).isPresent(),
+                "station core was not bound to its authoritative station");
+        assertTrue(StationCoreService.isComplete(orbit, corePos)
+                        && StationCoreService.structureOffsets().size() == 17,
+                "station core is not the exact 1+17 three-by-three-by-two structure");
+        for (BlockPos offset : StationCoreService.structureOffsets()) {
+            assertTrue(orbit.getBlockState(corePos.offset(offset))
+                            .is(SpaceContentRegister.STATION_STRUCTURE.get()),
+                    "station core proxy missing at " + offset);
+        }
+        assertTrue(orbit.getBlockState(corePos.east(2)).isAir()
+                        && orbit.getBlockState(corePos.west(2)).isAir()
+                        && orbit.getBlockState(corePos.north(2)).isAir()
+                        && orbit.getBlockState(corePos.south(2)).isAir(),
+                "initial station contains blocks outside its sole core structure");
+
+        var coreBlock = SpaceContentRegister.STATION_CORE.get();
+        var coreState = orbit.getBlockState(corePos);
+        var corePlayer = FakePlayerFactory.get(orbit,
+                new GameProfile(UUID.fromString("9013bd94-9244-4dad-9ed7-08ecf03029c8"),
+                        "wildfires-core-breaker"));
+        assertTrue(coreState.getDestroySpeed(orbit, corePos) < 0.0F
+                        && coreBlock.getDestroyProgress(coreState, corePlayer, orbit, corePos) == 0.0F,
+                "station core exposed finite mining progress");
+        assertTrue(!coreBlock.onDestroyedByPlayer(coreState, orbit, corePos, corePlayer,
+                        false, Fluids.EMPTY.defaultFluidState())
+                        && orbit.getBlockState(corePos).is(coreBlock),
+                "station core allowed player destruction");
+        assertTrue(!coreBlock.canEntityDestroy(coreState, orbit, corePos, corePlayer),
+                "station core allowed entity destruction");
+        assertTrue(coreBlock.getPistonPushReaction(coreState)
+                        == net.minecraft.world.level.material.PushReaction.BLOCK,
+                "station core can be moved by a piston");
+        orbit.explode(null, corePos.getX() + 0.5D, corePos.getY() + 0.5D,
+                corePos.getZ() + 0.5D, 8.0F, Level.ExplosionInteraction.BLOCK);
+        assertTrue(orbit.getBlockState(corePos).is(coreBlock)
+                        && !coreBlock.dropFromExplosion(new Explosion(orbit, null,
+                        corePos.getX() + 0.5D, corePos.getY() + 0.5D,
+                        corePos.getZ() + 0.5D, 4.0F, false, Explosion.BlockInteraction.DESTROY)),
+                "station core was destroyed or configured to drop from an explosion");
+
+        orbit.setBlockAndUpdate(corePos, Blocks.AIR.defaultBlockState());
+        ReusableReturnCapsuleEntity capsule = new ReusableReturnCapsuleEntity(orbit,
+                corePos.getX() + 4.5D, corePos.getY() + 1.0D, corePos.getZ() + 0.5D, owner);
+        assertTrue(orbit.addFreshEntity(capsule), "return capsule entity did not spawn");
+        IFluidHandler fluids = capsule.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.FLUID_HANDLER)
+                .orElseThrow(() -> new AssertionError("return capsule exposed no Forge fluid handler"));
+        assertTrue(fluids.fill(new FluidStack(Fluids.LAVA, 1_000), IFluidHandler.FluidAction.EXECUTE) == 0,
+                "return capsule accepted non-water fluid");
+        assertTrue(fluids.fill(new FluidStack(Fluids.WATER, 4_000), IFluidHandler.FluidAction.EXECUTE) == 4_000
+                        && fluids.getFluidInTank(0).getAmount() == ReturnCapsuleFuelTank.CAPACITY_MB,
+                "return capsule did not accept its full Forge water capacity");
+        assertTrue(fluids.drain(1_000, IFluidHandler.FluidAction.EXECUTE).isEmpty()
+                        && fluids.getFluidInTank(0).getAmount() == ReturnCapsuleFuelTank.CAPACITY_MB,
+                "external Forge automation extracted protected propulsion water");
+
+        var bucketPlayer = FakePlayerFactory.get(orbit,
+                new GameProfile(UUID.fromString("c489d41c-1bf1-40a0-b1d5-0757ac8acf9c"),
+                        "wildfires-bucket-pilot"));
+        bucketPlayer.setItemInHand(InteractionHand.OFF_HAND, new ItemStack(Items.WATER_BUCKET));
+        capsule.interact(bucketPlayer, InteractionHand.OFF_HAND);
+        assertTrue(bucketPlayer.getOffhandItem().is(Items.WATER_BUCKET)
+                        && capsule.fuelMb() == ReturnCapsuleFuelTank.CAPACITY_MB,
+                "full capsule consumed an offhand water bucket");
+        assertTrue(fluids.fill(new FluidStack(Fluids.WATER, 1_000),
+                        IFluidHandler.FluidAction.SIMULATE) == 0
+                        && capsule.fuelMb() == ReturnCapsuleFuelTank.CAPACITY_MB,
+                "full capsule Forge simulation accepted water or mutated the tank");
+        bucketPlayer.getAbilities().instabuild = true;
+        fluids.drain(1_000, IFluidHandler.FluidAction.EXECUTE);
+        // External drain is forbidden, so create a separate empty entity for the creative-hand contract.
+        ReusableReturnCapsuleEntity creativeCapsule = new ReusableReturnCapsuleEntity(orbit,
+                corePos.getX() + 7.5D, corePos.getY() + 1.0D, corePos.getZ() + 0.5D, owner);
+        assertTrue(orbit.addFreshEntity(creativeCapsule), "creative bucket capsule did not spawn");
+        bucketPlayer.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.WATER_BUCKET));
+        creativeCapsule.interact(bucketPlayer, InteractionHand.MAIN_HAND);
+        assertTrue(creativeCapsule.fuelMb() == 1_000
+                        && bucketPlayer.getMainHandItem().is(Items.WATER_BUCKET),
+                "creative water bucket did not fill exactly 1000 mB while remaining intact");
+
+        CompoundTag saved = new CompoundTag();
+        capsule.save(saved);
+        ReusableReturnCapsuleEntity restored = new ReusableReturnCapsuleEntity(
+                SpaceContentRegister.REUSABLE_RETURN_CAPSULE.get(), orbit);
+        restored.load(saved);
+        assertTrue(restored.fuelMb() == ReturnCapsuleFuelTank.CAPACITY_MB
+                        && restored.ownerPlayer().filter(owner::equals).isPresent(),
+                "return capsule entity NBT did not preserve fuel or owner");
+
+        helper.runAfterDelay(45, () -> {
+            assertTrue(orbit.getBlockState(corePos).is(SpaceContentRegister.STATION_CORE.get())
+                            && orbit.getBlockEntity(corePos) instanceof StationCoreBlockEntity core
+                            && core.stationId().filter(stationId::equals).isPresent(),
+                    "loaded station core was not restored after forced replacement");
+            capsule.discard();
+            creativeCapsule.discard();
+            orbit.setChunkForced(chunk.x, chunk.z, false);
+            helper.succeed();
+        });
+    }
+
+    @GameTest(template = "celestial_empty", batch = "space_capsule_manufacturing", timeoutTicks = 200)
+    public static void reusableCapsuleRecipeAndDeploymentArePlayerUsable(GameTestHelper helper) {
+        ServerLevel surface = helper.getLevel().getServer().overworld();
+        ResourceLocation recipeId = ResourceLocation.fromNamespaceAndPath(
+                "wildfires", "reusable_return_capsule");
+        var recipe = surface.getRecipeManager().byKey(recipeId).orElse(null);
+        assertTrue(recipe instanceof CraftingRecipe,
+                "reusable return capsule crafting recipe was not loaded");
+
+        AbstractContainerMenu menu = new AbstractContainerMenu(null, -1) {
+            @Override
+            public ItemStack quickMoveStack(net.minecraft.world.entity.player.Player player, int slot) {
+                return ItemStack.EMPTY;
+            }
+
+            @Override
+            public boolean stillValid(net.minecraft.world.entity.player.Player player) {
+                return true;
+            }
+        };
+        TransientCraftingContainer grid = new TransientCraftingContainer(menu, 3, 3);
+        grid.setItem(1, new ItemStack(Items.IRON_INGOT));
+        grid.setItem(3, new ItemStack(Items.IRON_INGOT));
+        grid.setItem(4, new ItemStack(Items.GLASS));
+        grid.setItem(5, new ItemStack(Items.IRON_INGOT));
+        grid.setItem(6, new ItemStack(Items.IRON_INGOT));
+        grid.setItem(7, new ItemStack(Items.IRON_INGOT));
+        grid.setItem(8, new ItemStack(Items.IRON_INGOT));
+        CraftingRecipe crafting = (CraftingRecipe) recipe;
+        assertTrue(crafting.matches(grid, surface),
+                "documented reusable return capsule recipe does not match its 3x3 ingredients");
+        ItemStack manufactured = crafting.assemble(grid, surface.registryAccess());
+        assertTrue(manufactured.is(SpaceContentRegister.REUSABLE_RETURN_CAPSULE_ITEM.get())
+                        && manufactured.getCount() == 1,
+                "reusable return capsule recipe did not produce exactly one deployable capsule");
+        grid.setItem(4, new ItemStack(Items.DIRT));
+        assertTrue(!crafting.matches(grid, surface),
+                "reusable return capsule recipe accepted a non-glass cabin");
+
+        UUID owner = UUID.fromString("7de4f4db-a1ec-4ae9-a7f3-9d79abcbbf5e");
+        var player = FakePlayerFactory.get(surface,
+                new GameProfile(owner, "wildfires-capsule-builder"));
+        BlockPos support = helper.absolutePos(new BlockPos(5, 2, 5));
+        surface.setBlockAndUpdate(support, Blocks.STONE.defaultBlockState());
+        player.moveTo(support.getX() + 3.5D, support.getY() + 1.0D,
+                support.getZ() + 0.5D, 90.0F, 0.0F);
+        player.setItemInHand(InteractionHand.MAIN_HAND, manufactured.copy());
+        BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(support).add(0.0D, 0.5D, 0.0D),
+                Direction.UP, support, false);
+        InteractionResult deployed = manufactured.getItem().useOn(new UseOnContext(
+                surface, player, InteractionHand.MAIN_HAND, player.getMainHandItem(), hit));
+        AABB deploymentArea = new AABB(support.above()).inflate(2.0D, 1.0D, 2.0D);
+        List<ReusableReturnCapsuleEntity> capsules = surface.getEntitiesOfClass(
+                ReusableReturnCapsuleEntity.class, deploymentArea);
+        assertTrue(deployed.consumesAction() && capsules.size() == 1
+                        && capsules.get(0).ownerPlayer().filter(owner::equals).isPresent()
+                        && player.getMainHandItem().isEmpty(),
+                "manufactured capsule did not deploy one owner-bound entity and consume the item");
+        ReusableReturnCapsuleEntity deployedCapsule = capsules.get(0);
+        deployedCapsule.initializeFuelForTesting(2_000);
+        assertTrue(deployedCapsule.hurt(surface.damageSources().playerAttack(player), 1.0F)
+                        && deployedCapsule.isRemoved(),
+                "stable unoccupied return capsule could not be broken for recovery");
+        List<ItemEntity> recoveredDrops = surface.getEntitiesOfClass(ItemEntity.class,
+                deploymentArea, drop -> drop.getItem().is(
+                        SpaceContentRegister.REUSABLE_RETURN_CAPSULE_ITEM.get()));
+        assertTrue(recoveredDrops.size() == 1, "capsule recovery did not create exactly one item");
+        ItemStack recoveredStack = recoveredDrops.get(0).getItem().copy();
+        recoveredDrops.get(0).discard();
+        player.setItemInHand(InteractionHand.MAIN_HAND, recoveredStack);
+        InteractionResult redeployed = recoveredStack.getItem().useOn(new UseOnContext(
+                surface, player, InteractionHand.MAIN_HAND, player.getMainHandItem(), hit));
+        List<ReusableReturnCapsuleEntity> restoredCapsules = surface.getEntitiesOfClass(
+                ReusableReturnCapsuleEntity.class, deploymentArea);
+        assertTrue(redeployed.consumesAction() && restoredCapsules.size() == 1
+                        && restoredCapsules.get(0).fuelMb() == 2_000,
+                "recovered capsule did not redeploy once with its preserved water fuel");
+
+        BlockPos blockedSupport = support.offset(6, 0, 0);
+        surface.setBlockAndUpdate(blockedSupport, Blocks.STONE.defaultBlockState());
+        surface.setBlockAndUpdate(blockedSupport.above(), Blocks.STONE.defaultBlockState());
+        player.setItemInHand(InteractionHand.MAIN_HAND,
+                new ItemStack(SpaceContentRegister.REUSABLE_RETURN_CAPSULE_ITEM.get()));
+        BlockHitResult blockedHit = new BlockHitResult(
+                Vec3.atCenterOf(blockedSupport).add(0.0D, 0.5D, 0.0D),
+                Direction.UP, blockedSupport, false);
+        InteractionResult blocked = player.getMainHandItem().getItem().useOn(new UseOnContext(
+                surface, player, InteractionHand.MAIN_HAND, player.getMainHandItem(), blockedHit));
+        assertTrue(blocked == InteractionResult.FAIL && player.getMainHandItem().getCount() == 1
+                        && surface.getEntitiesOfClass(ReusableReturnCapsuleEntity.class,
+                        new AABB(blockedSupport.above()).inflate(2.0D, 1.0D, 2.0D)).isEmpty(),
+                "blocked capsule deployment consumed the item or spawned an intersecting entity");
+
+        restoredCapsules.forEach(Entity::discard);
+        helper.succeed();
+    }
+
+    @GameTest(template = "celestial_empty", batch = "space_capsule_round_trip", timeoutTicks = 900)
+    public static void reusableCapsuleCompletesAuthoritativeRoundTrip(GameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        ServerLevel surface = server.overworld();
+        ServerLevel orbit = server.getLevel(SpaceDimensions.ORBIT);
+        assertTrue(orbit != null, "orbit level missing for reusable-capsule round trip");
+        SpaceSavedData data = SpaceSavedData.get(server);
+        UUID stationId = UUID.fromString("36ae061d-c903-48c3-a399-16196c7a9b50");
+        UUID owner = UUID.fromString("5158865b-234e-4b59-93e9-420ae975b05d");
+        if (data.station(stationId).isEmpty()) {
+            var created = StationService.create(data, stationId, "Round Trip Station", owner,
+                    ResourceLocation.fromNamespaceAndPath("wildfires", "earth"),
+                    CelestialRegistryRuntime.current(), server.overworld().getGameTime());
+            assertTrue(created.successful(), "round-trip station could not be created");
+        }
+        StationRecord station = data.station(stationId).orElseThrow();
+        for (UUID staleCapsule : List.copyOf(station.ownedReturnCapsules())) {
+            StationService.setReturnCapsule(data, stationId, staleCapsule, false,
+                    server.overworld().getGameTime());
+        }
+        station = data.station(stationId).orElseThrow();
+        assertTrue(station.currentBody().equals(ResourceLocation.fromNamespaceAndPath("wildfires", "earth"))
+                        && station.journey().isEmpty(),
+                "round-trip station is not in stable Earth orbit");
+        BlockPos corePos = station.primaryDock().position();
+        ChunkPos orbitChunk = new ChunkPos(corePos);
+        orbit.setChunkForced(orbitChunk.x, orbitChunk.z, true);
+        assertTrue(StationCoreService.ensureCore(server, station), "round-trip station core is unavailable");
+
+        BlockPos landingBase = helper.absolutePos(new BlockPos(1, 2, 1));
+        surface.setBlockAndUpdate(landingBase.below(), Blocks.STONE.defaultBlockState());
+        var player = FakePlayerFactory.get(surface, new GameProfile(owner, "wildfires-capsule-pilot"));
+        surface.addNewPlayer(player);
+        ItemStack manufactured = manufactureReusableCapsule(surface);
+        player.setItemInHand(InteractionHand.MAIN_HAND, manufactured);
+        BlockPos deploymentSupport = landingBase.below();
+        BlockHitResult deploymentHit = new BlockHitResult(Vec3.atCenterOf(deploymentSupport)
+                .add(0.0D, 0.5D, 0.0D), Direction.UP, deploymentSupport, false);
+        InteractionResult deployment = manufactured.getItem().useOn(new UseOnContext(
+                surface, player, InteractionHand.MAIN_HAND, player.getMainHandItem(), deploymentHit));
+        List<ReusableReturnCapsuleEntity> deployed = surface.getEntitiesOfClass(
+                ReusableReturnCapsuleEntity.class, new AABB(landingBase).inflate(2.0D, 1.0D, 2.0D));
+        assertTrue(deployment.consumesAction() && deployed.size() == 1
+                        && deployed.get(0).ownerPlayer().filter(owner::equals).isPresent()
+                        && player.getMainHandItem().isEmpty(),
+                "manufactured return capsule did not deploy through its production item entry point");
+        ReusableReturnCapsuleEntity capsule = deployed.get(0);
+        UUID capsuleId = capsule.getUUID();
+        var tapePlayer = FakePlayerFactory.get(orbit,
+                new GameProfile(owner, "wildfires-station-tape-programmer"));
+        ItemStack stationTape = new ItemStack(SpaceContentRegister.STATION_ID_TAPE.get());
+        tapePlayer.setItemInHand(InteractionHand.MAIN_HAND, stationTape);
+        InteractionResult programmed = orbit.getBlockState(corePos).use(orbit, tapePlayer,
+                InteractionHand.MAIN_HAND, new BlockHitResult(Vec3.atCenterOf(corePos),
+                Direction.UP, corePos, false));
+        assertTrue(programmed.consumesAction()
+                        && first.wildfires.space.content.StationIdTapeItem.stationId(stationTape)
+                        .filter(stationId::equals).isPresent(),
+                "station core did not program an authoritative station-ID tape");
+        player.setItemInHand(InteractionHand.OFF_HAND, stationTape.copy());
+        capsule.interact(player, InteractionHand.OFF_HAND);
+        assertTrue(capsule.stationId().filter(stationId::equals).isPresent(),
+                "station-ID tape did not bind the surface capsule to the target station");
+        IFluidHandler fluids = capsule.getCapability(
+                net.minecraftforge.common.capabilities.ForgeCapabilities.FLUID_HANDLER)
+                .orElseThrow(() -> new AssertionError("return capsule has no Forge fluid capability"));
+        assertTrue(fluids.fill(new FluidStack(Fluids.WATER, 3_000),
+                        IFluidHandler.FluidAction.EXECUTE) == 3_000,
+                "Forge water did not prepare the first three capsule buckets");
+
+        player.moveTo(capsule.getX(), capsule.getY() + 1.0D, capsule.getZ(), 0.0F, 0.0F);
+        player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.WATER_BUCKET));
+        capsule.interact(player, InteractionHand.MAIN_HAND);
+        assertTrue(capsule.fuelMb() == 4_000 && player.getMainHandItem().is(Items.BUCKET),
+                "water-bucket interaction was not an atomic 1000 mB fill");
+        assertTrue(player.startRiding(capsule, true), "test pilot could not board the capsule");
+        double launchY = capsule.getY();
+        assertTrue(first.wildfires.space.capsule.ReturnCapsuleService
+                        .requestPrimaryAction(player, capsule).successful(),
+                "surface launch request was rejected");
+
+        helper.runAfterDelay(50, () -> {
+            Entity stillSurface = surface.getEntity(capsuleId);
+            assertTrue(stillSurface instanceof ReusableReturnCapsuleEntity rising
+                            && rising.capsuleState() == first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_LAUNCHING
+                            && rising.getY() > launchY + 20.0D && rising.getY() < launchY + 70.0D,
+                    "surface launch did not follow its continuous ascent trajectory");
+        });
+        helper.runAfterDelay(240, () -> awaitCapsuleDocking(helper, surface, orbit, data,
+                stationId, capsuleId, player, landingBase, orbitChunk, 0));
+    }
+
+    private static ItemStack manufactureReusableCapsule(ServerLevel level) {
+        ResourceLocation recipeId = ResourceLocation.fromNamespaceAndPath(
+                "wildfires", "reusable_return_capsule");
+        var recipe = level.getRecipeManager().byKey(recipeId).orElse(null);
+        assertTrue(recipe instanceof CraftingRecipe,
+                "reusable return capsule recipe was not loaded for the round trip");
+        AbstractContainerMenu menu = new AbstractContainerMenu(null, -1) {
+            @Override
+            public ItemStack quickMoveStack(net.minecraft.world.entity.player.Player player, int slot) {
+                return ItemStack.EMPTY;
+            }
+
+            @Override
+            public boolean stillValid(net.minecraft.world.entity.player.Player player) {
+                return true;
+            }
+        };
+        TransientCraftingContainer grid = new TransientCraftingContainer(menu, 3, 3);
+        grid.setItem(1, new ItemStack(Items.IRON_INGOT));
+        grid.setItem(3, new ItemStack(Items.IRON_INGOT));
+        grid.setItem(4, new ItemStack(Items.GLASS));
+        grid.setItem(5, new ItemStack(Items.IRON_INGOT));
+        grid.setItem(6, new ItemStack(Items.IRON_INGOT));
+        grid.setItem(7, new ItemStack(Items.IRON_INGOT));
+        grid.setItem(8, new ItemStack(Items.IRON_INGOT));
+        CraftingRecipe crafting = (CraftingRecipe) recipe;
+        assertTrue(crafting.matches(grid, level),
+                "reusable return capsule recipe did not match during the round trip");
+        ItemStack result = crafting.assemble(grid, level.registryAccess());
+        assertTrue(result.is(SpaceContentRegister.REUSABLE_RETURN_CAPSULE_ITEM.get())
+                        && result.getCount() == 1,
+                "round-trip manufacturing did not produce exactly one return capsule");
+        return result;
+    }
+
+    @GameTest(template = "celestial_empty", batch = "space_capsule_recovery", timeoutTicks = 240)
+    public static void reusableCapsuleRecoversPreparedFuelTransactionExactlyOnce(GameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        ServerLevel surface = server.overworld();
+        ServerLevel orbit = server.getLevel(SpaceDimensions.ORBIT);
+        assertTrue(orbit != null, "orbit level missing for reusable-capsule recovery");
+        SpaceSavedData data = SpaceSavedData.get(server);
+        UUID stationId = UUID.fromString("dd1c42ab-4b85-4494-a7cc-b4761bde0ad2");
+        UUID owner = UUID.fromString("4ea3dd80-1347-43cc-8b2f-734b5b422443");
+        if (data.station(stationId).isEmpty()) {
+            var created = StationService.create(data, stationId, "Recovery Station", owner,
+                    ResourceLocation.fromNamespaceAndPath("wildfires", "earth"),
+                    CelestialRegistryRuntime.current(), server.overworld().getGameTime());
+            assertTrue(created.successful(), "recovery station could not be created");
+        }
+        StationRecord station = data.station(stationId).orElseThrow();
+        BlockPos corePos = station.primaryDock().position();
+        ChunkPos orbitChunk = new ChunkPos(corePos);
+        orbit.setChunkForced(orbitChunk.x, orbitChunk.z, true);
+        orbit.getChunkAt(corePos);
+        assertTrue(StationCoreService.ensureCore(server, station),
+                "recovery station core is unavailable");
+
+        BlockPos landing = helper.absolutePos(new BlockPos(1, 2, 1));
+        ReusableReturnCapsuleEntity sourceCapsule = new ReusableReturnCapsuleEntity(surface,
+                landing.getX() + 0.5D, landing.getY(), landing.getZ() + 0.5D, owner);
+        assertTrue(surface.addFreshEntity(sourceCapsule), "source recovery capsule did not spawn");
+        sourceCapsule.initializeFuelForTesting(ReturnCapsuleFuelTank.CAPACITY_MB);
+        sourceCapsule.bindStation(stationId);
+        sourceCapsule.setHomeSurface(Level.OVERWORLD.location(), landing);
+        UUID rollbackId = UUID.fromString("af813330-d0d8-4897-889b-b3fb5c4a9883");
+        assertTrue(sourceCapsule.reserveFuelTrip(rollbackId),
+                "source recovery transaction did not reserve one bucket");
+        var rollbackTicket = new first.wildfires.space.capsule.ReturnCapsuleTransitionTicket(
+                rollbackId, stationId,
+                first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Direction.TO_STATION,
+                ResourceLocation.fromNamespaceAndPath("wildfires", "earth"),
+                Level.OVERWORLD.location(), landing, SpaceDimensions.ORBIT.location(), corePos,
+                owner, sourceCapsule.revision(), server.overworld().getGameTime(),
+                first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Stage.PREPARED);
+        sourceCapsule.setTransitionTicket(rollbackTicket);
+        sourceCapsule.setCapsuleState(
+                first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_LAUNCHING);
+        assertTrue(first.wildfires.space.capsule.ReturnCapsuleService
+                        .recoverTransaction(sourceCapsule)
+                        == first.wildfires.space.capsule.ReturnCapsuleService.ActionResult.RECOVERED,
+                "source-side PREPARED recovery was rejected");
+        assertTrue(sourceCapsule.capsuleState()
+                        == first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_LANDED
+                        && sourceCapsule.fuelMb() == ReturnCapsuleFuelTank.CAPACITY_MB
+                        && sourceCapsule.fuelTank().reservation().isEmpty()
+                        && sourceCapsule.fuelTank().lastCommitted().isEmpty()
+                        && sourceCapsule.transitionTicket().isEmpty(),
+                "source recovery did not roll back without consuming water");
+
+        ReusableReturnCapsuleEntity targetCapsule = new ReusableReturnCapsuleEntity(orbit,
+                corePos.getX() + 4.5D, corePos.getY() + 1.0D, corePos.getZ() + 0.5D, owner);
+        assertTrue(orbit.addFreshEntity(targetCapsule), "target recovery capsule did not spawn");
+        targetCapsule.initializeFuelForTesting(ReturnCapsuleFuelTank.CAPACITY_MB);
+        targetCapsule.bindStation(stationId);
+        targetCapsule.setHomeSurface(Level.OVERWORLD.location(), landing);
+        UUID commitId = UUID.fromString("2a832780-a27e-4cc8-98d0-6f7b3c188995");
+        assertTrue(targetCapsule.reserveFuelTrip(commitId),
+                "target recovery transaction did not reserve one bucket");
+        var commitTicket = new first.wildfires.space.capsule.ReturnCapsuleTransitionTicket(
+                commitId, stationId,
+                first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Direction.TO_STATION,
+                ResourceLocation.fromNamespaceAndPath("wildfires", "earth"),
+                Level.OVERWORLD.location(), landing, SpaceDimensions.ORBIT.location(), corePos,
+                owner, targetCapsule.revision(), server.overworld().getGameTime(),
+                first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Stage.PREPARED);
+        targetCapsule.setTransitionTicket(commitTicket);
+        targetCapsule.setCapsuleState(
+                first.wildfires.space.capsule.ReturnCapsuleState.ORBIT_INSERTION);
+        assertTrue(first.wildfires.space.capsule.ReturnCapsuleService
+                        .recoverTransaction(targetCapsule)
+                        == first.wildfires.space.capsule.ReturnCapsuleService.ActionResult.RECOVERED,
+                "target-side PREPARED recovery was rejected");
+        int committedFuel = targetCapsule.fuelMb();
+        assertTrue(targetCapsule.capsuleState()
+                        == first.wildfires.space.capsule.ReturnCapsuleState.STATION_DOCKED
+                        && committedFuel == ReturnCapsuleFuelTank.CAPACITY_MB
+                        - ReturnCapsuleFuelTank.TRIP_COST_MB
+                        && targetCapsule.fuelTank().reservation().isEmpty()
+                        && targetCapsule.fuelTank().lastCommitted().filter(commitId::equals).isPresent()
+                        && targetCapsule.transitionTicket().map(ticket -> ticket.stage()
+                        == first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Stage.COMMITTED)
+                        .orElse(false),
+                "target recovery did not commit exactly one bucket and retain its replay fence");
+        assertTrue(first.wildfires.space.capsule.ReturnCapsuleService
+                        .recoverTransaction(targetCapsule)
+                        == first.wildfires.space.capsule.ReturnCapsuleService.ActionResult.RECOVERED
+                        && targetCapsule.fuelMb() == committedFuel
+                        && targetCapsule.fuelTank().reservation().isEmpty(),
+                "replayed destination recovery consumed a second bucket");
+
+        sourceCapsule.discard();
+        targetCapsule.discard();
+        orbit.setChunkForced(orbitChunk.x, orbitChunk.z, false);
+        helper.succeed();
+    }
+
+    private static void awaitCapsuleDocking(GameTestHelper helper, ServerLevel surface,
+                                            ServerLevel orbit, SpaceSavedData data, UUID stationId,
+                                            UUID capsuleId, ServerPlayer player, BlockPos landingBase,
+                                            ChunkPos orbitChunk, int attempts) {
+        Entity arrivedEntity = orbit.getEntity(capsuleId);
+        if (!(arrivedEntity instanceof ReusableReturnCapsuleEntity arrived)
+                || arrived.capsuleState() != first.wildfires.space.capsule.ReturnCapsuleState.STATION_DOCKED) {
+            if (attempts < 160) {
+                helper.runAfterDelay(1, () -> awaitCapsuleDocking(helper, surface, orbit, data,
+                        stationId, capsuleId, player, landingBase, orbitChunk, attempts + 1));
+                return;
+            }
+            assertTrue(arrivedEntity instanceof ReusableReturnCapsuleEntity,
+                    "capsule UUID was not preserved into orbit; entity=" + entityIdentity(arrivedEntity));
+            ReusableReturnCapsuleEntity arrived = (ReusableReturnCapsuleEntity) arrivedEntity;
+            throw new AssertionError(capsuleProgress("orbit", arrived, orbit,
+                    first.wildfires.space.capsule.ReturnCapsuleState.STATION_DOCKED));
+        }
+        assertTrue(arrived.fuelMb() == 3_000,
+                "orbit capsule fuel=" + arrived.fuelMb() + " mB, expected 3000 mB; ticket="
+                        + arrived.transitionTicket());
+        assertTrue(arrived.fuelTank().reservation().isEmpty(),
+                "orbit capsule retained fuel reservation=" + arrived.fuelTank().reservation()
+                        + "; ticket=" + arrived.transitionTicket());
+        assertTrue(player.serverLevel() == orbit,
+                "pilot level=" + player.serverLevel().dimension().location()
+                        + ", expected " + orbit.dimension().location()
+                        + "; vehicle=" + entityIdentity(player.getVehicle()));
+        assertTrue(player.getVehicle() == arrived,
+                "pilot vehicle=" + entityIdentity(player.getVehicle())
+                        + ", expected capsule=" + entityIdentity(arrived)
+                        + "; firstPassenger=" + entityIdentity(arrived.getFirstPassenger()));
+        assertTrue(arrived.getFirstPassenger() == player,
+                "orbit capsule firstPassenger=" + entityIdentity(arrived.getFirstPassenger())
+                        + ", expected pilot=" + entityIdentity(player)
+                        + "; pilotVehicle=" + entityIdentity(player.getVehicle()));
+        StationRecord dockedStation = data.station(stationId).orElseThrow();
+        assertTrue(dockedStation.ownedReturnCapsules().contains(capsuleId)
+                        && first.wildfires.space.capsule.ReturnCapsuleService.allDocked(
+                        orbit.getServer(), dockedStation),
+                "docked capsule did not satisfy station departure interlock");
+        assertTrue(first.wildfires.space.capsule.ReturnCapsuleService
+                        .requestPrimaryAction(player, arrived).successful(),
+                "station undock request was rejected");
+        helper.runAfterDelay(180, () -> awaitCapsuleLanding(helper, surface, orbit, data,
+                stationId, capsuleId, player, landingBase, orbitChunk, 0));
+    }
+
+    private static void awaitCapsuleLanding(GameTestHelper helper, ServerLevel surface,
+                                            ServerLevel orbit, SpaceSavedData data, UUID stationId,
+                                            UUID capsuleId, ServerPlayer player, BlockPos landingBase,
+                                            ChunkPos orbitChunk, int attempts) {
+        Entity landedEntity = surface.getEntity(capsuleId);
+        if (!(landedEntity instanceof ReusableReturnCapsuleEntity landed)
+                || landed.capsuleState() != first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_LANDED) {
+            if (attempts < 180) {
+                helper.runAfterDelay(1, () -> awaitCapsuleLanding(helper, surface, orbit, data,
+                        stationId, capsuleId, player, landingBase, orbitChunk, attempts + 1));
+                return;
+            }
+            assertTrue(landedEntity instanceof ReusableReturnCapsuleEntity,
+                    "capsule UUID was not preserved back to the surface; entity=" + entityIdentity(landedEntity));
+            ReusableReturnCapsuleEntity landed = (ReusableReturnCapsuleEntity) landedEntity;
+            throw new AssertionError(capsuleProgress("surface", landed, surface,
+                    first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_LANDED));
+        }
+        assertTrue(landed.fuelMb() == 2_000,
+                "surface capsule fuel=" + landed.fuelMb() + " mB, expected 2000 mB; ticket="
+                        + landed.transitionTicket());
+        assertTrue(landed.fuelTank().reservation().isEmpty(),
+                "surface capsule retained fuel reservation=" + landed.fuelTank().reservation()
+                        + "; ticket=" + landed.transitionTicket());
+        assertTrue(player.serverLevel() == surface,
+                "pilot level=" + player.serverLevel().dimension().location()
+                        + ", expected " + surface.dimension().location()
+                        + "; vehicle=" + entityIdentity(player.getVehicle()));
+        assertTrue(player.getVehicle() == landed,
+                "pilot vehicle=" + entityIdentity(player.getVehicle())
+                        + ", expected capsule=" + entityIdentity(landed)
+                        + "; firstPassenger=" + entityIdentity(landed.getFirstPassenger()));
+        assertTrue(landed.getFirstPassenger() == player,
+                "surface capsule firstPassenger=" + entityIdentity(landed.getFirstPassenger())
+                        + ", expected pilot=" + entityIdentity(player)
+                        + "; pilotVehicle=" + entityIdentity(player.getVehicle()));
+        assertTrue(landed.position().distanceTo(new net.minecraft.world.phys.Vec3(
+                        landingBase.getX() + 0.5D, landingBase.getY(), landingBase.getZ() + 0.5D)) < 0.01D,
+                "return capsule did not land on its persisted surface endpoint");
+        assertTrue(!first.wildfires.space.capsule.ReturnCapsuleService.allDocked(
+                        surface.getServer(), data.station(stationId).orElseThrow()),
+                "surface capsule incorrectly passed the station departure interlock");
+        StationService.setReturnCapsule(data, stationId, capsuleId, false,
+                surface.getServer().overworld().getGameTime());
+        landed.discard();
+        surface.removePlayerImmediately(player, Entity.RemovalReason.DISCARDED);
+        orbit.setChunkForced(orbitChunk.x, orbitChunk.z, false);
+        helper.succeed();
+    }
+
+    private static String capsuleProgress(String label, ReusableReturnCapsuleEntity capsule,
+                                          ServerLevel level,
+                                          first.wildfires.space.capsule.ReturnCapsuleState expected) {
+        return label + " capsule state=" + capsule.capsuleState() + ", expected " + expected
+                + "; phaseTicks=" + capsule.phaseTicks() + ", tickCount=" + capsule.tickCount
+                + ", pos=" + capsule.position() + ", chunk=" + capsule.chunkPosition()
+                + ", entityTicking=" + level.getChunkSource().isPositionTicking(
+                capsule.chunkPosition().toLong()) + "; ticket=" + capsule.transitionTicket();
+    }
+
+    private static String entityIdentity(Entity entity) {
+        if (entity == null) return "null";
+        return entity.getType() + "[uuid=" + entity.getUUID() + ",id=" + entity.getId()
+                + ",level=" + entity.level().dimension().location() + "]";
+    }
+
     private static void awaitTravelReady(GameTestHelper helper, ServerLevel orbit, UUID stationId,
                                          UUID owner, int attempts) {
         StationRecord station = SpaceSavedData.get(orbit.getServer()).station(stationId).orElseThrow();
@@ -482,20 +1091,30 @@ public final class CelestialServerGameTests {
 
     private static void beginTravelAcceptance(GameTestHelper helper, ServerLevel orbit,
                                               StationRecord station, UUID owner) {
-        BlockPos computerPos = station.region().safePoint();
+        BlockPos computerPos = station.primaryDock().position().east(3);
         BlockPos enginePos = computerPos.east();
+        BlockPos jumpEnginePos = computerPos.west();
+        ChunkPos stationChunk = new ChunkPos(computerPos);
+        orbit.setChunkForced(stationChunk.x, stationChunk.z, true);
+        orbit.getChunkAt(computerPos);
         orbit.setBlockAndUpdate(computerPos, SpaceContentRegister.STATION_CONTROL_COMPUTER.get()
                 .defaultBlockState());
         orbit.setBlockAndUpdate(enginePos, Blocks.AIR.defaultBlockState());
+        orbit.setBlockAndUpdate(jumpEnginePos, Blocks.AIR.defaultBlockState());
+        assertTrue(StationCoreService.ensureCore(orbit.getServer(), station),
+                "station core structure was not complete before travel acceptance");
         assertTrue(orbit.getBlockEntity(computerPos) != null,
                 "station control computer block entity was not created");
 
-        ResourceLocation earth = ResourceLocation.fromNamespaceAndPath("wildfires", "earth");
-        ResourceLocation mars = ResourceLocation.fromNamespaceAndPath("wildfires", "mars");
-        ResourceLocation target = station.currentBody().equals(earth) ? mars : earth;
-        ResourceLocation routeId = station.currentBody().equals(earth)
-                ? ResourceLocation.fromNamespaceAndPath("wildfires", "earth_to_mars")
-                : ResourceLocation.fromNamespaceAndPath("wildfires", "mars_to_earth");
+        ResourceLocation moon = ResourceLocation.fromNamespaceAndPath("wildfires", "moon");
+        ResourceLocation europa = ResourceLocation.fromNamespaceAndPath("wildfires", "europa");
+        ResourceLocation target = station.currentBody().equals(moon) ? europa : moon;
+        ResourceLocation routeId = first.wildfires.space.route.StationRouteDefinition.freeTransferId(
+                station.currentBody(), target);
+        var generatedRoutes = StationRouteRuntime.current().routesFrom(station.currentBody());
+        assertTrue(generatedRoutes.stream().anyMatch(route -> route.id().equals(routeId)
+                        && route.connects(station.currentBody(), target)),
+                "stable orbit did not generate a server-authoritative route to " + target);
         StationTravelRequest request = new StationTravelRequest(computerPos, station.stationId(),
                 station.revision(), routeId);
         StationTravelService.ValidationContext validation = new StationTravelService.ValidationContext() {
@@ -515,6 +1134,11 @@ public final class CelestialServerGameTests {
             public boolean hasLoadedTestEngine(StationRecord current) {
                 return StationDriveIndex.hasLoadedEngine(orbit, current);
             }
+
+            @Override
+            public boolean hasLoadedJumpTestEngine(StationRecord current) {
+                return StationJumpDriveIndex.hasLoadedEngine(orbit, current);
+            }
         };
         SpaceSavedData data = SpaceSavedData.get(orbit.getServer());
         StationTravelResult withoutEngine = StationTravelService.start(data, owner, request,
@@ -527,9 +1151,16 @@ public final class CelestialServerGameTests {
         orbit.setBlockAndUpdate(enginePos, SpaceContentRegister.STATION_TEST_ENGINE.get().defaultBlockState());
         helper.runAfterDelay(2, () -> {
             StationRecord before = data.station(station.stationId()).orElseThrow();
-            assertTrue(orbit.getBlockEntity(enginePos) != null
-                            && StationDriveIndex.hasLoadedEngine(orbit, before),
-                    "placed test engine was not registered as loaded station drive");
+            var engine = orbit.getBlockEntity(enginePos);
+            boolean indexed = StationDriveIndex.hasLoadedEngine(orbit, before);
+            assertTrue(engine != null && indexed,
+                    "placed test engine was not registered as loaded station drive"
+                            + "; engine=" + (engine == null ? "null" : engine.getClass().getName())
+                            + "; engineLevel=" + (engine == null ? "null" : engine.getLevel())
+                            + "; stationAt=" + data.stationAt(enginePos.getX(), enginePos.getZ())
+                            .map(value -> value.stationId().toString()).orElse("none")
+                            + "; expected=" + before.stationId()
+                            + "; dimension=" + orbit.dimension().location());
             StationTravelRequest currentRequest = new StationTravelRequest(computerPos,
                     before.stationId(), before.revision(), routeId);
             StationTravelResult started = StationTravelService.start(data, owner, currentRequest,
@@ -546,10 +1177,55 @@ public final class CelestialServerGameTests {
                                 && arrived.status() == StationStatus.ACTIVE
                                 && arrived.revision() == startedRevision + 3L,
                         "server game-time ticker did not complete the fixed route exactly");
-                orbit.setBlockAndUpdate(enginePos, Blocks.AIR.defaultBlockState());
-                assertTrue(!StationDriveIndex.hasLoadedEngine(orbit, arrived),
-                        "removed test engine remained in the loaded-drive index");
-                helper.succeed();
+                ResourceLocation jumpTarget = ResourceLocation.fromNamespaceAndPath("wildfires", "mars");
+                ResourceLocation jumpRouteId = first.wildfires.space.route.StationRouteDefinition
+                        .freeTransferId(arrived.currentBody(), jumpTarget);
+                StationTravelRequest jumpRequest = new StationTravelRequest(computerPos,
+                        arrived.stationId(), arrived.revision(), jumpRouteId, StationTravelMode.JUMP);
+                StationTravelResult missingJumpEngine = StationTravelService.start(data, owner, jumpRequest,
+                        StationRouteRuntime.current(), CelestialRegistryRuntime.current(), validation,
+                        orbit.getServer().overworld().getGameTime(), UUID.randomUUID());
+                assertTrue(missingJumpEngine.status() == StationTravelResult.Status.NO_JUMP_TEST_ENGINE
+                                && data.station(arrived.stationId()).orElseThrow().revision() == arrived.revision(),
+                        "missing loaded jump engine did not reject atomically: " + missingJumpEngine.status());
+
+                orbit.setBlockAndUpdate(jumpEnginePos,
+                        SpaceContentRegister.STATION_JUMP_TEST_ENGINE.get().defaultBlockState());
+                helper.runAfterDelay(2, () -> {
+                    StationRecord beforeJump = data.station(arrived.stationId()).orElseThrow();
+                    assertTrue(orbit.getBlockEntity(jumpEnginePos) != null
+                                    && StationDriveIndex.hasLoadedEngine(orbit, beforeJump)
+                                    && StationJumpDriveIndex.hasLoadedEngine(orbit, beforeJump),
+                            "both ordinary and jump engines must be loaded before a jump");
+                    StationTravelRequest currentJumpRequest = new StationTravelRequest(computerPos,
+                            beforeJump.stationId(), beforeJump.revision(), jumpRouteId, StationTravelMode.JUMP);
+                    StationTravelResult jumpStarted = StationTravelService.start(data, owner, currentJumpRequest,
+                            StationRouteRuntime.current(), CelestialRegistryRuntime.current(), validation,
+                            orbit.getServer().overworld().getGameTime(), UUID.randomUUID());
+                    assertTrue(jumpStarted.successful()
+                                    && jumpStarted.station().orElseThrow().journey().orElseThrow().mode()
+                                    == StationTravelMode.JUMP,
+                            "loaded dual engines did not allow a server-authoritative jump: "
+                                    + jumpStarted.status());
+                    long jumpStartedRevision = jumpStarted.station().orElseThrow().revision();
+                    helper.runAfterDelay(685, () -> {
+                        StationRecord jumpArrived = data.station(arrived.stationId()).orElseThrow();
+                        assertTrue(jumpArrived.currentBody().equals(jumpTarget)
+                                        && jumpArrived.journey().isEmpty()
+                                        && jumpArrived.status() == StationStatus.ACTIVE
+                                        && jumpArrived.revision() == jumpStartedRevision + 5L,
+                                "server ticker did not complete the 3s/8s/3s jump and normal arrival exactly");
+                        orbit.setBlockAndUpdate(enginePos, Blocks.AIR.defaultBlockState());
+                        orbit.setBlockAndUpdate(jumpEnginePos, Blocks.AIR.defaultBlockState());
+                        helper.runAfterDelay(2, () -> {
+                            assertTrue(!StationDriveIndex.hasLoadedEngine(orbit, jumpArrived)
+                                            && !StationJumpDriveIndex.hasLoadedEngine(orbit, jumpArrived),
+                                    "removed test engines remained in a loaded-drive index");
+                            orbit.setChunkForced(stationChunk.x, stationChunk.z, false);
+                            helper.succeed();
+                        });
+                    });
+                });
             });
         });
     }

@@ -3,7 +3,9 @@
  * Copyright NTM: Space contributors.
  * SPDX-License-Identifier: LGPL-3.0-only
  * Wildfires modifications: ported the visual contracts to Forge 1.20.1 records, replaced the
- * NTM solar system with CelestialState, and retained real Wildfires radii instead of NTM's cap.
+ * NTM solar system with CelestialState, retained real Wildfires radii instead of NTM's cap, and
+ * added direct-line jump phasing, distance-scaled visual travel and a three-dimensional
+ * target-lock presentation.
  */
 package first.wildfires.client.space.render;
 
@@ -11,9 +13,17 @@ import first.wildfires.api.celestial.CelestialBodyState;
 import first.wildfires.api.celestial.CelestialState;
 import first.wildfires.api.celestial.CelestialVector;
 import first.wildfires.celestial.CelestialBodies;
+import first.wildfires.celestial.CelestialMath;
+import first.wildfires.celestial.CelestialPlanetSettings;
+import first.wildfires.celestial.CelestialRuntimeSettings;
+import first.wildfires.celestial.CelestialSettingsCache;
 import first.wildfires.space.celestial.ObservationContext;
 import first.wildfires.space.celestial.ObservationJourney;
 import first.wildfires.space.celestial.CelestialVisualDefinition;
+import first.wildfires.space.celestial.CelestialKind;
+import first.wildfires.space.route.StationTravelMode;
+import first.wildfires.space.route.StationTransferTopology;
+import first.wildfires.space.station.StationJumpTimings;
 import first.wildfires.space.station.StationJourneyPhase;
 import net.minecraft.resources.ResourceLocation;
 import org.joml.Quaternionf;
@@ -25,6 +35,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 /** Pure NTM-style orbit presentation rules driven only by the unified Wildfires ephemeris. */
 public final class OrbitVisualRules {
@@ -35,6 +46,8 @@ public final class OrbitVisualRules {
             WILDFIRES_NAMESPACE, "earth");
     public static final ResourceLocation SUN = ResourceLocation.fromNamespaceAndPath(
             WILDFIRES_NAMESPACE, "sun");
+    public static final ResourceLocation MOON = ResourceLocation.fromNamespaceAndPath(
+            WILDFIRES_NAMESPACE, "moon");
     public static final double NTM_TRANSITION_MIN_SIZE = 0.01D;
     public static final double NTM_TRANSITION_MAX_SIZE = 0.5D;
     public static final double NTM_RENDER_SCALE = 180.0D;
@@ -56,26 +69,69 @@ public final class OrbitVisualRules {
     /** NTM orbit star floor reaches full strength between these heliocentric distances. */
     public static final double NTM_STAR_DISTANCE_START_MILLION_KM = 9.0D;
     public static final double NTM_STAR_DISTANCE_END_MILLION_KM = 30.0D;
+    /** Fixed shader budget; Jupiter's four Galilean moons fit without a dynamic uniform array. */
+    public static final int MAX_SATELLITE_SHADOWS = 4;
+    private static final int MIN_LOCAL_TRANSFER_SAMPLES = 96;
+    private static final int MAX_LOCAL_TRANSFER_SAMPLES = 512;
+    private static final int LOCAL_TRANSFER_SAMPLES_PER_ORBIT = 24;
+    private static final int LOCAL_TRANSFER_CACHE_SIZE = 24;
 
     private static final double EARTH_RADIUS_MILLION_KM = 0.006371D;
     private static final double DEPTH_REFERENCE_MILLION_KM = 0.02D;
     private static final double DEPTH_LOG_SCALE = 18.0D;
     private static final double TAU = Math.PI * 2.0D;
+    private static final Map<LocalTransferCacheKey, CachedLocalTransferPlan> LOCAL_TRANSFER_CACHE =
+            new LinkedHashMap<>(LOCAL_TRANSFER_CACHE_SIZE + 1, 0.75F, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        Map.Entry<LocalTransferCacheKey, CachedLocalTransferPlan> eldest) {
+                    return size() > LOCAL_TRANSFER_CACHE_SIZE;
+                }
+            };
 
     private OrbitVisualRules() {
     }
 
     public static Frame frame(ObservationContext context, CelestialState state, double gameTime) {
+        return frame(context, state, gameTime, state.calendarTicks(), 0.0D, 8);
+    }
+
+    public static Frame frame(ObservationContext context, CelestialState state, double gameTime,
+                              double visualCalendarTicks) {
+        return frame(context, state, gameTime, visualCalendarTicks, 0.0D, 8);
+    }
+
+    public static Frame frame(ObservationContext context, CelestialState state, double gameTime,
+                              double visualCalendarTicks, double calendarTicksPerGameTick) {
+        return frame(context, state, gameTime, visualCalendarTicks, calendarTicksPerGameTick, 8);
+    }
+
+    public static Frame frame(ObservationContext context, CelestialState state, double gameTime,
+                              double visualCalendarTicks, double calendarTicksPerGameTick,
+                              int calendarDaysInMonth) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(state, "state");
         if (!Double.isFinite(gameTime) || gameTime < 0.0D) {
             throw new IllegalArgumentException("Visual game time must be finite and non-negative");
         }
+        if (!Double.isFinite(visualCalendarTicks) || visualCalendarTicks < 0.0D) {
+            throw new IllegalArgumentException("Visual calendar time must be finite and non-negative");
+        }
+        if (!Double.isFinite(calendarTicksPerGameTick) || calendarTicksPerGameTick < 0.0D) {
+            throw new IllegalArgumentException("Calendar rate must be finite and non-negative");
+        }
+        if (calendarDaysInMonth <= 0) {
+            throw new IllegalArgumentException("Calendar days in month must be positive");
+        }
 
         Map<ResourceLocation, BodyEphemeris> ephemeris = bodyEphemeris(state);
-        CelestialVector observer = observerPosition(context, ephemeris, gameTime);
-        double viewRotationRadians = viewRotationRadians(context, ephemeris, gameTime);
-        CelestialVector sunPosition = requireBody(ephemeris, SUN).position();
+        ObservationJourney journey = context.journey().orElse(null);
+        CelestialVector observer = observerPosition(context, ephemeris, gameTime,
+                visualCalendarTicks, calendarTicksPerGameTick, calendarDaysInMonth);
+        double viewRotationRadians = viewRotationRadians(context, ephemeris, gameTime,
+                visualCalendarTicks, calendarTicksPerGameTick, calendarDaysInMonth);
+        BodyEphemeris sunEphemeris = requireBody(ephemeris, SUN);
+        CelestialVector sunPosition = sunEphemeris.position();
         List<BodyLayer> bodies = new ArrayList<>(ephemeris.size() - 1);
         for (Map.Entry<ResourceLocation, BodyEphemeris> entry : ephemeris.entrySet()) {
             if (entry.getKey().equals(SUN)) {
@@ -92,27 +148,54 @@ public final class OrbitVisualRules {
             double pointAlpha = pointAlphaFor(apparentSize);
             CelestialVector lightDirection = ntmFrameVector(
                     body.position().subtract(sunPosition).normalized());
+            List<SatelliteShadow> satelliteShadows = cubeAlpha > 0.001D
+                    ? satelliteShadows(entry.getKey(), body, ephemeris, sunEphemeris)
+                    : List.of();
             double renderDistance = renderDistance(distance);
-            bodies.add(new BodyLayer(entry.getKey(), body.position(),
+            BodyLayer layer = new BodyLayer(entry.getKey(), body.position(),
                     ntmFrameVector(relative.normalized()), distance,
                     body.radius(), apparentSize, renderDistance,
                     cubeHalfSize(body.radius(), distance, renderDistance), pointAlpha, cubeAlpha,
-                    lightDirection));
+                    lightDirection, sunEphemeris.radius()
+                    / body.position().subtract(sunPosition).length(), satelliteShadows);
+            if (journey != null && journey.mode() == StationTravelMode.JUMP
+                    && (journey.phase().isJumpPhase() || journey.phase() == StationJourneyPhase.ARRIVING)
+                    && entry.getKey().equals(journey.toBody())) {
+                layer = layer.jumpTargetApproach(jumpTargetReveal(journey, gameTime));
+            }
+            bodies.add(layer);
         }
         bodies.sort(Comparator.comparingDouble(BodyLayer::distance).reversed());
 
         BodyEphemeris sun = requireBody(ephemeris, SUN);
         CelestialVector relativeSun = sun.position().subtract(observer);
         double sunDistance = Math.max(1.0E-12D, relativeSun.length());
-        double sunApparentSize = ntmSunApparentSize(context, ephemeris, sun, gameTime);
+        double sunApparentSize = ntmSunApparentSize(context, ephemeris, sun, observer, gameTime);
         double sunRenderDistance = renderDistance(sunDistance);
         SunLayer sunLayer = new SunLayer(ntmFrameVector(relativeSun.normalized()), sunDistance,
                 sun.radius(), sunApparentSize, sunRenderDistance,
                 Math.min(sunRenderDistance * 0.72D,
                         ntmBillboardHalfSize(sunApparentSize, sunRenderDistance)));
         OrbitIllumination illumination = orbitIllumination(observer, sun.position(), sunLayer,
-                bodies, state.calendarTicks());
-        return new Frame(observer, viewRotationRadians, sunLayer, bodies, illumination);
+                bodies, visualCalendarTicks);
+        RelativisticVisualRules.State relativity = context.journey()
+                .map(activeJourney -> RelativisticVisualRules.state(activeJourney, gameTime))
+                .orElse(new RelativisticVisualRules.State(0.0D));
+        CelestialVector visibleTargetDirection = bodies.stream()
+                .filter(body -> context.journey().map(activeJourney -> activeJourney.toBody()
+                        .equals(body.body())).orElse(false))
+                .map(BodyLayer::direction).findFirst().orElse(sunLayer.direction());
+        CelestialVector velocityDirection = journey != null && usesFixedJumpDirection(journey, gameTime)
+                ? jumpDirection(journey, ephemeris) : visibleTargetDirection;
+        double targetLockStrength = context.journey()
+                .map(activeJourney -> jumpTargetLockStrength(activeJourney, gameTime))
+                .orElse(0.0D);
+        if (relativity.active()) {
+            sunLayer = sunLayer.relativity(velocityDirection, relativity);
+            bodies = bodies.stream().map(body -> body.relativity(velocityDirection, relativity)).toList();
+        }
+        return new Frame(observer, viewRotationRadians, sunLayer, bodies, illumination, relativity,
+                velocityDirection, targetLockStrength);
     }
 
     /**
@@ -193,6 +276,48 @@ public final class OrbitVisualRules {
                 (float) renderAxis.z());
         return new Quaternionf().rotationTo(new Vector3f(0.0F, 1.0F, 0.0F), axis)
                 .rotateY((float) surfaceRotationRadians(body, calendarTicks));
+    }
+
+    /**
+     * Selects only child cubes whose conservative finite-star penumbra can touch the parent cube.
+     * This is deliberately a broad CPU test: exact umbra/penumbra geometry remains per-fragment so
+     * one three-dimensional shadow crosses planet faces, edges and corners without UV seams.
+     */
+    static List<SatelliteShadow> satelliteShadows(ResourceLocation parentId,
+                                                   BodyEphemeris parent,
+                                                   Map<ResourceLocation, BodyEphemeris> ephemeris,
+                                                   BodyEphemeris sun) {
+        CelestialVector incomingLight = parent.position().subtract(sun.position()).normalized();
+        double sunHalfTangent = sun.radius()
+                / Math.max(1.0E-12D, parent.position().subtract(sun.position()).length());
+        List<SatelliteShadowCandidate> candidates = new ArrayList<>();
+        for (Map.Entry<ResourceLocation, BodyEphemeris> entry : ephemeris.entrySet()) {
+            BodyEphemeris satellite = entry.getValue();
+            if (!parentId.equals(satellite.parent())) {
+                continue;
+            }
+            CelestialVector relative = satellite.position().subtract(parent.position());
+            double signedLightDistance = relative.dot(incomingLight);
+            double satelliteToParent = -signedLightDistance;
+            if (!(satelliteToParent > satellite.radius()) || !Double.isFinite(satelliteToParent)) {
+                continue;
+            }
+            CelestialVector lateralVector = relative.subtract(incomingLight.scale(signedLightDistance));
+            double lateral = lateralVector.length();
+            double parentCorner = Math.sqrt(3.0D) * parent.radius();
+            double satelliteCorner = Math.sqrt(3.0D) * satellite.radius();
+            double squareStarSpread = Math.sqrt(2.0D) * sunHalfTangent * satelliteToParent;
+            if (lateral > parentCorner + satelliteCorner + squareStarSpread) {
+                continue;
+            }
+            double priority = satellite.radius() / satelliteToParent;
+            candidates.add(new SatelliteShadowCandidate(new SatelliteShadow(entry.getKey(),
+                    ntmFrameVector(relative), satellite.radius() / parent.radius()), priority));
+        }
+        candidates.sort(Comparator.comparingDouble(SatelliteShadowCandidate::priority).reversed()
+                .thenComparing(candidate -> candidate.shadow().satellite().toString()));
+        return candidates.stream().limit(MAX_SATELLITE_SHADOWS)
+                .map(SatelliteShadowCandidate::shadow).toList();
     }
 
     /**
@@ -298,7 +423,8 @@ public final class OrbitVisualRules {
      */
     private static double ntmSunApparentSize(ObservationContext context,
                                              Map<ResourceLocation, BodyEphemeris> ephemeris,
-                                             BodyEphemeris sun, double gameTime) {
+                                             BodyEphemeris sun, CelestialVector observer,
+                                             double gameTime) {
         if (context.journey().isEmpty()) {
             return sunSizeAtBody(context.currentBody(), ephemeris, sun);
         }
@@ -309,6 +435,9 @@ public final class OrbitVisualRules {
             case DEPARTING -> source;
             case CRUISE -> lerp(source, target,
                     circularTransfer(phaseProgress(journey, gameTime)));
+            case JUMP_ACCELERATING, JUMP_CRUISING, JUMP_DECELERATING -> apparentSize(
+                    sun.radius(), Math.max(1.0E-12D, sun.position().subtract(observer).length()))
+                    * NTM_SUN_RENDER_SCALE;
             case ARRIVING -> target;
             default -> sunSizeAtBody(context.currentBody(), ephemeris, sun);
         };
@@ -437,7 +566,9 @@ public final class OrbitVisualRules {
      */
     private static double viewRotationRadians(ObservationContext context,
                                               Map<ResourceLocation, BodyEphemeris> ephemeris,
-                                              double gameTime) {
+                                              double gameTime, double calendarTicks,
+                                              double calendarTicksPerGameTick,
+                                              int calendarDaysInMonth) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(ephemeris, "ephemeris");
         if (!Double.isFinite(gameTime)) {
@@ -449,12 +580,19 @@ public final class OrbitVisualRules {
         }
         ObservationJourney journey = context.journey().orElseThrow();
         double travelSkyAngle = wrapRadians(Math.PI
-                + travelAngleRadians(journey.fromBody(), journey.toBody(), ephemeris));
+                + travelAngleRadians(context, journey, ephemeris, gameTime, calendarTicks,
+                calendarTicksPerGameTick, calendarDaysInMonth));
         double progress = phaseProgress(journey, gameTime);
         double targetSkyAngle = 0.0D;
         return switch (journey.phase()) {
-            case DEPARTING -> circularLerpRadians(localSkyAngle, travelSkyAngle, progress);
+            // A jump departure already turns the complete sky through frameViewOrientation.  A
+            // second NTM planar yaw makes both slerp endpoints move and can switch the shortest
+            // quaternion arc midway through the otherwise continuous orbital phasing motion.
+            case DEPARTING -> journey.mode() == StationTravelMode.JUMP
+                    ? localSkyAngle
+                    : circularLerpRadians(localSkyAngle, travelSkyAngle, progress);
             case CRUISE -> travelSkyAngle;
+            case JUMP_ACCELERATING, JUMP_CRUISING, JUMP_DECELERATING -> travelSkyAngle;
             case ARRIVING -> circularLerpRadians(travelSkyAngle, targetSkyAngle, progress);
             default -> localSkyAngle;
         };
@@ -475,6 +613,15 @@ public final class OrbitVisualRules {
      */
     private static double travelAngleRadians(ResourceLocation fromId, ResourceLocation toId,
                                               Map<ResourceLocation, BodyEphemeris> ephemeris) {
+        ResourceLocation localPrimary = localSystemPrimary(fromId, toId, ephemeris);
+        if (localPrimary != null) {
+            CelestialVector route = requireBody(ephemeris, toId).position()
+                    .subtract(requireBody(ephemeris, fromId).position());
+            double planarLength = Math.hypot(route.x(), route.y());
+            if (planarLength > 1.0E-12D) {
+                return wrapRadians(-Math.atan2(route.y(), route.x()) + Math.PI * 0.5D);
+            }
+        }
         CelestialVector sun = requireBody(ephemeris, SUN).position();
         CelestialVector from = requireBody(ephemeris, fromId).position().subtract(sun);
         CelestialVector to = requireBody(ephemeris, toId).position().subtract(sun);
@@ -482,6 +629,29 @@ public final class OrbitVisualRules {
         double angleToTarget = Math.atan2(to.y() - from.y(), to.x() - from.x());
         double apparentAngle = wrapRadians(angleToOrigin - angleToTarget);
         return wrapRadians(-apparentAngle + Math.PI * 0.5D);
+    }
+
+    /**
+     * During local-system cruise the route heading is taken from the locked transfer plan.  Using
+     * the two moons' live positions here makes the complete sky yaw after a moving target even
+     * though the station has already committed to an intercept arc.
+     */
+    private static double travelAngleRadians(ObservationContext context, ObservationJourney journey,
+                                              Map<ResourceLocation, BodyEphemeris> ephemeris,
+                                              double gameTime, double calendarTicks,
+                                              double calendarTicksPerGameTick,
+                                              int calendarDaysInMonth) {
+        ResourceLocation primaryId = localSystemPrimary(journey.fromBody(), journey.toBody(), ephemeris);
+        if (primaryId != null && journey.phase() == StationJourneyPhase.CRUISE) {
+            LocalTransferPlan plan = localSystemTransferPlan(context, journey, ephemeris, primaryId,
+                    gameTime, calendarTicks, calendarTicksPerGameTick, calendarDaysInMonth);
+            CelestialVector route = plan.destination().safeOrbitPoint()
+                    .subtract(plan.source().safeOrbitPoint());
+            if (Math.hypot(route.x(), route.y()) > 1.0E-12D) {
+                return wrapRadians(-Math.atan2(route.y(), route.x()) + Math.PI * 0.5D);
+            }
+        }
+        return travelAngleRadians(journey.fromBody(), journey.toBody(), ephemeris);
     }
 
     /**
@@ -505,26 +675,942 @@ public final class OrbitVisualRules {
                 .rotateX((float) headingRadians);
     }
 
+    /** Complete 3-D view contract: jump alignment overrides the ordinary planar route heading. */
+    static Quaternionf frameViewOrientation(Frame frame) {
+        Objects.requireNonNull(frame, "frame");
+        Quaternionf ordinary = stationViewOrientation(frame.viewRotationRadians());
+        if (!(frame.targetLockStrength() > 0.0D)) {
+            return ordinary;
+        }
+        Quaternionf locked = targetLockOrientation(frame.velocityDirection());
+        return new Quaternionf(ordinary).slerp(locked, (float) frame.targetLockStrength());
+    }
+
+    static Quaternionf targetLockOrientation(CelestialVector direction) {
+        CelestialVector target = Objects.requireNonNull(direction, "direction").normalized();
+        Vector3f forward = new Vector3f((float) target.x(), (float) target.y(), (float) target.z());
+        // ntmFrameVector maps ecliptic north to +X.  Supplying that fixed roll reference avoids
+        // rotationTo's undefined 180-degree axis, which could make the deck flip midway through
+        // an otherwise continuous target turn.  Only an effectively exact polar route uses the
+        // deterministic fallback, keeping ordinary near-polar motion on one continuous branch.
+        Vector3f stableUp = Math.abs(forward.x) < 0.999999F
+                ? new Vector3f(1.0F, 0.0F, 0.0F)
+                : new Vector3f(0.0F, 1.0F, 0.0F);
+        return new Quaternionf().lookAlong(forward, stableUp);
+    }
+
+    private static double jumpTargetLockStrength(ObservationJourney journey, double gameTime) {
+        if (journey.mode() != StationTravelMode.JUMP) return 0.0D;
+        return switch (journey.phase()) {
+            case DEPARTING -> smoothStep01(phaseProgress(journey, gameTime));
+            case JUMP_ACCELERATING, JUMP_CRUISING, JUMP_DECELERATING -> 1.0D;
+            case ARRIVING -> {
+                double elapsed = gameTime - journey.phaseStartedGameTime();
+                if (elapsed <= 10.0D) yield 1.0D;
+                double remainingProgress = (elapsed - 10.0D)
+                        / Math.max(1.0D, journey.phaseDurationTicks() - 10.0D);
+                yield 1.0D - smoothStep01(remainingProgress);
+            }
+            default -> 0.0D;
+        };
+    }
+
+    /**
+     * Keep the departure turn and every straight-flight phase on the same route direction.  Once
+     * the ten-tick target reveal has ended, arrival returns to the live target direction while the
+     * station resumes its ordinary target-centred orbit.
+     */
+    private static boolean usesFixedJumpDirection(ObservationJourney journey, double gameTime) {
+        if (journey.mode() != StationTravelMode.JUMP) return false;
+        if (journey.phase() == StationJourneyPhase.DEPARTING || journey.phase().isJumpPhase()) {
+            return true;
+        }
+        return journey.phase() == StationJourneyPhase.ARRIVING
+                && gameTime - journey.phaseStartedGameTime() <= 10.0D;
+    }
+
+    /** Direct unobstructed heading held from the end of orbital phasing through target reveal. */
+    private static CelestialVector jumpDirection(ObservationJourney journey,
+                                                 Map<ResourceLocation, BodyEphemeris> ephemeris) {
+        double accelerationStart = jumpAccelerationStart(journey);
+        CelestialVector source = jumpLockPosition(journey.fromBody(), journey.toBody(), ephemeris,
+                accelerationStart);
+        return ntmFrameVector(requireBody(ephemeris, journey.toBody()).position()
+                .subtract(source).normalized());
+    }
+
     private static CelestialVector observerPosition(ObservationContext context,
                                                      Map<ResourceLocation, BodyEphemeris> ephemeris,
-                                                     double gameTime) {
+                                                     double gameTime,
+                                                     double calendarTicks,
+                                                     double calendarTicksPerGameTick,
+                                                     int calendarDaysInMonth) {
         if (context.journey().isEmpty()) {
             return orbitPosition(context.currentBody(), ephemeris, gameTime);
         }
         ObservationJourney journey = context.journey().orElseThrow();
         StationJourneyPhase phase = journey.phase();
+        if (phase == StationJourneyPhase.DEPARTING && journey.mode() == StationTravelMode.JUMP) {
+            double lockTime = journey.phaseStartedGameTime() + journey.phaseDurationTicks();
+            CelestialVector currentOrbit = orbitPosition(journey.fromBody(), ephemeris,
+                    journey.phaseStartedGameTime());
+            CelestialVector clearLock = jumpLockPosition(journey.fromBody(), journey.toBody(),
+                    ephemeris, lockTime);
+            BodyEphemeris source = requireBody(ephemeris, journey.fromBody());
+            double orbitRadius = currentOrbit.subtract(source.position()).length();
+            return sphericalArc(source.position(), currentOrbit, clearLock,
+                    smoothStep01(phaseProgress(journey, gameTime)), orbitRadius);
+        }
         if (phase == StationJourneyPhase.DEPARTING) {
             return orbitPosition(journey.fromBody(), ephemeris, gameTime);
         }
         if (phase == StationJourneyPhase.CRUISE) {
+            // A context packet can arrive one or more ticks after the authoritative phase change.
+            // Once cruise has ended, follow the target's live stable orbit instead of freezing at
+            // the old intercept point and then jumping when ARRIVING finally reaches the client.
+            if (gameTime >= journey.phaseStartedGameTime() + journey.phaseDurationTicks()) {
+                return orbitPosition(journey.toBody(), ephemeris, gameTime);
+            }
             CelestialVector from = orbitPosition(journey.fromBody(), ephemeris, gameTime);
             CelestialVector to = orbitPosition(journey.toBody(), ephemeris, gameTime);
-            return mix(from, to, circularTransfer(phaseProgress(journey, gameTime)));
+            BodyEphemeris origin = requireBody(ephemeris, journey.fromBody());
+            BodyEphemeris target = requireBody(ephemeris, journey.toBody());
+            double phaseProgress = phaseProgress(journey, gameTime);
+            ResourceLocation localPrimary = localSystemPrimary(
+                    journey.fromBody(), journey.toBody(), ephemeris);
+            if (localPrimary != null) {
+                LocalTransferPlan plan = localSystemTransferPlan(context, journey, ephemeris,
+                        localPrimary, gameTime, calendarTicks, calendarTicksPerGameTick,
+                        calendarDaysInMonth);
+                return localSystemTransferPosition(plan, phaseProgress);
+            }
+            return safeTransferPosition(from, to, origin, target, circularTransfer(phaseProgress));
+        }
+        if (phase.isJumpPhase()) {
+            JumpLine line = jumpLine(journey, ephemeris);
+            return mix(line.source(), line.revealStart(),
+                    jumpTravelProgress(journey, gameTime, line.joinSpeedFraction()));
         }
         if (phase == StationJourneyPhase.ARRIVING) {
+            if (journey.mode() == StationTravelMode.JUMP) {
+                JumpLine line = jumpLine(journey, ephemeris);
+                double elapsed = clamp(gameTime - journey.phaseStartedGameTime(), 0.0D,
+                        journey.phaseDurationTicks());
+                if (elapsed <= 10.0D) {
+                    return mix(line.revealStart(), line.arrival(),
+                            jumpArrivalApproachProgress(line, elapsed));
+                }
+                CelestialVector ordinaryOrbit = orbitPosition(journey.toBody(), ephemeris, gameTime);
+                BodyEphemeris target = requireBody(ephemeris, journey.toBody());
+                double orbitRadius = line.arrival().subtract(target.position()).length();
+                double orbitProgress = (elapsed - 10.0D)
+                        / Math.max(1.0D, journey.phaseDurationTicks() - 10.0D);
+                return sphericalArc(target.position(), line.arrival(), ordinaryOrbit,
+                        smoothStep01(orbitProgress), orbitRadius);
+            }
             return orbitPosition(journey.toBody(), ephemeris, gameTime);
         }
         return orbitPosition(context.currentBody(), ephemeris, gameTime);
+    }
+
+    /**
+     * Fixed 3/8/3-second displacement contract.  Smoothstep is the velocity curve, not the
+     * position curve: integrating it makes acceleration start at zero, reach the exact cruise
+     * speed at 3 seconds and stay constant for 8 seconds.  Deceleration then reaches the exact
+     * non-zero speed used by the following ten-tick target reveal, rather than stopping at the
+     * phase boundary.  Its denominator includes that route-geometry-dependent terminal speed.
+     */
+    static double jumpTravelProgress(ObservationJourney journey, double gameTime,
+                                     double joinSpeedFraction) {
+        Objects.requireNonNull(journey, "journey");
+        double phase = phaseProgress(journey, gameTime);
+        double acceleration = StationJumpTimings.ACCELERATION_TICKS;
+        double cruise = StationJumpTimings.CRUISE_TICKS;
+        double deceleration = StationJumpTimings.DECELERATION_TICKS;
+        double terminalSpeed = clamp(joinSpeedFraction, 0.0D, 1.0D);
+        double fullSpeedTicks = cruise + 0.5D * acceleration
+                + 0.5D * deceleration * (1.0D + terminalSpeed);
+        return switch (journey.phase()) {
+            case JUMP_ACCELERATING -> acceleration * integratedSmoothStep(phase) / fullSpeedTicks;
+            case JUMP_CRUISING -> (0.5D * acceleration + cruise * phase) / fullSpeedTicks;
+            case JUMP_DECELERATING -> (0.5D * acceleration + cruise
+                    + deceleration * (terminalSpeed * phase
+                    + (1.0D - terminalSpeed) * integratedReverseSmoothStep(phase))) / fullSpeedTicks;
+            default -> journey.phase() == StationJourneyPhase.ARRIVING ? 1.0D : 0.0D;
+        };
+    }
+
+    /** Normalized current speed relative to this route's distance-derived cruise speed. */
+    static double jumpSpeedFraction(ObservationJourney journey, double gameTime,
+                                    double joinSpeedFraction) {
+        double progress = phaseProgress(journey, gameTime);
+        double terminalSpeed = clamp(joinSpeedFraction, 0.0D, 1.0D);
+        return switch (journey.phase()) {
+            case JUMP_ACCELERATING -> smoothStep01(progress);
+            case JUMP_CRUISING -> 1.0D;
+            case JUMP_DECELERATING -> terminalSpeed
+                    + (1.0D - terminalSpeed) * smoothStep01(1.0D - progress);
+            default -> 0.0D;
+        };
+    }
+
+    /** Route-geometry-dependent non-zero speed shared by deceleration and target reveal. */
+    static double jumpJoinSpeedFraction(ObservationJourney journey,
+                                        Map<ResourceLocation, BodyEphemeris> ephemeris) {
+        return jumpLine(journey, ephemeris).joinSpeedFraction();
+    }
+
+    /** Absolute visual cruise distance per server tick for this fixed-time route. */
+    static double jumpCruiseDistancePerTick(ObservationJourney journey,
+                                            Map<ResourceLocation, BodyEphemeris> ephemeris) {
+        JumpLine line = jumpLine(journey, ephemeris);
+        double equivalentFullSpeedTicks = jumpEquivalentFullSpeedTicks(line.joinSpeedFraction());
+        return line.revealStart().subtract(line.source()).length() / equivalentFullSpeedTicks;
+    }
+
+    /** The first ten arrival ticks blend the target point to normal size while approach continues. */
+    static double jumpTargetReveal(ObservationJourney journey, double gameTime) {
+        if (journey.phase().isJumpPhase()) return 0.0D;
+        if (journey.phase() != StationJourneyPhase.ARRIVING) return 1.0D;
+        return smoothStep01((gameTime - journey.phaseStartedGameTime()) / 10.0D);
+    }
+
+    private static JumpLine jumpLine(ObservationJourney journey,
+                                     Map<ResourceLocation, BodyEphemeris> ephemeris) {
+        double accelerationStart = jumpAccelerationStart(journey);
+        CelestialVector source = jumpLockPosition(journey.fromBody(), journey.toBody(), ephemeris,
+                accelerationStart);
+        BodyEphemeris target = requireBody(ephemeris, journey.toBody());
+        CelestialVector inbound = target.position().subtract(source).normalized();
+        double orbitRadius = target.radius()
+                / Math.tan(Math.toRadians(NEAR_PHYSICAL_DIAMETER_DEGREES * 0.5D));
+        CelestialVector arrival = target.position().subtract(inbound.scale(orbitRadius));
+        CelestialVector revealStart = target.position().subtract(inbound.scale(orbitRadius * 8.0D));
+        double jumpDistance = revealStart.subtract(source).length();
+        double revealDistance = arrival.subtract(revealStart).length();
+        double denominator = jumpDistance - 6.0D * revealDistance;
+        double joinSpeedFraction = denominator > 0.0D
+                ? Math.min(1.0D, 44.0D * revealDistance / denominator)
+                : 1.0D;
+        return new JumpLine(source, revealStart, arrival, joinSpeedFraction);
+    }
+
+    /**
+     * Cubic Hermite approach with the deceleration endpoint's exact world speed and zero terminal
+     * speed.  For ordinary interplanetary geometry the solved tangent is two, making this the
+     * integral of a reverse smoothstep velocity; the bounded fallback remains monotonic.
+     */
+    private static double jumpArrivalApproachProgress(JumpLine line, double elapsedTicks) {
+        double duration = 10.0D;
+        double progress = clamp(elapsedTicks / duration, 0.0D, 1.0D);
+        double revealDistance = line.arrival().subtract(line.revealStart()).length();
+        if (!(revealDistance > 0.0D)) return 1.0D;
+        double cruiseSpeed = line.revealStart().subtract(line.source()).length()
+                / jumpEquivalentFullSpeedTicks(line.joinSpeedFraction());
+        double initialTangent = clamp(line.joinSpeedFraction() * cruiseSpeed
+                * duration / revealDistance, 0.0D, 3.0D);
+        double progressSquared = progress * progress;
+        double progressCubed = progressSquared * progress;
+        return initialTangent * (progressCubed - 2.0D * progressSquared + progress)
+                + (-2.0D * progressCubed + 3.0D * progressSquared);
+    }
+
+    private static double jumpEquivalentFullSpeedTicks(double joinSpeedFraction) {
+        return StationJumpTimings.CRUISE_TICKS
+                + 0.5D * StationJumpTimings.ACCELERATION_TICKS
+                + 0.5D * StationJumpTimings.DECELERATION_TICKS
+                * (1.0D + clamp(joinSpeedFraction, 0.0D, 1.0D));
+    }
+
+    private static double jumpAccelerationStart(ObservationJourney journey) {
+        return switch (journey.phase()) {
+            case DEPARTING -> journey.phaseStartedGameTime() + journey.phaseDurationTicks();
+            case JUMP_ACCELERATING -> journey.phaseStartedGameTime();
+            case JUMP_CRUISING -> journey.phaseStartedGameTime() - StationJumpTimings.ACCELERATION_TICKS;
+            case JUMP_DECELERATING -> journey.phaseStartedGameTime()
+                    - StationJumpTimings.ACCELERATION_TICKS - StationJumpTimings.CRUISE_TICKS;
+            case ARRIVING -> journey.phaseStartedGameTime() - StationJumpTimings.ACCELERATION_TICKS
+                    - StationJumpTimings.CRUISE_TICKS - StationJumpTimings.DECELERATION_TICKS;
+            default -> journey.phaseStartedGameTime();
+        };
+    }
+
+    private static double integratedSmoothStep(double value) {
+        double x = clamp(value, 0.0D, 1.0D);
+        return x * x * x - 0.5D * x * x * x * x;
+    }
+
+    private static double integratedReverseSmoothStep(double value) {
+        double x = clamp(value, 0.0D, 1.0D);
+        return x - x * x * x + 0.5D * x * x * x * x;
+    }
+
+    /**
+     * Find the earliest station position with an unobstructed straight segment to the target.
+     * Search the source orbit first (ordinary phasing); only if the entire orbit is blocked do we
+     * advance along the existing safe interplanetary arc until a direct target lock is possible.
+     */
+    static CelestialVector jumpLockPosition(ResourceLocation fromId, ResourceLocation toId,
+                                            Map<ResourceLocation, BodyEphemeris> ephemeris,
+                                            double lockGameTime) {
+        BodyEphemeris source = requireBody(ephemeris, fromId);
+        BodyEphemeris target = requireBody(ephemeris, toId);
+        CelestialVector initial = orbitPosition(fromId, ephemeris, lockGameTime);
+        double orbitRadius = initial.subtract(source.position()).length();
+        double startAngle = Math.atan2(initial.y() - source.position().y(),
+                initial.x() - source.position().x());
+        for (int step = 0; step < 720; step++) {
+            double angle = startAngle + TAU * step / 720.0D;
+            CelestialVector candidate = source.position().add(
+                    new CelestialVector(Math.cos(angle), Math.sin(angle), 0.0D).scale(orbitRadius));
+            if (hasClearTargetLine(candidate, toId, target.position(), ephemeris)) {
+                return candidate;
+            }
+        }
+        CelestialVector targetOrbit = orbitPosition(toId, ephemeris, lockGameTime);
+        for (int step = 1; step <= 720; step++) {
+            CelestialVector candidate = safeTransferPosition(initial, targetOrbit, source, target,
+                    step / 720.0D);
+            if (hasClearTargetLine(candidate, toId, target.position(), ephemeris)) {
+                return candidate;
+            }
+        }
+        return initial;
+    }
+
+    static boolean hasClearTargetLine(CelestialVector observer, ResourceLocation targetId,
+                                      CelestialVector targetPosition,
+                                      Map<ResourceLocation, BodyEphemeris> ephemeris) {
+        CelestialVector segment = targetPosition.subtract(observer);
+        double segmentLengthSquared = segment.dot(segment);
+        if (!(segmentLengthSquared > 1.0E-18D)) return false;
+        for (Map.Entry<ResourceLocation, BodyEphemeris> entry : ephemeris.entrySet()) {
+            if (entry.getKey().equals(targetId)) continue;
+            BodyEphemeris obstacle = entry.getValue();
+            double along = clamp(obstacle.position().subtract(observer).dot(segment)
+                    / segmentLengthSquared, 0.0D, 1.0D);
+            CelestialVector closest = observer.add(segment.scale(along));
+            double conservativeCubeRadius = obstacle.radius() * Math.sqrt(3.0D) * 1.05D;
+            if (closest.subtract(obstacle.position()).length() <= conservativeCubeRadius) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * An NTM-styled transfer must leave the origin orbit tangentially instead of interpolating a
+     * straight world-space chord.  A chord reaches the near side of the origin cube whenever the
+     * target is behind it, exposing the station as if it had flown into the planet.  This cubic
+     * path has outward-and-lateral control points at both stable orbit endpoints, so departure
+     * clears the local body before the long transfer and arrival approaches the destination from
+     * outside its orbit.
+     */
+    static CelestialVector safeTransferPosition(CelestialVector from, CelestialVector to,
+                                                BodyEphemeris origin, BodyEphemeris target,
+                                                double progress) {
+        Objects.requireNonNull(from, "from");
+        Objects.requireNonNull(to, "to");
+        Objects.requireNonNull(origin, "origin");
+        Objects.requireNonNull(target, "target");
+        double value = clamp(progress, 0.0D, 1.0D);
+        CelestialVector route = to.subtract(from);
+        if (!(route.length() > 1.0E-12D)) {
+            return from;
+        }
+        CelestialVector originOutward = from.subtract(origin.position()).normalized();
+        CelestialVector targetOutward = to.subtract(target.position()).normalized();
+        CelestialVector lateral = eclipticLateral(route, originOutward);
+        double originOrbit = from.subtract(origin.position()).length();
+        double targetOrbit = to.subtract(target.position()).length();
+        // The lateral lane must scale with the transfer chord as well as the two local orbits.
+        // Otherwise a distant target directly behind the departure body still cuts back through
+        // its cube before the small local-orbit clearance has had time to bend the Bezier curve.
+        double clearance = Math.max(Math.max(origin.radius(), target.radius()) * 8.0D,
+                Math.max((originOrbit + targetOrbit) * 2.0D, route.length() * 0.05D));
+        CelestialVector firstControl = from.add(originOutward.add(lateral).normalized().scale(clearance));
+        CelestialVector secondControl = to.add(targetOutward.add(lateral).normalized().scale(clearance));
+        return cubicBezier(from, firstControl, secondControl, to, value);
+    }
+
+    /**
+     * NTM distinguishes parent/moon and sibling-moon transfers from interplanetary transfers.
+     * Wildfires keeps that topology but evaluates the cruise around the common planet instead of
+     * lifting the station onto an unrelated ecliptic-normal corridor.
+     */
+    static CelestialVector localSystemTransferPosition(CelestialVector from, CelestialVector to,
+                                                       BodyEphemeris origin, BodyEphemeris target,
+                                                       BodyEphemeris primary,
+                                                       Map<ResourceLocation, BodyEphemeris> ephemeris,
+                                                       double progress) {
+        Objects.requireNonNull(from, "from");
+        Objects.requireNonNull(to, "to");
+        Objects.requireNonNull(origin, "origin");
+        Objects.requireNonNull(target, "target");
+        Objects.requireNonNull(primary, "primary");
+        Objects.requireNonNull(ephemeris, "ephemeris");
+        ResourceLocation primaryId = findId(primary, ephemeris);
+        LocalTransferGate source = localTransferGate(from, origin, ephemeris);
+        LocalTransferGate destination = localTransferGate(to, target, ephemeris);
+        return localSystemTransferPosition(localTransferPlan(from, to, primary,
+                origin, target,
+                source, destination, List.of(ephemeris)), progress);
+    }
+
+    /**
+     * A local transfer is planned in the common-primary frame. The source gate is reconstructed at
+     * cruise start and stays fixed relative to that primary; the target gate is predicted at
+     * cruise end, so a moving moon is intercepted instead of chased by a per-frame endpoint lerp.
+     */
+    private static LocalTransferPlan localSystemTransferPlan(ObservationContext context,
+                                                             ObservationJourney journey,
+                                                             Map<ResourceLocation, BodyEphemeris> current,
+                                                             ResourceLocation primaryId,
+                                                             double gameTime,
+                                                             double calendarTicks,
+                                                             double calendarTicksPerGameTick,
+                                                             int calendarDaysInMonth) {
+        double elapsed = clamp(gameTime - journey.phaseStartedGameTime(), 0.0D,
+                journey.phaseDurationTicks());
+        double departureCalendarTicks = calendarTicks - elapsed * calendarTicksPerGameTick;
+        CelestialRuntimeSettings settings = CelestialSettingsCache.current();
+        LocalTransferCacheKey cacheKey = new LocalTransferCacheKey(context.stationId(),
+                context.celestialRegistryGeneration(), journey.fromBody(), journey.toBody(),
+                journey.phaseStartedGameTime(), journey.phaseDurationTicks(),
+                Math.round(departureCalendarTicks),
+                Double.doubleToLongBits(calendarTicksPerGameTick), calendarDaysInMonth,
+                settings);
+        BodyEphemeris currentPrimary = requireBody(current, primaryId);
+        synchronized (LOCAL_TRANSFER_CACHE) {
+            CachedLocalTransferPlan cached = LOCAL_TRANSFER_CACHE.get(cacheKey);
+            if (cached != null) {
+                return translateLocalTransferPlan(cached.plan(),
+                        currentPrimary.position().subtract(cached.primaryAnchor()));
+            }
+        }
+        double remaining = Math.max(0.0D, journey.phaseDurationTicks() - elapsed);
+        Map<ResourceLocation, BodyEphemeris> departure = shiftedSystemEphemeris(current, primaryId,
+                calendarTicks, -elapsed * calendarTicksPerGameTick, calendarDaysInMonth);
+        Map<ResourceLocation, BodyEphemeris> arrival = shiftedSystemEphemeris(current, primaryId,
+                calendarTicks, remaining * calendarTicksPerGameTick, calendarDaysInMonth);
+        BodyEphemeris departurePrimary = requireBody(departure, primaryId);
+        BodyEphemeris arrivalPrimary = requireBody(arrival, primaryId);
+        Map<ResourceLocation, BodyEphemeris> departureFrame = translateSystemFrame(
+                departure, departurePrimary.position(), currentPrimary.position(), primaryId);
+        Map<ResourceLocation, BodyEphemeris> arrivalFrame = translateSystemFrame(
+                arrival, arrivalPrimary.position(), currentPrimary.position(), primaryId);
+        BodyEphemeris origin = requireBody(departureFrame, journey.fromBody());
+        BodyEphemeris target = requireBody(arrivalFrame, journey.toBody());
+        CelestialVector from = orbitPosition(journey.fromBody(), departureFrame,
+                journey.phaseStartedGameTime());
+        CelestialVector to = orbitPosition(journey.toBody(), arrivalFrame,
+                journey.phaseStartedGameTime() + journey.phaseDurationTicks());
+        LocalTransferGate source = localTransferGate(from, origin, departureFrame);
+        LocalTransferGate destination = localTransferGate(to, target, arrivalFrame);
+        List<Map<ResourceLocation, BodyEphemeris>> obstacleTimeline = localObstacleTimeline(
+                current, primaryId, calendarTicks, calendarTicksPerGameTick,
+                calendarDaysInMonth, elapsed, journey.phaseDurationTicks());
+        LocalTransferPlan plan = localTransferPlan(from, to, currentPrimary,
+                origin, target,
+                source, destination, obstacleTimeline);
+        synchronized (LOCAL_TRANSFER_CACHE) {
+            LOCAL_TRANSFER_CACHE.put(cacheKey,
+                    new CachedLocalTransferPlan(currentPrimary.position(), plan));
+        }
+        return plan;
+    }
+
+    /** Keeps a local journey in the moving common-primary frame instead of drawing a heliocentric chord. */
+    private static Map<ResourceLocation, BodyEphemeris> translateSystemFrame(
+            Map<ResourceLocation, BodyEphemeris> ephemeris, CelestialVector oldPrimary,
+            CelestialVector newPrimary, ResourceLocation primaryId) {
+        CelestialVector translation = newPrimary.subtract(oldPrimary);
+        Map<ResourceLocation, BodyEphemeris> translated = new LinkedHashMap<>(ephemeris);
+        for (Map.Entry<ResourceLocation, BodyEphemeris> entry : ephemeris.entrySet()) {
+            BodyEphemeris body = entry.getValue();
+            if (entry.getKey().equals(primaryId) || primaryId.equals(body.parent())) {
+                translated.put(entry.getKey(), new BodyEphemeris(body.position().add(translation),
+                        body.radius(), body.parent()));
+            }
+        }
+        return Map.copyOf(translated);
+    }
+
+    private static Map<ResourceLocation, BodyEphemeris> shiftedSystemEphemeris(
+            Map<ResourceLocation, BodyEphemeris> current, ResourceLocation primaryId,
+            double currentCalendarTicks, double calendarTickOffset, int calendarDaysInMonth) {
+        BodyEphemeris primary = requireBody(current, primaryId);
+        Map<ResourceLocation, BodyEphemeris> shifted = new LinkedHashMap<>();
+        shifted.put(primaryId, primary);
+        CelestialRuntimeSettings settings = CelestialSettingsCache.current();
+        double targetTicks = currentCalendarTicks + calendarTickOffset;
+        CelestialPlanetSettings planets = settings.planetSettings();
+        for (Map.Entry<ResourceLocation, BodyEphemeris> entry : current.entrySet()) {
+            BodyEphemeris present = entry.getValue();
+            if (!primaryId.equals(present.parent())) continue;
+            CelestialBodies definition = CelestialBodies.byId(entry.getKey());
+            if (definition == null || definition.parent() == null || entry.getKey().equals(MOON)) continue;
+            CelestialVector relative = present.position().subtract(primary.position());
+            double astronomicalDayOffset = CelestialMath.calendarYears(
+                    calendarTickOffset, calendarDaysInMonth) * planets.earthOrbitalDays();
+            double angle = TAU * astronomicalDayOffset
+                    / planets.parameters(definition).orbitalDays();
+            if (definition.retrograde()) angle = -angle;
+            CelestialVector rotated = rotateAroundAxis(relative,
+                    definition.orbitalPlaneNormalEcliptic(planets), angle);
+            shifted.put(entry.getKey(), new BodyEphemeris(primary.position().add(rotated),
+                    present.radius(), present.parent()));
+        }
+
+        CelestialMath.Input currentInput = new CelestialMath.Input(0.0D, 1.0D,
+                currentCalendarTicks, calendarDaysInMonth,
+                settings.resolvedSynodicDays(calendarDaysInMonth),
+                settings.resolvedAnomalisticDays(calendarDaysInMonth), settings.nodalYears(),
+                settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale());
+        CelestialMath.Input targetInput = new CelestialMath.Input(0.0D, 1.0D, targetTicks,
+                calendarDaysInMonth, settings.resolvedSynodicDays(calendarDaysInMonth),
+                settings.resolvedAnomalisticDays(calendarDaysInMonth), settings.nodalYears(),
+                settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale());
+        CelestialMath.Result currentFrame = CelestialMath.calculate(currentInput);
+        CelestialMath.Result targetFrame = CelestialMath.calculate(targetInput);
+        BodyEphemeris moon = primaryId.equals(EARTH) ? current.get(MOON) : null;
+        if (moon != null) {
+                CelestialVector modelCurrent = equatorialToEcliptic(currentFrame.moonGeocentric())
+                        .scale(CelestialMath.MOON_MEAN_DISTANCE_MILLION_KM
+                                * currentFrame.moonDistance());
+                CelestialVector modelTarget = equatorialToEcliptic(targetFrame.moonGeocentric())
+                        .scale(CelestialMath.MOON_MEAN_DISTANCE_MILLION_KM
+                                * targetFrame.moonDistance());
+                CelestialVector actual = moon.position().subtract(primary.position());
+                CelestialVector predicted = applyOrbitalDelta(actual, modelCurrent, modelTarget);
+                shifted.put(MOON, new BodyEphemeris(primary.position().add(predicted),
+                        moon.radius(), moon.parent()));
+        }
+        return Map.copyOf(shifted);
+    }
+
+    /**
+     * Samples every moon in the shared primary frame across the complete cruise.  Candidate arcs
+     * are checked against the obstacle position at the matching journey time; endpoint-only
+     * envelopes miss fast moons that cross the route between those two snapshots.
+     */
+    private static List<Map<ResourceLocation, BodyEphemeris>> localObstacleTimeline(
+            Map<ResourceLocation, BodyEphemeris> current, ResourceLocation primaryId,
+            double calendarTicks, double calendarTicksPerGameTick, int calendarDaysInMonth,
+            double elapsedGameTicks, long durationGameTicks) {
+        int samples = localTransferSampleCount(current, primaryId, calendarTicksPerGameTick,
+                durationGameTicks, calendarDaysInMonth);
+        List<Map<ResourceLocation, BodyEphemeris>> timeline = new ArrayList<>(samples + 1);
+        CelestialVector primaryPosition = requireBody(current, primaryId).position();
+        for (int step = 0; step <= samples; step++) {
+            double journeyTick = durationGameTicks * (step / (double) samples);
+            double offset = (journeyTick - elapsedGameTicks) * calendarTicksPerGameTick;
+            Map<ResourceLocation, BodyEphemeris> shifted = shiftedSystemEphemeris(current,
+                    primaryId, calendarTicks, offset, calendarDaysInMonth);
+            BodyEphemeris shiftedPrimary = requireBody(shifted, primaryId);
+            timeline.add(translateSystemFrame(shifted, shiftedPrimary.position(),
+                    primaryPosition, primaryId));
+        }
+        return List.copyOf(timeline);
+    }
+
+    private static int localTransferSampleCount(Map<ResourceLocation, BodyEphemeris> current,
+                                                ResourceLocation primaryId,
+                                                double calendarTicksPerGameTick,
+                                                long durationGameTicks,
+                                                int calendarDaysInMonth) {
+        double transferCalendarTicks = Math.abs(calendarTicksPerGameTick * durationGameTicks);
+        double shortestDays = Double.POSITIVE_INFINITY;
+        CelestialRuntimeSettings settings = CelestialSettingsCache.current();
+        for (Map.Entry<ResourceLocation, BodyEphemeris> entry : current.entrySet()) {
+            if (!primaryId.equals(entry.getValue().parent())) continue;
+            if (entry.getKey().equals(MOON)) {
+                shortestDays = Math.min(shortestDays,
+                        settings.resolvedSynodicDays(calendarDaysInMonth));
+                continue;
+            }
+            CelestialBodies body = CelestialBodies.byId(entry.getKey());
+            if (body != null) {
+                CelestialPlanetSettings planets = settings.planetSettings();
+                double tfcOrbitalDays = planets.parameters(body).orbitalDays()
+                        * calendarDaysInMonth * 12.0D / planets.earthOrbitalDays();
+                shortestDays = Math.min(shortestDays, tfcOrbitalDays);
+            }
+        }
+        double turns = Double.isFinite(shortestDays)
+                ? transferCalendarTicks / (shortestDays * CelestialMath.TICKS_IN_DAY) : 0.0D;
+        int orbitalSamples = (int) Math.ceil(turns * LOCAL_TRANSFER_SAMPLES_PER_ORBIT);
+        return Math.max(MIN_LOCAL_TRANSFER_SAMPLES,
+                Math.min(MAX_LOCAL_TRANSFER_SAMPLES, orbitalSamples));
+    }
+
+    private static CelestialVector applyOrbitalDelta(CelestialVector actual,
+                                                      CelestialVector modelCurrent,
+                                                      CelestialVector modelTarget) {
+        double currentLength = modelCurrent.length();
+        double targetLength = modelTarget.length();
+        if (!(currentLength > 1.0E-12D) || !(targetLength > 1.0E-12D)) return actual;
+        CelestialVector from = modelCurrent.scale(1.0D / currentLength);
+        CelestialVector to = modelTarget.scale(1.0D / targetLength);
+        double dot = clamp(from.dot(to), -1.0D, 1.0D);
+        CelestialVector rotated;
+        if (dot > 0.999999999D) {
+            rotated = actual;
+        } else if (dot < -0.999999999D) {
+            rotated = rotateAroundAxis(actual, perpendicular(from), Math.PI);
+        } else {
+            CelestialVector axis = cross(from, to).normalized();
+            rotated = rotateAroundAxis(actual, axis, Math.acos(dot));
+        }
+        return rotated.scale(targetLength / currentLength);
+    }
+
+    private static CelestialVector rotateAroundAxis(CelestialVector vector, CelestialVector axis,
+                                                     double angle) {
+        CelestialVector normal = axis.normalized();
+        double cosine = Math.cos(angle);
+        double sine = Math.sin(angle);
+        return vector.scale(cosine).add(cross(normal, vector).scale(sine))
+                .add(normal.scale(normal.dot(vector) * (1.0D - cosine)));
+    }
+
+    private static CelestialVector equatorialToEcliptic(CelestialVector vector) {
+        double cosine = Math.cos(CelestialMath.AXIAL_TILT);
+        double sine = Math.sin(CelestialMath.AXIAL_TILT);
+        return new CelestialVector(vector.x(), vector.y() * cosine + vector.z() * sine,
+                -vector.y() * sine + vector.z() * cosine);
+    }
+
+    private static CelestialVector localSystemTransferPosition(LocalTransferPlan plan,
+                                                               double progress) {
+        double value = clamp(progress, 0.0D, 1.0D);
+        if (value <= 0.0D) return plan.from();
+        if (value >= 1.0D) return plan.to();
+        double[] lengths = localTransferSegmentLengths(plan);
+        double total = 0.0D;
+        for (double length : lengths) total += length;
+        if (!(total > 1.0E-12D)) return mix(plan.from(), plan.to(), value);
+        // One global easing controls departure/arrival. Internal gates retain non-zero through-speed.
+        double distance = smoothStep01(value) * total;
+        int segment = 0;
+        while (segment < lengths.length - 1
+                && (lengths[segment] <= 1.0E-12D || distance > lengths[segment])) {
+            distance -= lengths[segment++];
+        }
+        double local = lengths[segment] > 1.0E-12D ? distance / lengths[segment] : 1.0D;
+        return switch (segment) {
+            case 0 -> sphericalArc(plan.origin().position(), plan.from(),
+                    plan.source().stablePhasingPoint(), local, plan.source().stableRadius());
+            case 1 -> mix(plan.source().stablePhasingPoint(), plan.source().safeOrbitPoint(), local);
+            case 2 -> commonPrimaryTransferArc(plan, local);
+            case 3 -> mix(plan.destination().safeOrbitPoint(),
+                    plan.destination().stablePhasingPoint(), local);
+            default -> sphericalArc(plan.target().position(),
+                    plan.destination().stablePhasingPoint(), plan.to(), local,
+                    plan.destination().stableRadius());
+        };
+    }
+
+    private static LocalTransferPlan localTransferPlan(CelestialVector from, CelestialVector to,
+                                                        BodyEphemeris primary,
+                                                        BodyEphemeris origin,
+                                                        BodyEphemeris target,
+                                                        LocalTransferGate source,
+                                                        LocalTransferGate destination,
+                                                        List<Map<ResourceLocation, BodyEphemeris>> obstacles) {
+        PrimaryTransferArc arc = choosePrimaryTransferArc(from, to, primary, origin, target,
+                source, destination, obstacles);
+        return new LocalTransferPlan(from, to, primary, origin, target, source, destination, arc);
+    }
+
+    private static CelestialVector commonPrimaryTransferArc(LocalTransferPlan plan, double progress) {
+        return cubicBezier(plan.source().safeOrbitPoint(), plan.arc().firstControl(),
+                plan.arc().secondControl(), plan.destination().safeOrbitPoint(), progress);
+    }
+
+    private static double commonPrimaryTransferLength(LocalTransferPlan plan) {
+        return plan.arc().length();
+    }
+
+    /**
+     * Selects a bounded orbit-like cubic around the common primary.  The first candidates stay in
+     * the endpoint orbital chord plane; ecliptic-normal candidates are fallbacks only when another
+     * square moon blocks both planar sides.  This is a transfer orbit, not the old system-height
+     * corridor: its controls scale from the actual endpoint orbital radii and remain centred on
+     * the common planet.
+     */
+    private static PrimaryTransferArc choosePrimaryTransferArc(CelestialVector stationFrom,
+                                                               CelestialVector stationTo,
+                                                               BodyEphemeris primary,
+                                                               BodyEphemeris origin,
+                                                               BodyEphemeris target,
+                                                               LocalTransferGate source,
+                                                               LocalTransferGate destination,
+                                                               List<Map<ResourceLocation, BodyEphemeris>> obstacles) {
+        CelestialVector from = source.safeOrbitPoint();
+        CelestialVector to = destination.safeOrbitPoint();
+        CelestialVector route = to.subtract(from);
+        CelestialVector fromOut = from.subtract(primary.position()).normalized();
+        CelestialVector toOut = to.subtract(primary.position()).normalized();
+        CelestialVector planar = eclipticLateral(route, fromOut);
+        CelestialVector chordNormal = cross(fromOut, toOut).normalized();
+        CelestialVector orbitalSide = chordNormal.length() > 1.0E-12D
+                ? cross(chordNormal, route.normalized()).normalized() : planar;
+        List<CelestialVector> sides = List.of(orbitalSide, orbitalSide.scale(-1.0D),
+                planar, planar.scale(-1.0D), new CelestialVector(0.0D, 0.0D, 1.0D),
+                new CelestialVector(0.0D, 0.0D, -1.0D));
+        double fromRadius = from.subtract(primary.position()).length();
+        double toRadius = to.subtract(primary.position()).length();
+        double baseClearance = Math.max(primary.radius() * 8.0D,
+                Math.max(route.length() * 0.35D, Math.min(fromRadius, toRadius) * 0.35D));
+        PrimaryTransferArc best = null;
+        double bestClearance = Double.NEGATIVE_INFINITY;
+        for (double multiplier : new double[]{1.0D, 1.5D, 2.25D, 3.25D}) {
+            double handle = baseClearance * multiplier;
+            for (CelestialVector side : sides) {
+                CelestialVector lateral = side.normalized();
+                CelestialVector first = from.add(fromOut.add(lateral).normalized().scale(handle));
+                CelestialVector second = to.add(toOut.add(lateral).normalized().scale(handle));
+                PrimaryTransferArc candidate = new PrimaryTransferArc(first, second,
+                        cubicBezierLength(from, first, second, to));
+                LocalTransferPlan candidatePlan = new LocalTransferPlan(stationFrom, stationTo,
+                        primary, origin, target, source, destination, candidate);
+                double clearance = transferPlanClearance(candidatePlan, obstacles);
+                if (clearance > bestClearance) {
+                    best = candidate;
+                    bestClearance = clearance;
+                }
+                if (clearance > 0.0D) return candidate;
+            }
+        }
+        return Objects.requireNonNull(best, "local transfer arc fallback");
+    }
+
+    private static double transferPlanClearance(LocalTransferPlan plan,
+                                                List<Map<ResourceLocation, BodyEphemeris>> obstacles) {
+        double minimum = Double.POSITIVE_INFINITY;
+        int samples = Math.max(2, obstacles.size() - 1);
+        for (int step = 1; step < samples; step++) {
+            double progress = step / (double) samples;
+            CelestialVector point = localSystemTransferPosition(plan, progress);
+            Map<ResourceLocation, BodyEphemeris> frame = obstacles.get(
+                    Math.min(step, obstacles.size() - 1));
+            for (Map.Entry<ResourceLocation, BodyEphemeris> entry : frame.entrySet()) {
+                BodyEphemeris obstacle = entry.getValue();
+                double guard = obstacle.radius() * Math.sqrt(3.0D) * 1.05D;
+                // Endpoint bodies are intentionally approached only by the separate local capture
+                // legs; the common-primary arc itself must remain outside every conservative cube.
+                double clearance = point.subtract(obstacle.position()).length() - guard;
+                minimum = Math.min(minimum, clearance);
+            }
+        }
+        return minimum;
+    }
+
+    private static LocalTransferPlan translateLocalTransferPlan(LocalTransferPlan plan,
+                                                                 CelestialVector translation) {
+        if (translation.length() < 1.0E-15D) return plan;
+        BodyEphemeris primary = translate(plan.primary(), translation);
+        BodyEphemeris origin = translate(plan.origin(), translation);
+        BodyEphemeris target = translate(plan.target(), translation);
+        LocalTransferGate source = translate(plan.source(), translation);
+        LocalTransferGate destination = translate(plan.destination(), translation);
+        PrimaryTransferArc arc = new PrimaryTransferArc(
+                plan.arc().firstControl().add(translation),
+                plan.arc().secondControl().add(translation), plan.arc().length());
+        return new LocalTransferPlan(plan.from().add(translation), plan.to().add(translation),
+                primary, origin, target, source, destination, arc);
+    }
+
+    private static BodyEphemeris translate(BodyEphemeris body, CelestialVector translation) {
+        return new BodyEphemeris(body.position().add(translation), body.radius(), body.parent());
+    }
+
+    private static LocalTransferGate translate(LocalTransferGate gate,
+                                                CelestialVector translation) {
+        return new LocalTransferGate(gate.stablePhasingPoint().add(translation),
+                gate.safeOrbitPoint().add(translation), gate.stableRadius(), gate.safeRadius());
+    }
+
+    private static double cubicBezierLength(CelestialVector start, CelestialVector first,
+                                            CelestialVector second, CelestialVector end) {
+        double length = 0.0D;
+        CelestialVector previous = start;
+        for (int step = 1; step <= 64; step++) {
+            CelestialVector point = cubicBezier(start, first, second, end, step / 64.0D);
+            length += point.subtract(previous).length();
+            previous = point;
+        }
+        return length;
+    }
+
+    private static double[] localTransferSegmentLengths(LocalTransferPlan plan) {
+        return new double[]{
+                sphericalArcLength(plan.origin().position(), plan.from(),
+                        plan.source().stablePhasingPoint(), plan.source().stableRadius()),
+                plan.source().safeOrbitPoint().subtract(plan.source().stablePhasingPoint()).length(),
+                commonPrimaryTransferLength(plan),
+                plan.destination().stablePhasingPoint().subtract(
+                        plan.destination().safeOrbitPoint()).length(),
+                sphericalArcLength(plan.target().position(),
+                        plan.destination().stablePhasingPoint(), plan.to(),
+                        plan.destination().stableRadius())
+        };
+    }
+
+    private static double sphericalArcLength(CelestialVector center, CelestialVector from,
+                                             CelestialVector to, double radius) {
+        CelestialVector first = from.subtract(center).normalized();
+        CelestialVector second = to.subtract(center).normalized();
+        if (first.length() < 1.0E-12D || second.length() < 1.0E-12D) {
+            return from.subtract(to).length();
+        }
+        return Math.acos(clamp(first.dot(second), -1.0D, 1.0D)) * radius;
+    }
+
+    private static LocalTransferGate localTransferGate(CelestialVector station,
+                                                        BodyEphemeris body,
+                                                        Map<ResourceLocation, BodyEphemeris> ephemeris) {
+        CelestialVector stableOffset = station.subtract(body.position());
+        double stableRadius = stableOffset.length();
+        CelestialVector stableDirection = stableOffset.normalized();
+        if (stableDirection.length() < 1.0E-12D) {
+            stableDirection = new CelestialVector(1.0D, 0.0D, 0.0D);
+        }
+        double safeRadius = Math.max(stableRadius, body.radius() * 6.0D);
+        CelestialVector phasingDirection = chooseClearPhasingDirection(body, stableRadius,
+                stableDirection, ephemeris);
+        CelestialVector stablePhasingPoint = body.position().add(phasingDirection.scale(stableRadius));
+        CelestialVector safeOrbitPoint = body.position().add(phasingDirection.scale(safeRadius));
+        return new LocalTransferGate(stablePhasingPoint, safeOrbitPoint, stableRadius, safeRadius);
+    }
+
+    private static CelestialVector chooseClearPhasingDirection(BodyEphemeris body,
+                                                               double stableRadius,
+                                                               CelestialVector stableDirection,
+                                                               Map<ResourceLocation, BodyEphemeris> ephemeris) {
+        CelestialVector first = eclipticLateral(stableDirection, stableDirection);
+        CelestialVector best = first;
+        double bestClearance = Double.NEGATIVE_INFINITY;
+        for (int step = 0; step < 32; step++) {
+            double z = -0.9375D + 1.875D * (step / 31.0D);
+            double azimuth = step * Math.PI * (3.0D - Math.sqrt(5.0D));
+            double radial = Math.sqrt(Math.max(0.0D, 1.0D - z * z));
+            CelestialVector direction = new CelestialVector(radial * Math.cos(azimuth),
+                    radial * Math.sin(azimuth), z);
+            double clearance = phasingClearance(body, stableRadius, direction, ephemeris);
+            if (clearance > bestClearance) {
+                best = direction;
+                bestClearance = clearance;
+            }
+        }
+        return best;
+    }
+
+    private static double phasingClearance(BodyEphemeris endpoint, double radius,
+                                           CelestialVector direction,
+                                           Map<ResourceLocation, BodyEphemeris> ephemeris) {
+        CelestialVector point = endpoint.position().add(direction.scale(radius));
+        double clearance = Double.POSITIVE_INFINITY;
+        for (BodyEphemeris obstacle : ephemeris.values()) {
+            if (obstacle == endpoint) continue;
+            clearance = Math.min(clearance, point.subtract(obstacle.position()).length()
+                    - obstacle.radius() * Math.sqrt(3.0D) * 1.05D);
+        }
+        return clearance;
+    }
+
+    private static ResourceLocation findId(BodyEphemeris needle,
+                                           Map<ResourceLocation, BodyEphemeris> ephemeris) {
+        return ephemeris.entrySet().stream().filter(entry -> entry.getValue() == needle)
+                .map(Map.Entry::getKey).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Local-system primary is absent"));
+    }
+
+    /** Radius-interpolated great-circle arc with deterministic handling of opposite directions. */
+    private static CelestialVector sphericalArc(CelestialVector center, CelestialVector from,
+                                                CelestialVector to, double progress,
+                                                double minimumRadius) {
+        CelestialVector fromOffset = from.subtract(center);
+        CelestialVector toOffset = to.subtract(center);
+        double fromRadius = Math.max(minimumRadius, fromOffset.length());
+        double toRadius = Math.max(minimumRadius, toOffset.length());
+        CelestialVector fromDirection = fromOffset.normalized();
+        CelestialVector toDirection = toOffset.normalized();
+        if (fromDirection.length() < 1.0E-12D || toDirection.length() < 1.0E-12D) {
+            return mix(from, to, clamp(progress, 0.0D, 1.0D));
+        }
+        double value = clamp(progress, 0.0D, 1.0D);
+        double dot = clamp(fromDirection.dot(toDirection), -1.0D, 1.0D);
+        CelestialVector direction;
+        if (dot > 0.999999D) {
+            direction = mix(fromDirection, toDirection, value).normalized();
+        } else if (dot < -0.999999D) {
+            CelestialVector axis = perpendicular(fromDirection);
+            direction = fromDirection.scale(Math.cos(Math.PI * value))
+                    .add(axis.scale(Math.sin(Math.PI * value))).normalized();
+        } else {
+            double angle = Math.acos(dot);
+            double inverseSine = 1.0D / Math.sin(angle);
+            direction = fromDirection.scale(Math.sin((1.0D - value) * angle) * inverseSine)
+                    .add(toDirection.scale(Math.sin(value * angle) * inverseSine)).normalized();
+        }
+        double radius = Math.max(minimumRadius, lerp(fromRadius, toRadius, value));
+        return center.add(direction.scale(radius));
+    }
+
+    private static CelestialVector perpendicular(CelestialVector direction) {
+        CelestialVector axis = Math.abs(direction.z()) < 0.9D
+                ? new CelestialVector(-direction.y(), direction.x(), 0.0D)
+                : new CelestialVector(0.0D, -direction.z(), direction.y());
+        return axis.normalized();
+    }
+
+    private static CelestialVector cross(CelestialVector first, CelestialVector second) {
+        return new CelestialVector(first.y() * second.z() - first.z() * second.y(),
+                first.z() * second.x() - first.x() * second.z(),
+                first.x() * second.y() - first.y() * second.x());
+    }
+
+    /** Returns the shared non-stellar primary for parent/child or sibling-moon transfers. */
+    private static ResourceLocation localSystemPrimary(ResourceLocation fromId, ResourceLocation toId,
+                                                       Map<ResourceLocation, BodyEphemeris> ephemeris) {
+        BodyEphemeris from = requireBody(ephemeris, fromId);
+        BodyEphemeris to = requireBody(ephemeris, toId);
+        StationTransferTopology topology = StationTransferTopology.classify(
+                topologyNode(fromId, from), topologyNode(toId, to));
+        return switch (topology) {
+            case PRIMARY_TO_SATELLITE -> fromId;
+            case SATELLITE_TO_PRIMARY -> toId;
+            case SIBLING_SATELLITES -> from.parent();
+            case INTER_SYSTEM -> null;
+        };
+    }
+
+    private static StationTransferTopology.Node topologyNode(ResourceLocation id,
+                                                             BodyEphemeris body) {
+        boolean satellite = body.parent() != null && !body.parent().equals(SUN);
+        return new StationTransferTopology.Node(id, body.parent(),
+                satellite ? CelestialKind.MOON : CelestialKind.PLANET);
+    }
+
+    private static CelestialVector eclipticLateral(CelestialVector route, CelestialVector fallback) {
+        CelestialVector lateral = new CelestialVector(-route.y(), route.x(), 0.0D).normalized();
+        if (lateral.length() > 1.0E-12D) {
+            return lateral;
+        }
+        lateral = new CelestialVector(-fallback.y(), fallback.x(), 0.0D).normalized();
+        return lateral.length() > 1.0E-12D ? lateral : new CelestialVector(0.0D, 1.0D, 0.0D);
+    }
+
+    private static CelestialVector cubicBezier(CelestialVector start, CelestialVector firstControl,
+                                                CelestialVector secondControl, CelestialVector end,
+                                                double progress) {
+        double inverse = 1.0D - progress;
+        return start.scale(inverse * inverse * inverse)
+                .add(firstControl.scale(3.0D * inverse * inverse * progress))
+                .add(secondControl.scale(3.0D * inverse * progress * progress))
+                .add(end.scale(progress * progress * progress));
     }
 
     private static CelestialVector orbitPosition(ResourceLocation bodyId,
@@ -547,7 +1633,7 @@ public final class OrbitVisualRules {
 
     private static Map<ResourceLocation, BodyEphemeris> bodyEphemeris(CelestialState state) {
         Map<ResourceLocation, BodyEphemeris> bodies = new LinkedHashMap<>();
-        bodies.put(EARTH, new BodyEphemeris(CelestialVector.ZERO, EARTH_RADIUS_MILLION_KM));
+        bodies.put(EARTH, new BodyEphemeris(CelestialVector.ZERO, EARTH_RADIUS_MILLION_KM, SUN));
         add(bodies, state.sun());
         add(bodies, state.moon());
         for (CelestialBodyState body : state.orbitingBodies()) {
@@ -562,7 +1648,8 @@ public final class OrbitVisualRules {
         if (!finite(state.geocentricPosition()) || !(radius > 0.0D) || !Double.isFinite(radius)) {
             throw new IllegalArgumentException("Celestial ephemeris contains an invalid body: " + state.id());
         }
-        bodies.put(state.id(), new BodyEphemeris(state.geocentricPosition(), radius));
+        bodies.put(state.id(), new BodyEphemeris(state.geocentricPosition(), radius,
+                state.parentId()));
     }
 
     private static BodyEphemeris requireBody(Map<ResourceLocation, BodyEphemeris> ephemeris,
@@ -597,6 +1684,11 @@ public final class OrbitVisualRules {
         return value - Math.floor(value);
     }
 
+    private static double smoothStep01(double value) {
+        double clamped = clamp(value, 0.0D, 1.0D);
+        return clamped * clamped * (3.0D - 2.0D * clamped);
+    }
+
     private static double wrapRadians(double value) {
         double wrapped = value % TAU;
         if (wrapped >= Math.PI) {
@@ -621,22 +1713,37 @@ public final class OrbitVisualRules {
     }
 
     public record Frame(CelestialVector observerPosition, double viewRotationRadians,
-                        SunLayer sun, List<BodyLayer> bodies, OrbitIllumination illumination) {
+                        SunLayer sun, List<BodyLayer> bodies, OrbitIllumination illumination,
+                        RelativisticVisualRules.State relativity, CelestialVector velocityDirection,
+                        double targetLockStrength) {
         public Frame {
             Objects.requireNonNull(observerPosition, "observerPosition");
             Objects.requireNonNull(sun, "sun");
             bodies = List.copyOf(Objects.requireNonNull(bodies, "bodies"));
             Objects.requireNonNull(illumination, "illumination");
+            Objects.requireNonNull(relativity, "relativity");
+            Objects.requireNonNull(velocityDirection, "velocityDirection");
             if (!Double.isFinite(viewRotationRadians)) {
                 throw new IllegalArgumentException("Orbit view rotation must be finite");
+            }
+            if (!Double.isFinite(targetLockStrength)
+                    || targetLockStrength < 0.0D || targetLockStrength > 1.0D) {
+                throw new IllegalArgumentException("Target lock strength must be finite in [0,1]");
             }
         }
     }
 
     public record SunLayer(CelestialVector direction, double distance, double radius,
-                           double apparentSize, double renderDistance, double renderHalfSize) {
+                           double apparentSize, double renderDistance, double renderHalfSize,
+                           RelativisticVisualRules.Tint tint) {
+        public SunLayer(CelestialVector direction, double distance, double radius, double apparentSize,
+                        double renderDistance, double renderHalfSize) {
+            this(direction, distance, radius, apparentSize, renderDistance, renderHalfSize,
+                    new RelativisticVisualRules.Tint(1.0D, 1.0D, 1.0D, 1.0D));
+        }
         public SunLayer {
             Objects.requireNonNull(direction, "direction");
+            Objects.requireNonNull(tint, "tint");
             if (!(distance > 0.0D) || !(radius > 0.0D) || !Double.isFinite(distance)
                     || !Double.isFinite(radius)
                     || !(apparentSize > 0.0D) || !Double.isFinite(apparentSize)
@@ -645,25 +1752,64 @@ public final class OrbitVisualRules {
                 throw new IllegalArgumentException("Invalid NTM sun layer");
             }
         }
+
+        SunLayer relativity(CelestialVector velocity, RelativisticVisualRules.State state) {
+            return new SunLayer(RelativisticVisualRules.aberrate(direction, velocity, state), distance, radius,
+                    apparentSize, renderDistance, renderHalfSize * RelativisticVisualRules.angularScale(state),
+                    RelativisticVisualRules.tint(direction, velocity, state));
+        }
     }
 
     public record BodyLayer(ResourceLocation body, CelestialVector worldPosition,
                             CelestialVector direction, double distance, double radius,
                             double apparentSize, double renderDistance, double renderHalfSize,
                             double pointAlpha, double cubeAlpha,
-                            CelestialVector incomingLightDirection) {
+                            CelestialVector incomingLightDirection, double sunHalfTangent,
+                            List<SatelliteShadow> satelliteShadows, RelativisticVisualRules.Tint tint) {
+        public BodyLayer(ResourceLocation body, CelestialVector worldPosition, CelestialVector direction,
+                         double distance, double radius, double apparentSize, double renderDistance,
+                         double renderHalfSize, double pointAlpha, double cubeAlpha,
+                         CelestialVector incomingLightDirection, double sunHalfTangent,
+                         List<SatelliteShadow> satelliteShadows) {
+            this(body, worldPosition, direction, distance, radius, apparentSize, renderDistance, renderHalfSize,
+                    pointAlpha, cubeAlpha, incomingLightDirection, sunHalfTangent, satelliteShadows,
+                    new RelativisticVisualRules.Tint(1.0D, 1.0D, 1.0D, 1.0D));
+        }
         public BodyLayer {
             Objects.requireNonNull(body, "body");
             Objects.requireNonNull(worldPosition, "worldPosition");
             Objects.requireNonNull(direction, "direction");
             Objects.requireNonNull(incomingLightDirection, "incomingLightDirection");
+            Objects.requireNonNull(tint, "tint");
+            satelliteShadows = List.copyOf(Objects.requireNonNull(satelliteShadows,
+                    "satelliteShadows"));
             if (!(distance > 0.0D) || !(radius > 0.0D) || !(apparentSize > 0.0D)
                     || !(renderDistance > 0.0D) || !(renderHalfSize > 0.0D) || !Double.isFinite(distance)
                     || !Double.isFinite(radius) || !Double.isFinite(apparentSize)
                     || !Double.isFinite(renderDistance) || !Double.isFinite(renderHalfSize)
-                    || renderHalfSize >= renderDistance || !unit(pointAlpha) || !unit(cubeAlpha)) {
+                    || renderHalfSize >= renderDistance || !unit(pointAlpha) || !unit(cubeAlpha)
+                    || !(sunHalfTangent > 0.0D) || !Double.isFinite(sunHalfTangent)
+                    || satelliteShadows.size() > MAX_SATELLITE_SHADOWS) {
                 throw new IllegalArgumentException("Invalid orbit body visual layer");
             }
+        }
+
+        BodyLayer relativity(CelestialVector velocity, RelativisticVisualRules.State state) {
+            double angular = RelativisticVisualRules.angularScale(state);
+            return new BodyLayer(body, worldPosition, RelativisticVisualRules.aberrate(direction, velocity, state),
+                    distance, radius, apparentSize * angular, renderDistance, renderHalfSize * angular,
+                    pointAlpha, cubeAlpha, incomingLightDirection, sunHalfTangent, satelliteShadows,
+                    RelativisticVisualRules.tint(direction, velocity, state));
+        }
+
+        BodyLayer jumpTargetApproach(double reveal) {
+            double value = clamp(reveal, 0.0D, 1.0D);
+            double pointHalfSize = renderDistance / 100.0D;
+            return new BodyLayer(body, worldPosition, direction, distance, radius,
+                    lerp(NTM_TRANSITION_MIN_SIZE * 0.5D, apparentSize, value), renderDistance,
+                    lerp(pointHalfSize, renderHalfSize, value),
+                    lerp(1.0D, pointAlpha, value), cubeAlpha * value,
+                    incomingLightDirection, sunHalfTangent, satelliteShadows, tint);
         }
 
         private static boolean unit(double value) {
@@ -671,7 +1817,59 @@ public final class OrbitVisualRules {
         }
     }
 
-    private record BodyEphemeris(CelestialVector position, double radius) {
+    record BodyEphemeris(CelestialVector position, double radius, ResourceLocation parent) {
+        BodyEphemeris {
+            Objects.requireNonNull(position, "position");
+            if (!(radius > 0.0D) || !Double.isFinite(radius) || !finite(position)) {
+                throw new IllegalArgumentException("Invalid body ephemeris");
+            }
+        }
+    }
+
+    public record SatelliteShadow(ResourceLocation satellite, CelestialVector relativePosition,
+                                  double halfSize) {
+        public SatelliteShadow {
+            Objects.requireNonNull(satellite, "satellite");
+            Objects.requireNonNull(relativePosition, "relativePosition");
+            if (!finite(relativePosition) || !(halfSize > 0.0D) || !Double.isFinite(halfSize)) {
+                throw new IllegalArgumentException("Invalid satellite shadow caster");
+            }
+        }
+    }
+
+    private record SatelliteShadowCandidate(SatelliteShadow shadow, double priority) {
+    }
+
+    private record JumpLine(CelestialVector source, CelestialVector revealStart,
+                            CelestialVector arrival, double joinSpeedFraction) {
+    }
+
+    private record LocalTransferGate(CelestialVector stablePhasingPoint,
+                                     CelestialVector safeOrbitPoint,
+                                     double stableRadius,
+                                     double safeRadius) {
+    }
+
+    private record LocalTransferPlan(CelestialVector from, CelestialVector to,
+                                     BodyEphemeris primary, BodyEphemeris origin,
+                                     BodyEphemeris target, LocalTransferGate source,
+                                     LocalTransferGate destination, PrimaryTransferArc arc) {
+    }
+
+    private record PrimaryTransferArc(CelestialVector firstControl,
+                                      CelestialVector secondControl,
+                                      double length) {
+    }
+
+    private record LocalTransferCacheKey(UUID stationId, long celestialGeneration,
+                                         ResourceLocation fromBody, ResourceLocation toBody,
+                                         long cruiseStartedGameTime, long cruiseDurationTicks,
+                                         long departureCalendarTick, long calendarRateBits,
+                                         int calendarDaysInMonth, CelestialRuntimeSettings settings) {
+    }
+
+    private record CachedLocalTransferPlan(CelestialVector primaryAnchor,
+                                           LocalTransferPlan plan) {
     }
 
     public record OrbitIllumination(double sunlight, double occlusion, double starVisibility) {

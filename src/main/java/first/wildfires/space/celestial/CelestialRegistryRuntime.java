@@ -1,6 +1,7 @@
 package first.wildfires.space.celestial;
 
 import com.mojang.logging.LogUtils;
+import first.wildfires.space.route.StationRouteRuntime;
 import net.minecraft.core.Registry;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
@@ -72,6 +73,10 @@ public final class CelestialRegistryRuntime {
             current = snapshot;
         }
 
+        // Routes are validated against this exact published celestial generation. Keeping this in
+        // one reload continuation prevents initial-load ordering from producing an empty route map.
+        StationRouteRuntime.refreshAfterCelestials(registryAccess);
+
         for (CelestialBindingValidator.Issue issue : snapshot.validation().issues()) {
             if (issue.severity() == CelestialBindingValidator.Severity.ERROR) {
                 LOGGER.error("Wildfires celestial definition error: {}", issue.message());
@@ -85,6 +90,7 @@ public final class CelestialRegistryRuntime {
     }
 
     private static void onServerStopped(ServerStoppedEvent event) {
+        RegistryAccess registryAccess = event.getServer().registryAccess();
         synchronized (LOCK) {
             if (nextGeneration == Long.MAX_VALUE) {
                 current = CelestialRegistrySnapshot.empty();
@@ -95,5 +101,8 @@ public final class CelestialRegistryRuntime {
                     Map.of(), Set.of(), resource -> true);
             current = empty;
         }
+        // Keep the paired route snapshot in the same terminal empty generation rather than
+        // leaving stale routes available during a server shutdown/restart boundary.
+        StationRouteRuntime.refreshAfterCelestials(registryAccess);
     }
 }

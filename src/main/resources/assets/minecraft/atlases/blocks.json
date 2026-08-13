@@ -1,0 +1,16 @@
+{
+  "sources": [
+    {
+      "type": "single",
+      "resource": "wildfires:third_party/ntm_space/docking_port"
+    },
+    {
+      "type": "single",
+      "resource": "wildfires:third_party/ntm_space/rp_drop_pod"
+    },
+    {
+      "type": "single",
+      "resource": "wildfires:third_party/ntm_space/station_id_tape"
+    }
+  ]
+}

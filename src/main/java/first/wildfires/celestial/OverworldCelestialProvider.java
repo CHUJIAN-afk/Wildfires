@@ -4,6 +4,7 @@ import first.wildfires.Wildfires;
 import first.wildfires.api.celestial.CelestialBodyState;
 import first.wildfires.api.celestial.CelestialProvider;
 import first.wildfires.api.celestial.CelestialState;
+import first.wildfires.api.celestial.CelestialVector;
 import first.wildfires.api.celestial.DaylightState;
 import first.wildfires.tfc.calendar.TfcCalendarRateController;
 import java.util.List;
@@ -24,26 +25,30 @@ public final class OverworldCelestialProvider implements CelestialProvider {
     public CelestialState state(Level level, Vec3 observer, float partialTick) {
         CelestialRuntimeSettings settings = level.isClientSide()
                 ? CelestialSettingsCache.current()
-                : CelestialConfig.serverSettings();
+                : CelestialConfig.serverSettings().withOrbitalPhases(
+                        CelestialEphemerisSavedData.get(level.getServer()).phases());
         Frame frame = frame(level, observer, partialTick, settings);
         double ticks = frame.calendarTicks();
         int daysInMonth = frame.daysInMonth();
         CelestialMath.Result result = frame.result();
         double weatherVisibility = Math.max(0.0D, Math.min(1.0D,
                 1.0D - level.getRainLevel(partialTick)));
+        double calendarYears = CelestialMath.calendarYears(ticks, daysInMonth);
 
+        CelestialVector sunPosition = result.sunGeocentric()
+                .scale(settings.planetSettings().earthSemiMajorMillionKm());
         CelestialBodyState sun = new CelestialBodyState(Wildfires.rl("sun"), null,
-                result.sunGeocentric().scale(CelestialBodies.EARTH_SEMI_MAJOR_AXIS), result.sunDirection(),
-                CelestialBodies.EARTH_SEMI_MAJOR_AXIS, CelestialMath.SUN_ANGULAR_RADIUS,
+                sunPosition, result.sunDirection(),
+                settings.planetSettings().earthSemiMajorMillionKm(), CelestialMath.SUN_ANGULAR_RADIUS,
                 result.solarElevation(), result.daylightFactor(), 1.0D, result.solarEclipse());
         double moonDistance = CelestialMath.MOON_MEAN_DISTANCE_MILLION_KM * result.moonDistance();
+        CelestialVector moonPosition = equatorialToEcliptic(result.moonGeocentric()).scale(moonDistance);
         CelestialBodyState moon = new CelestialBodyState(Wildfires.rl("moon"), Wildfires.rl("earth"),
-                result.moonGeocentric().scale(moonDistance), result.moonDirection(), moonDistance,
+                moonPosition, result.moonDirection(), moonDistance,
                 result.moonAngularRadius(), result.moonElevation(), result.illuminatedFraction(),
                 result.illuminatedFraction(), result.lunarEclipse());
-        double calendarYears = CelestialMath.calendarYears(ticks, daysInMonth);
         List<CelestialBodyState> planets = CelestialBodies.calculate(result, calendarYears,
-                settings.planetSettings());
+                settings.planetSettings(), settings.orbitalPhases());
         DaylightState daylight = new DaylightState(result.solarElevation(), result.solarElevation() > 0.0D,
                 result.apparentDayTime(), result.daylightFactor());
         return new CelestialState(result.latitude(), result.fractionOfDay(), result.fractionOfYear(),
@@ -52,6 +57,13 @@ public final class OverworldCelestialProvider implements CelestialProvider {
                 result.lunarEclipse(), result.lunarEclipseRegion(),
                 result.supermoon(), result.bloodMoon(), settings.sunScale(), settings.moonScale(),
                 weatherVisibility, daylight);
+    }
+
+    private static CelestialVector equatorialToEcliptic(CelestialVector vector) {
+        double cosine = Math.cos(CelestialMath.AXIAL_TILT);
+        double sine = Math.sin(CelestialMath.AXIAL_TILT);
+        return new CelestialVector(vector.x(), vector.y() * cosine + vector.z() * sine,
+                -vector.y() * sine + vector.z() * cosine);
     }
 
     static Frame frame(Level level, Vec3 observer, float partialTick, CelestialRuntimeSettings settings) {

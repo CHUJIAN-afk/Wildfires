@@ -13,6 +13,8 @@ import first.wildfires.client.space.render.OrbitVisualRules;
 import first.wildfires.space.SpaceDimensions;
 import first.wildfires.space.celestial.ObservationContext;
 import first.wildfires.space.celestial.ObservationContextResolver;
+import first.wildfires.tfc.calendar.TfcCalendarRateController;
+import net.dries007.tfc.util.calendar.Calendars;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.phys.Vec3;
 
@@ -35,7 +37,13 @@ public final class OrbitClientIllumination {
         if (context == null || celestial == null) {
             return Optional.empty();
         }
-        double gameTime = level.getGameTime() + partialTick;
-        return Optional.of(OrbitVisualRules.frame(context, celestial, gameTime).illumination());
+        double gameTime = OrbitVisualDebugClock.gameTime()
+                .orElse(level.getGameTime() + partialTick);
+        double calendarTicks = OrbitVisualDebugClock.calendarTicks()
+                .orElse(celestial.calendarTicks());
+        double calendarRate = OrbitVisualDebugClock.calendarTicks().isPresent()
+                ? 0.0D : TfcCalendarRateController.clientMultiplier();
+        return Optional.of(OrbitVisualRules.frame(context, celestial, gameTime, calendarTicks,
+                calendarRate, Calendars.get(level).getCalendarDaysInMonth()).illumination());
     }
 }

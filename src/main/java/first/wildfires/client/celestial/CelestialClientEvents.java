@@ -4,6 +4,7 @@ import first.wildfires.Wildfires;
 import first.wildfires.client.space.OrbitDimensionEffects;
 import first.wildfires.client.space.SpaceClientState;
 import first.wildfires.client.space.render.OrbitSkyRenderer;
+import first.wildfires.client.space.render.RelativisticSkyShader;
 import first.wildfires.thirdparty.genesisadapt.GenesisPlanetShader;
 import com.mojang.blaze3d.systems.RenderSystem;
 import java.io.IOException;
@@ -48,5 +49,6 @@ public final class CelestialClientEvents {
         AuroraRenderer.registerShader(event);
         LunarEclipseRenderer.registerShader(event);
         GenesisPlanetShader.registerShaders(event);
+        RelativisticSkyShader.register(event);
     }
 }

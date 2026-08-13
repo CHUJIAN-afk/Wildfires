@@ -1,10 +1,14 @@
 package first.wildfires.client.space;
 
 import first.wildfires.network.RequestStationTravelPacket;
+import first.wildfires.space.celestial.CelestialDefinitionRegistry;
+import first.wildfires.space.celestial.CelestialKind;
 import first.wildfires.space.content.StationControlMenu;
 import first.wildfires.space.route.StationRouteDefinition;
 import first.wildfires.space.route.StationRouteRegistry;
 import first.wildfires.space.route.StationTravelRequest;
+import first.wildfires.space.route.StationTravelMode;
+import first.wildfires.space.route.StationTransferTopology;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
@@ -12,8 +16,11 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 
 /** Compact paged route selector; the server remains authoritative for every displayed choice. */
 public final class StationControlScreen extends AbstractContainerScreen<StationControlMenu> {
@@ -48,12 +55,29 @@ public final class StationControlScreen extends AbstractContainerScreen<StationC
             routes = List.of();
             return;
         }
-        routes = StationRouteRegistry.get(minecraft.level.registryAccess()).entrySet().stream()
+        Set<ResourceLocation> travelBodies = new LinkedHashSet<>();
+        CelestialDefinitionRegistry.get(minecraft.level.registryAccess()).entrySet().stream()
+                .filter(entry -> entry.getValue().kind() != CelestialKind.STAR)
+                .map(entry -> entry.getKey().location())
+                .forEach(travelBodies::add);
+        if (!travelBodies.contains(currentBody)) {
+            routes = List.of();
+            return;
+        }
+        java.util.Map<ResourceLocation, StationRouteDefinition> choices = new LinkedHashMap<>();
+        StationRouteRegistry.get(minecraft.level.registryAccess()).entrySet().stream()
                 .filter(entry -> entry.getKey().location().equals(entry.getValue().id()))
                 .map(java.util.Map.Entry::getValue)
                 .filter(StationRouteDefinition::enabled)
                 .filter(route -> route.fromBody().equals(currentBody))
-                .sorted(Comparator.comparing(route -> route.id().toString())).toList();
+                .filter(route -> travelBodies.contains(route.fromBody()) && travelBodies.contains(route.toBody()))
+                .forEach(route -> choices.putIfAbsent(route.toBody(), route));
+        travelBodies.stream()
+                .filter(target -> !target.equals(currentBody))
+                .forEach(target -> choices.putIfAbsent(target,
+                        StationRouteDefinition.freeTransfer(currentBody, target)));
+        routes = choices.values().stream()
+                .sorted(Comparator.comparing(route -> route.toBody().toString())).toList();
         page = Math.min(page, maxPage());
     }
 
@@ -65,9 +89,15 @@ public final class StationControlScreen extends AbstractContainerScreen<StationC
             StationRouteDefinition route = routes.get(index);
             int y = topPos + 38 + (index - start) * 23;
             addRenderableWidget(Button.builder(Component.translatable(
-                            "screen.wildfires.station_control.route", route.toBody().toString(),
+                            "screen.wildfires.station_control.travel", route.toBody().toString(),
                             route.totalDurationTicks()), button -> request(route.id()))
-                    .bounds(leftPos + 15, y, 190, 20).build());
+                    .bounds(leftPos + 15, y, 128, 20).build());
+            if (jumpEligible(route)) {
+                addRenderableWidget(Button.builder(Component.translatable(
+                                "screen.wildfires.station_control.jump"), button ->
+                        request(route.id(), StationTravelMode.JUMP))
+                        .bounds(leftPos + 147, y, 58, 20).build());
+            }
         }
         if (page > 0) {
             addRenderableWidget(Button.builder(Component.literal("<"), button -> {
@@ -88,8 +118,23 @@ public final class StationControlScreen extends AbstractContainerScreen<StationC
     }
 
     private void request(ResourceLocation routeId) {
+        request(routeId, StationTravelMode.NORMAL);
+    }
+
+    private void request(ResourceLocation routeId, StationTravelMode mode) {
         new RequestStationTravelPacket(new StationTravelRequest(menu.computerPos(), menu.stationId(),
-                menu.expectedRevision(), routeId)).sendToServer();
+                menu.expectedRevision(), routeId, mode)).sendToServer();
+    }
+
+    /** Mirrors the shared parent-system rule only for UI visibility; the server revalidates it. */
+    private boolean jumpEligible(StationRouteDefinition route) {
+        if (minecraft == null || minecraft.level == null) return false;
+        var registry = CelestialDefinitionRegistry.get(minecraft.level.registryAccess());
+        var from = registry.get(route.fromBody());
+        var to = registry.get(route.toBody());
+        if (from == null || to == null) return false;
+        return StationTransferTopology.classify(route.fromBody(), from, route.toBody(), to)
+                .isJumpEligible();
     }
 
     @Override

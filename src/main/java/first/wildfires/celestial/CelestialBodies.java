@@ -120,6 +120,13 @@ public enum CelestialBodies {
     public CelestialVector orbitalPlaneNormalEcliptic() {
         return orbitalNormal(CelestialPlanetSettings.DEFAULT);
     }
+    /** Orbit-plane normal after applying the synchronized per-body inclination settings. */
+    public CelestialVector orbitalPlaneNormalEcliptic(CelestialPlanetSettings settings) {
+        if (settings == null) {
+            throw new IllegalArgumentException("Celestial planet settings cannot be null");
+        }
+        return orbitalNormal(settings);
+    }
     public CelestialVector spinAxisEcliptic() {
         if (parent != null) {
             return orbitalNormal(CelestialPlanetSettings.DEFAULT);
@@ -205,27 +212,40 @@ public enum CelestialBodies {
 
     public static List<CelestialBodyState> calculate(CelestialMath.Result frame, double calendarYears,
                                                       CelestialPlanetSettings settings) {
+        return calculate(frame, calendarYears, settings, CelestialOrbitalPhases.ZERO);
+    }
+
+    public static List<CelestialBodyState> calculate(CelestialMath.Result frame, double calendarYears,
+                                                      CelestialPlanetSettings settings,
+                                                      CelestialOrbitalPhases phases) {
         CelestialVector[] positions = new CelestialVector[ORDERED.length];
         double earthOrbitalDays = settings.earthOrbitalDays();
         double astronomicalDays = calendarYears * earthOrbitalDays
                 + (284.0D / 365.0D + 0.5D) * earthOrbitalDays;
-        CelestialVector earth = CelestialMath.orbitalPosition(settings.earthSemiMajorMillionKm(),
-                earthOrbitalDays, 0.0D, false, astronomicalDays);
+        double referenceFrameTurns = phases.turns(CelestialOrbitalPhases.EARTH);
+        CelestialVector earth = rotateEcliptic(CelestialMath.orbitalPosition(
+                settings.earthSemiMajorMillionKm(), earthOrbitalDays, 0.0D, 0.0D,
+                false, astronomicalDays), referenceFrameTurns);
         List<CelestialBodyState> states = new ArrayList<>(ORDERED.length);
         for (CelestialBodies body : ORDERED) {
             CelestialBodyParameters parameters = settings.parameters(body);
             CelestialVector origin = body.parent == null ? CelestialVector.ZERO : positions[body.parent.ordinal()];
-            CelestialVector relative = body.parent == null
+            CelestialVector unrotatedRelative = body.parent == null
                     ? CelestialMath.orbitalPosition(parameters.semiMajorMillionKm(),
                             parameters.orbitalDays(), parameters.inclinationRadians(),
-                            body.ascendingNodeRadians, body.retrograde, astronomicalDays)
+                            body.ascendingNodeRadians, body.retrograde, astronomicalDays,
+                            phases.turns(body.id()))
                     : CelestialMath.satelliteOrbitalPosition(parameters.semiMajorMillionKm(),
                             parameters.orbitalDays(), body.orbitalReferenceNormalEcliptic(),
                             parameters.inclinationRadians(), body.ascendingNodeRadians,
-                            body.retrograde, astronomicalDays);
+                            body.retrograde, astronomicalDays, phases.turns(body.id()));
+            CelestialVector relative = rotateEcliptic(unrotatedRelative, referenceFrameTurns);
             CelestialVector heliocentric = origin == null ? relative : origin.add(relative);
             positions[body.ordinal()] = heliocentric;
-            CelestialVector geocentric = heliocentric.subtract(earth);
+            // The world phase rotates the inertial reference frame, not TFC's seasonal axes.
+            // Undo that common rotation before exposing Earth-local directions and station visuals.
+            CelestialVector geocentric = rotateEcliptic(heliocentric.subtract(earth),
+                    -referenceFrameTurns);
             CelestialVector equatorial = rotateEclipticVector(geocentric.normalized());
             CelestialVector direction = CelestialMath.equatorialToHorizon(equatorial, frame.latitude(),
                     frame.localSiderealAngle());
@@ -294,6 +314,14 @@ public enum CelestialBodies {
         double sin = Math.sin(CelestialMath.AXIAL_TILT);
         return new CelestialVector(vector.x(), vector.y() * cos - vector.z() * sin,
                 vector.y() * sin + vector.z() * cos).normalized();
+    }
+
+    private static CelestialVector rotateEcliptic(CelestialVector vector, double turns) {
+        double angle = CelestialMath.TAU * turns;
+        double cosine = Math.cos(angle);
+        double sine = Math.sin(angle);
+        return new CelestialVector(vector.x() * cosine - vector.y() * sine,
+                vector.x() * sine + vector.y() * cosine, vector.z());
     }
 
     private static CelestialVector equatorialPoleToEcliptic(double rightAscension, double declination) {

@@ -18,7 +18,7 @@ import net.minecraftforge.network.simple.SimpleChannel;
 
 public class NetworkPacketRegister {
 
-    public static final String Version = "8";
+    public static final String Version = "10";
     public static final SimpleChannel Instance = NetworkRegistry.newSimpleChannel(Wildfires.rl("main"), () -> Version, Version::equals, Version::equals);
     public static int id = 1;
 

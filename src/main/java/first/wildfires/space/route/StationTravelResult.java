@@ -48,6 +48,8 @@ public record StationTravelResult(Status status, Optional<StationRecord> station
         RETURN_CAPSULE_AWAY("return_capsule_away"),
         INVALID_COMPUTER("invalid_computer"),
         NO_TEST_ENGINE("no_test_engine"),
+        NO_JUMP_TEST_ENGINE("no_jump_test_engine"),
+        JUMP_ROUTE_INELIGIBLE("jump_route_ineligible"),
         PERSISTENCE_REJECTED("persistence_rejected");
 
         private final String id;

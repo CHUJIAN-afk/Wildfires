@@ -2,6 +2,7 @@ package first.wildfires.network;
 
 import first.wildfires.celestial.CelestialBodyParameters;
 import first.wildfires.celestial.CelestialPlanetSettings;
+import first.wildfires.celestial.CelestialOrbitalPhases;
 import first.wildfires.celestial.CelestialRuntimeSettings;
 import first.wildfires.celestial.CelestialSettingsCache;
 import first.wildfires.network.base.ICustomPacketPayload;
@@ -45,6 +46,9 @@ public record CelestialSettingsSyncPacket(CelestialRuntimeSettings settings) imp
             buffer.writeDouble(planet.synodicDays());
             buffer.writeDouble(planet.inclinationRadians());
         }
+        for (var id : CelestialOrbitalPhases.orderedIds()) {
+            buffer.writeDouble(settings.orbitalPhases().turns(id));
+        }
     }
 
     @Override
@@ -80,9 +84,13 @@ public record CelestialSettingsSyncPacket(CelestialRuntimeSettings settings) imp
             planets.add(new CelestialBodyParameters(buffer.readDouble(), buffer.readDouble(), buffer.readDouble(),
                     buffer.readDouble(), buffer.readDouble()));
         }
+        java.util.Map<net.minecraft.resources.ResourceLocation, Double> phases = new java.util.LinkedHashMap<>();
+        for (var id : CelestialOrbitalPhases.orderedIds()) {
+            phases.put(id, buffer.readDouble());
+        }
         return new CelestialRuntimeSettings(synodicDays, anomalisticDays, nodalYears, lunarInclination,
                 bloodMoonSurfaceMonsters, bloodMoonSpawnMultiplier, sunScale, moonScale, preset,
                 new CelestialPlanetSettings(planets, earthDiameterKm, earthOrbitalDays,
-                        earthSemiMajorMillionKm));
+                        earthSemiMajorMillionKm), new CelestialOrbitalPhases(phases));
     }
 }

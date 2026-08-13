@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/air",
+  "textures": {
+    "particle": "wildfires:third_party/ntm_space/docking_port"
+  }
+}

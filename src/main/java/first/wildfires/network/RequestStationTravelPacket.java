@@ -10,8 +10,11 @@ import first.wildfires.space.route.StationRouteRuntime;
 import first.wildfires.space.route.StationTravelRequest;
 import first.wildfires.space.route.StationTravelResult;
 import first.wildfires.space.route.StationTravelService;
+import first.wildfires.space.route.StationTravelMode;
+import first.wildfires.space.content.StationJumpDriveIndex;
 import first.wildfires.space.station.SpaceSavedData;
 import first.wildfires.space.station.StationRecord;
+import first.wildfires.space.capsule.ReturnCapsuleService;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
@@ -27,6 +30,7 @@ import java.util.function.Supplier;
 public record RequestStationTravelPacket(StationTravelRequest request) implements ICustomPacketPayload {
 
     private static final int MAX_RESOURCE_ID_LENGTH = 256;
+    private static final int MAX_MODE_LENGTH = 16;
 
     public RequestStationTravelPacket {
         Objects.requireNonNull(request, "request");
@@ -42,6 +46,7 @@ public record RequestStationTravelPacket(StationTravelRequest request) implement
         buffer.writeUUID(request.stationId());
         buffer.writeVarLong(request.expectedRevision());
         buffer.writeUtf(request.routeId().toString(), MAX_RESOURCE_ID_LENGTH);
+        buffer.writeUtf(request.mode().id(), MAX_MODE_LENGTH);
     }
 
     @Override
@@ -69,15 +74,16 @@ public record RequestStationTravelPacket(StationTravelRequest request) implement
         if (routeId == null) {
             throw new IllegalArgumentException("Invalid station route id: " + value);
         }
-        return new StationTravelRequest(pos, stationId, revision, routeId);
+        StationTravelMode mode = StationTravelMode.fromId(buffer.readUtf(MAX_MODE_LENGTH))
+                .orElseThrow(() -> new IllegalArgumentException("Invalid station travel mode"));
+        return new StationTravelRequest(pos, stationId, revision, routeId, mode);
     }
 
     private record ServerValidation(ServerPlayer player) implements StationTravelService.ValidationContext {
 
         @Override
         public boolean allReturnCapsulesDocked(StationRecord station) {
-            // P5 has no return-capsule runtime. A non-empty ownership set therefore cannot be proven docked.
-            return station.ownedReturnCapsules().isEmpty();
+            return ReturnCapsuleService.allDocked(player.server, station);
         }
 
         @Override
@@ -100,6 +106,11 @@ public record RequestStationTravelPacket(StationTravelRequest request) implement
         @Override
         public boolean hasLoadedTestEngine(StationRecord station) {
             return StationDriveIndex.hasLoadedEngine(player.serverLevel(), station);
+        }
+
+        @Override
+        public boolean hasLoadedJumpTestEngine(StationRecord station) {
+            return StationJumpDriveIndex.hasLoadedEngine(player.serverLevel(), station);
         }
     }
 }

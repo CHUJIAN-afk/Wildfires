@@ -218,8 +218,15 @@ public final class CelestialMath {
     public static CelestialVector orbitalPosition(double radius, double orbitalDays, double inclination,
                                                    double ascendingNode, boolean retrograde,
                                                    double calendarDays) {
+        return orbitalPosition(radius, orbitalDays, inclination, ascendingNode, retrograde,
+                calendarDays, 0.0D);
+    }
+
+    public static CelestialVector orbitalPosition(double radius, double orbitalDays, double inclination,
+                                                   double ascendingNode, boolean retrograde,
+                                                   double calendarDays, double phaseTurns) {
         double sign = retrograde ? -1.0D : 1.0D;
-        double angle = sign * TAU * calendarDays / orbitalDays;
+        double angle = sign * TAU * calendarDays / orbitalDays + TAU * phaseTurns;
         double nodeCos = Math.cos(ascendingNode);
         double nodeSin = Math.sin(ascendingNode);
         CelestialVector node = new CelestialVector(nodeCos, nodeSin, 0.0D);
@@ -240,6 +247,17 @@ public final class CelestialMath {
                                                             double ascendingNode,
                                                             boolean retrograde,
                                                             double calendarDays) {
+        return satelliteOrbitalPosition(radius, orbitalDays, referencePlaneNormal,
+                relativeInclination, ascendingNode, retrograde, calendarDays, 0.0D);
+    }
+
+    public static CelestialVector satelliteOrbitalPosition(double radius, double orbitalDays,
+                                                            CelestialVector referencePlaneNormal,
+                                                            double relativeInclination,
+                                                            double ascendingNode,
+                                                            boolean retrograde,
+                                                            double calendarDays,
+                                                            double phaseTurns) {
         CelestialVector normal = referencePlaneNormal.normalized();
         if (normal.lengthSquared() < 1.0E-12D) {
             throw new IllegalArgumentException("Orbit reference-plane normal must be non-zero");
@@ -259,7 +277,7 @@ public final class CelestialMath {
         CelestialVector tiltedNormal = rotateAroundAxis(normal, node, relativeInclination).normalized();
         CelestialVector transverse = cross(tiltedNormal, node).normalized();
         double sign = retrograde ? -1.0D : 1.0D;
-        double angle = sign * TAU * calendarDays / orbitalDays;
+        double angle = sign * TAU * calendarDays / orbitalDays + TAU * phaseTurns;
         return node.scale(radius * Math.cos(angle))
                 .add(transverse.scale(radius * Math.sin(angle)));
     }

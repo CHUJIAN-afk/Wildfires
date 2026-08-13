@@ -1,24 +1,20 @@
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.jar.JarFile
+import java.util.jar.JarEntry
+import java.util.jar.JarOutputStream
 
 def tfeVersion = project.ext.tfeVersion.toString()
-def tfeSourceCommit = project.ext.tfeSourceCommit.toString()
-def tfeSourceRepository = project.ext.tfeSourceRepository.toString()
+def tfeReleaseSha256 = project.ext.tfeReleaseSha256.toString()
 def tfeLocalJar = project.ext.tfeLocalJar as File
-def tfeMarker = file('run/mods/.wildfires-tfe-dev.properties')
-def tfeSourceDir = file(".wildfires-cache/tfe-${tfeVersion}-${tfeSourceCommit.take(12)}")
-def tfeBuiltJar = new File(tfeSourceDir, "build/libs/Wildfire_TerraFirmaEarth-1.20.1-forge-${tfeVersion}.jar")
-def tfeNamedProbeEntry = 'com/newterraearth/tfe/mixin/client/ClimateScreenMixin.class'
-def windows = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('windows')
-def tfeRefresh = providers.gradleProperty('tfeRefresh')
-    .map { it.toBoolean() }
-    .orElse(false)
-def java21Launcher = javaToolchains.launcherFor {
-    languageVersion = JavaLanguageVersion.of(21)
-}
+def tfeUserdevInputVersion = project.ext.tfeUserdevInputVersion.toString()
+def tfeUserdevInputSha256 = project.ext.tfeUserdevInputSha256.toString()
+def tfeUserdevInputJar = project.ext.tfeUserdevInputJar as File
+def tfeClimateMixinEntry = 'com/newterraearth/tfe/mixin/client/ClimateScreenMixin.class'
+def tfeHemisphereHelperEntry = 'com/newterraearth/tfe/client/NTEClimateRenderHelpers.class'
+def tfeLeopardSealEntry = 'com/newterraearth/tfe/common/entity/aquatic/NTELeopardSeal.class'
+def tfeLeopardSealHelperName = 'isFood'
+def tfeLeopardSealUserdevHelperName = 'wildfires$tfeIsFood'
 
 def sha256 = { File input ->
     MessageDigest digest = MessageDigest.getInstance('SHA-256')
@@ -36,7 +32,7 @@ def sha256 = { File input ->
 
 def inspectTfeJar = { File candidate ->
     if (!candidate.isFile()) {
-        return [valid: false, reason: "missing JAR ${candidate}"]
+        return [valid: false, reason: "missing local release JAR ${candidate}"]
     }
 
     try {
@@ -57,227 +53,231 @@ def inspectTfeJar = { File candidate ->
                 return [valid: false, reason: 'mods.toml does not declare modId=tfe']
             }
 
-            def probeEntry = jar.getJarEntry(tfeNamedProbeEntry)
-            if (probeEntry == null) {
-                return [valid: false, reason: "named-mapping probe class is missing: ${tfeNamedProbeEntry}"]
+            for (String requiredEntry : [tfeClimateMixinEntry, tfeHemisphereHelperEntry, 'tfe.mixins.json']) {
+                if (jar.getJarEntry(requiredEntry) == null) {
+                    return [valid: false, reason: "required TFE compatibility entry is missing: ${requiredEntry}"]
+                }
             }
-            def probeText = jar.getInputStream(probeEntry).withCloseable {
+            def climateMixinBytes = jar.getInputStream(jar.getJarEntry(tfeClimateMixinEntry)).withCloseable {
                 new String(it.readAllBytes(), StandardCharsets.ISO_8859_1)
             }
-            if (!probeText.contains('renderLabels') || !probeText.contains('translationKey')) {
-                return [valid: false, reason: 'JAR is not the required named dev artifact (named method probes are absent)']
+            if (!climateMixinBytes.contains('m_280003_') || !climateMixinBytes.contains('translationKey')) {
+                return [valid: false, reason: 'production climate-screen compatibility probes are absent']
+            }
+            def helperBytes = jar.getInputStream(jar.getJarEntry(tfeHemisphereHelperEntry)).withCloseable {
+                new String(it.readAllBytes(), StandardCharsets.ISO_8859_1)
+            }
+            if (!helperBytes.contains('getHemisphereScale')) {
+                return [valid: false, reason: 'hemisphere helper compatibility probe is absent']
             }
 
-            return [valid: true, reason: 'TFE identity and named mappings are valid', sha256: sha256(candidate)]
+            String actualHash = sha256(candidate)
+            if (!actualHash.equalsIgnoreCase(tfeReleaseSha256)) {
+                return [valid: false, reason: "SHA-256 is ${actualHash}, expected ${tfeReleaseSha256}"]
+            }
+            return [valid: true, reason: 'TFE release identity, binary compatibility probes, and SHA-256 are valid', sha256: actualHash]
         }
     } catch (Exception failure) {
         return [valid: false, reason: "cannot read JAR: ${failure.message}"]
     }
 }
 
-def readMarker = {
-    if (!tfeMarker.isFile()) {
-        return [valid: false, reason: "missing provenance marker ${tfeMarker}"]
+def rewriteExactClassUtf8 = { byte[] classBytes, String oldValue, String newValue ->
+    def input = new DataInputStream(new ByteArrayInputStream(classBytes))
+    def bytes = new ByteArrayOutputStream(classBytes.length + 64)
+    def output = new DataOutputStream(bytes)
+    int magic = input.readInt()
+    if (magic != 0xCAFEBABE as int) {
+        throw new GradleException('TFE userdev patch target is not a Java class file')
     }
-    Properties marker = new Properties()
+    output.writeInt(magic)
+    output.writeShort(input.readUnsignedShort())
+    output.writeShort(input.readUnsignedShort())
+    int constantPoolCount = input.readUnsignedShort()
+    output.writeShort(constantPoolCount)
+    int replacements = 0
+    for (int index = 1; index < constantPoolCount; index++) {
+        int tag = input.readUnsignedByte()
+        output.writeByte(tag)
+        switch (tag) {
+            case 1:
+                int length = input.readUnsignedShort()
+                byte[] valueBytes = input.readNBytes(length)
+                String value = new String(valueBytes, StandardCharsets.UTF_8)
+                if (value == oldValue) {
+                    valueBytes = newValue.getBytes(StandardCharsets.UTF_8)
+                    replacements++
+                }
+                output.writeShort(valueBytes.length)
+                output.write(valueBytes)
+                break
+            case 3:
+            case 4:
+                output.write(input.readNBytes(4))
+                break
+            case 5:
+            case 6:
+                output.write(input.readNBytes(8))
+                index++
+                break
+            case 7:
+            case 8:
+            case 16:
+            case 19:
+            case 20:
+                output.write(input.readNBytes(2))
+                break
+            case 9:
+            case 10:
+            case 11:
+            case 12:
+            case 17:
+            case 18:
+                output.write(input.readNBytes(4))
+                break
+            case 15:
+                output.write(input.readNBytes(3))
+                break
+            default:
+                throw new GradleException("Unsupported constant-pool tag ${tag} in ${tfeLeopardSealEntry}")
+        }
+    }
+    output.write(input.readAllBytes())
+    output.flush()
+    if (replacements != 1) {
+        throw new GradleException("Expected exactly one ${oldValue} UTF-8 entry in ${tfeLeopardSealEntry}, found ${replacements}")
+    }
+    bytes.toByteArray()
+}
+
+def inspectTfeUserdevInput = { File candidate ->
+    if (!candidate.isFile()) {
+        return [valid: false, reason: "missing generated userdev input JAR ${candidate}"]
+    }
     try {
-        tfeMarker.withInputStream { marker.load(it) }
-    } catch (Exception failure) {
-        return [valid: false, reason: "cannot read provenance marker: ${failure.message}"]
-    }
-    if (marker.getProperty('format') != '1') {
-        return [valid: false, reason: 'unsupported provenance marker format']
-    }
-    if (marker.getProperty('sourceRepository') != tfeSourceRepository ||
-        marker.getProperty('sourceCommit') != tfeSourceCommit ||
-        marker.getProperty('tfeVersion') != tfeVersion) {
-        return [valid: false, reason: 'provenance marker does not match the pinned TFE source']
-    }
-    return [valid: true, reason: 'provenance marker is valid', sha256: marker.getProperty('jarSha256')]
-}
-
-def inspectInstalledTfe = {
-    def jarState = inspectTfeJar(tfeLocalJar)
-    if (!jarState.valid) {
-        return jarState
-    }
-    def markerState = readMarker()
-    if (!markerState.valid) {
-        return markerState
-    }
-    if (!markerState.sha256 || markerState.sha256 != jarState.sha256) {
-        return [valid: false, reason: 'installed JAR hash does not match its pinned-source provenance marker']
-    }
-    return [valid: true, reason: jarState.reason, sha256: jarState.sha256]
-}
-
-def runCommand = { List<String> command, File workingDirectory, Map<String, String> extraEnvironment = [:] ->
-    logger.lifecycle("[TFE bootstrap] ${command.join(' ')}")
-    try {
-        ProcessBuilder builder = new ProcessBuilder(command)
-        builder.directory(workingDirectory)
-        builder.redirectErrorStream(true)
-        builder.environment().putAll(extraEnvironment)
-        Process process = builder.start()
-        process.inputStream.withReader(StandardCharsets.UTF_8.name()) { reader ->
-            reader.eachLine { logger.lifecycle(it) }
-        }
-        int exitCode = process.waitFor()
-        if (exitCode != 0) {
-            throw new GradleException("Command failed with exit code ${exitCode}: ${command.join(' ')}")
-        }
-    } catch (IOException failure) {
-        def action = command[0] == 'git'
-            ? 'Install Git and ensure it is on PATH.'
-            : "Ensure '${command[0]}' is available on this operating system."
-        throw new GradleException("Could not start '${command[0]}'. ${action} ${failure.message}", failure)
-    }
-}
-
-def captureCommand = { List<String> command, File workingDirectory ->
-    try {
-        ProcessBuilder builder = new ProcessBuilder(command)
-        builder.directory(workingDirectory)
-        builder.redirectErrorStream(true)
-        Process process = builder.start()
-        String output = process.inputStream.getText(StandardCharsets.UTF_8.name()).trim()
-        int exitCode = process.waitFor()
-        if (exitCode != 0) {
-            throw new GradleException("Command failed with exit code ${exitCode}: ${command.join(' ')}\n${output}")
-        }
-        return output
-    } catch (IOException failure) {
-        def action = command[0] == 'git'
-            ? 'Install Git and ensure it is on PATH.'
-            : "Ensure '${command[0]}' is available on this operating system."
-        throw new GradleException("Could not start '${command[0]}'. ${action} ${failure.message}", failure)
-    }
-}
-
-def prepareTfe = tasks.register('prepareTfeDevJar') {
-    group = 'build setup'
-    description = "Build the pinned TerraFirmaEarth ${tfeVersion} named dev JAR when it is not already valid."
-    inputs.property('tfeVersion', tfeVersion)
-    inputs.property('tfeSourceCommit', tfeSourceCommit)
-    inputs.property('tfeSourceRepository', tfeSourceRepository)
-    inputs.property('tfeRefresh', tfeRefresh)
-    outputs.file(tfeLocalJar)
-    outputs.file(tfeMarker)
-    outputs.upToDateWhen { !tfeRefresh.get() && inspectInstalledTfe().valid }
-
-    doLast {
-        def installedState = inspectInstalledTfe()
-        if (!tfeRefresh.get() && installedState.valid) {
-            logger.lifecycle("[TFE bootstrap] Reusing verified TFE ${tfeVersion} named dev JAR (${installedState.sha256}).")
-            return
-        }
-        logger.lifecycle("[TFE bootstrap] Provisioning is required: ${installedState.reason}")
-
-        def gitDirectory = new File(tfeSourceDir, '.git')
-        if (!gitDirectory.isDirectory()) {
-            if (tfeSourceDir.exists()) {
-                delete(tfeSourceDir)
+        new JarFile(candidate).withCloseable { jar ->
+            def entry = jar.getJarEntry(tfeLeopardSealEntry)
+            if (entry == null) {
+                return [valid: false, reason: "userdev patch target is missing: ${tfeLeopardSealEntry}"]
             }
-            tfeSourceDir.parentFile.mkdirs()
-            runCommand(['git', 'clone', '--filter=blob:none', '--no-checkout', tfeSourceRepository, tfeSourceDir.absolutePath], projectDir)
+            byte[] bytes = jar.getInputStream(entry).withCloseable { it.readAllBytes() }
+            String classText = new String(bytes, StandardCharsets.ISO_8859_1)
+            if (!classText.contains(tfeLeopardSealUserdevHelperName) || !classText.contains('m_6898_')) {
+                return [valid: false, reason: 'NTELeopardSeal userdev method-collision patch is absent']
+            }
+            String actualHash = sha256(candidate)
+            if (!actualHash.equalsIgnoreCase(tfeUserdevInputSha256)) {
+                return [valid: false, reason: "userdev input SHA-256 is ${actualHash}, expected ${tfeUserdevInputSha256}"]
+            }
+            return [valid: true, reason: 'local TFE userdev input contains the verified NTELeopardSeal mapping-collision patch', sha256: actualHash]
         }
-
-        String originRepository = null
-        try {
-            originRepository = captureCommand(['git', '-C', tfeSourceDir.absolutePath, 'remote', 'get-url', 'origin'], projectDir)
-        } catch (GradleException ignored) {
-            logger.lifecycle('[TFE bootstrap] Cached source repository is invalid; cloning it again.')
-        }
-        if (originRepository != tfeSourceRepository) {
-            delete(tfeSourceDir)
-            runCommand(['git', 'clone', '--filter=blob:none', '--no-checkout', tfeSourceRepository, tfeSourceDir.absolutePath], projectDir)
-        }
-        if (windows) {
-            runCommand(['git', '-C', tfeSourceDir.absolutePath, 'config', 'core.longpaths', 'true'], projectDir)
-        }
-
-        boolean checkoutSucceeded = true
-        try {
-            runCommand(['git', '-C', tfeSourceDir.absolutePath, 'checkout', '--detach', '--force', tfeSourceCommit], projectDir)
-        } catch (GradleException ignored) {
-            checkoutSucceeded = false
-        }
-        if (!checkoutSucceeded) {
-            runCommand(['git', '-C', tfeSourceDir.absolutePath, 'fetch', '--depth=1', 'origin', tfeSourceCommit], projectDir)
-            runCommand(['git', '-C', tfeSourceDir.absolutePath, 'checkout', '--detach', '--force', tfeSourceCommit], projectDir)
-        }
-        runCommand(['git', '-C', tfeSourceDir.absolutePath, 'clean', '-fdx'], projectDir)
-        String currentCommit = captureCommand(['git', '-C', tfeSourceDir.absolutePath, 'rev-parse', 'HEAD'], projectDir)
-        if (currentCommit != tfeSourceCommit) {
-            throw new GradleException("TFE source checkout is ${currentCommit}, expected ${tfeSourceCommit}")
-        }
-
-        def javaHome = java21Launcher.get().metadata.installationPath.asFile
-        def environment = [
-            'JAVA_HOME': javaHome.absolutePath,
-            'PATH': new File(javaHome, 'bin').absolutePath + File.pathSeparator + System.getenv('PATH')
-        ]
-        def wrapper = new File(tfeSourceDir, windows ? 'gradlew.bat' : 'gradlew')
-        if (!wrapper.isFile()) {
-            throw new GradleException("TFE Gradle wrapper is missing: ${wrapper}")
-        }
-        def buildArguments = ['jar', '-x', 'reobfJar', '--rerun-tasks', '--no-daemon', '--console=plain']
-        if (gradle.startParameter.offline) {
-            buildArguments.add('--offline')
-        }
-        def buildCommand = windows
-            ? ['cmd', '/d', '/c', wrapper.absolutePath] + buildArguments
-            : ['sh', wrapper.absolutePath] + buildArguments
-        runCommand(buildCommand, tfeSourceDir, environment)
-
-        def builtState = inspectTfeJar(tfeBuiltJar)
-        if (!builtState.valid) {
-            throw new GradleException("Pinned TFE build did not produce a valid named dev JAR: ${builtState.reason}")
-        }
-        tfeLocalJar.parentFile.mkdirs()
-        Files.copy(tfeBuiltJar.toPath(), tfeLocalJar.toPath(), StandardCopyOption.REPLACE_EXISTING)
-        String installedHash = sha256(tfeLocalJar)
-        tfeMarker.setText("""format=1
-sourceRepository=${tfeSourceRepository}
-sourceCommit=${tfeSourceCommit}
-tfeVersion=${tfeVersion}
-jarSha256=${installedHash}
-""", StandardCharsets.UTF_8.name())
-
-        def finalState = inspectInstalledTfe()
-        if (!finalState.valid) {
-            throw new GradleException("Installed TFE named dev JAR failed final verification: ${finalState.reason}")
-        }
-        logger.lifecycle("[TFE bootstrap] Installed verified TFE ${tfeVersion} named dev JAR (${finalState.sha256}).")
+    } catch (Exception failure) {
+        return [valid: false, reason: "cannot read generated userdev input JAR: ${failure.message}"]
     }
+}
+
+def generateTfeUserdevInput = {
+    def releaseState = inspectTfeJar(tfeLocalJar)
+    if (!releaseState.valid) {
+        throw new GradleException("TerraFirmaEarth ${tfeVersion} runtime verification failed: ${releaseState.reason}. " +
+            "Place the authorized ${tfeVersion} release at ${tfeLocalJar}; it is intentionally not downloaded or redistributed by Wildfires.")
+    }
+    tfeUserdevInputJar.parentFile.mkdirs()
+    File temporary = new File(tfeUserdevInputJar.parentFile, "${tfeUserdevInputJar.name}.tmp")
+    if (temporary.exists() && !temporary.delete()) {
+        throw new GradleException("Cannot replace temporary TFE userdev JAR ${temporary}")
+    }
+    new JarFile(tfeLocalJar).withCloseable { source ->
+        new JarOutputStream(new BufferedOutputStream(new FileOutputStream(temporary))).withCloseable { output ->
+            def entries = source.entries()
+            boolean patched = false
+            while (entries.hasMoreElements()) {
+                def sourceEntry = entries.nextElement()
+                def targetEntry = new JarEntry(sourceEntry.name)
+                targetEntry.time = 0L
+                output.putNextEntry(targetEntry)
+                if (!sourceEntry.isDirectory()) {
+                    byte[] content = source.getInputStream(sourceEntry).withCloseable { it.readAllBytes() }
+                    if (sourceEntry.name == tfeLeopardSealEntry) {
+                        content = rewriteExactClassUtf8(content, tfeLeopardSealHelperName, tfeLeopardSealUserdevHelperName)
+                        patched = true
+                    }
+                    output.write(content)
+                }
+                output.closeEntry()
+            }
+            if (!patched) {
+                throw new GradleException("TFE userdev patch target is missing: ${tfeLeopardSealEntry}")
+            }
+        }
+    }
+    try {
+        java.nio.file.Files.move(temporary.toPath(), tfeUserdevInputJar.toPath(),
+            java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+    } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+        java.nio.file.Files.move(temporary.toPath(), tfeUserdevInputJar.toPath(),
+            java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+    }
+    def state = inspectTfeUserdevInput(tfeUserdevInputJar)
+    if (!state.valid) {
+        throw new GradleException("Generated TerraFirmaEarth userdev input failed verification: ${state.reason}")
+    }
+    logger.lifecycle("[TFE bootstrap] Generated local-only TFE ${tfeVersion} userdev input (${state.sha256}).")
+    state
 }
 
 tasks.register('verifyTfeRuntime') {
     group = 'verification'
-    description = "Verify the pinned TerraFirmaEarth ${tfeVersion} named dev runtime."
-    dependsOn prepareTfe
+    description = "Verify the pinned local TerraFirmaEarth ${tfeVersion} release used by ForgeGradle userdev."
+    inputs.file(tfeLocalJar)
+    inputs.property('tfeVersion', tfeVersion)
+    inputs.property('tfeReleaseSha256', tfeReleaseSha256)
     doLast {
-        def state = inspectInstalledTfe()
+        def state = inspectTfeJar(tfeLocalJar)
         if (!state.valid) {
-            throw new GradleException("TerraFirmaEarth ${tfeVersion} runtime verification failed: ${state.reason}")
+            throw new GradleException("TerraFirmaEarth ${tfeVersion} runtime verification failed: ${state.reason}. " +
+                "Place the authorized ${tfeVersion} release at ${tfeLocalJar}; it is intentionally not downloaded or redistributed by Wildfires.")
         }
-        logger.lifecycle("[TFE bootstrap] Verified TFE ${tfeVersion} named dev JAR (${state.sha256}).")
+        logger.lifecycle("[TFE bootstrap] Verified local TFE ${tfeVersion} release (${state.sha256}).")
+    }
+}
+
+def prepareTfeUserdevInput = tasks.register('prepareTfeUserdevInput') {
+    group = 'build setup'
+    description = "Generate the local-only ForgeGradle input for TerraFirmaEarth ${tfeVersion}."
+    dependsOn tasks.named('verifyTfeRuntime')
+    inputs.file(tfeLocalJar)
+    inputs.property('tfeUserdevInputVersion', tfeUserdevInputVersion)
+    outputs.file(tfeUserdevInputJar)
+    outputs.upToDateWhen { inspectTfeUserdevInput(tfeUserdevInputJar).valid }
+    doLast {
+        generateTfeUserdevInput()
     }
 }
 
 tasks.register('tfeDevJarStatus') {
     group = 'help'
-    description = 'Report whether the installed TFE dev JAR matches the pinned source and named mappings.'
+    description = 'Report whether the local TFE release matches the pinned userdev dependency.'
     doLast {
-        def state = inspectInstalledTfe()
+        def state = inspectTfeJar(tfeLocalJar)
         logger.lifecycle("[TFE bootstrap] valid=${state.valid}; ${state.reason}${state.sha256 ? "; sha256=${state.sha256}" : ''}")
+        def userdevState = inspectTfeUserdevInput(tfeUserdevInputJar)
+        logger.lifecycle("[TFE bootstrap] userdevValid=${userdevState.valid}; ${userdevState.reason}${userdevState.sha256 ? "; sha256=${userdevState.sha256}" : ''}")
     }
 }
 
 tasks.withType(JavaCompile).configureEach {
-    dependsOn prepareTfe
+    dependsOn prepareTfeUserdevInput
 }
 
 tasks.matching { it.name in ['runClient', 'runServer', 'runGameTestServer', 'runData'] }.configureEach {
-    dependsOn tasks.named('verifyTfeRuntime')
+    dependsOn prepareTfeUserdevInput
+}
+
+// flatDir artifacts must exist before ForgeGradle resolves its synthetic deobfuscation configuration. Tasks alone
+// run too late on a fresh checkout, so configuration verifies or creates this ignored, deterministic input once.
+def configuredUserdevState = inspectTfeUserdevInput(tfeUserdevInputJar)
+if (!configuredUserdevState.valid) {
+    logger.lifecycle("[TFE bootstrap] Preparing userdev input during configuration: ${configuredUserdevState.reason}")
+    generateTfeUserdevInput()
 }

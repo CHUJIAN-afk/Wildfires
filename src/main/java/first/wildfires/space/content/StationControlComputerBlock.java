@@ -49,8 +49,13 @@ public final class StationControlComputerBlock extends BaseEntityBlock {
                     "space.wildfires.computer.orbit_only"), true);
             return InteractionResult.CONSUME;
         }
-        StationRecord station = SpaceSavedData.get(serverLevel.getServer())
-                .stationAt(pos.getX(), pos.getZ()).orElse(null);
+        SpaceSavedData spaceData = SpaceSavedData.get(serverLevel.getServer());
+        if (!spaceData.writable()) {
+            player.displayClientMessage(Component.translatable(
+                    "space.wildfires.travel.data_read_only"), true);
+            return InteractionResult.CONSUME;
+        }
+        StationRecord station = spaceData.stationAt(pos.getX(), pos.getZ()).orElse(null);
         if (station == null || !station.region().containsBuildArea(pos)) {
             player.displayClientMessage(Component.translatable(
                     "space.wildfires.computer.outside_station"), true);

@@ -4,6 +4,7 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import first.wildfires.Wildfires;
 import first.wildfires.celestial.CelestialSettingsCache;
 import first.wildfires.client.space.SpaceClientState;
+import first.wildfires.client.space.OrbitVisualDebugClock;
 import first.wildfires.client.space.render.OrbitSkyRenderer;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
@@ -23,6 +24,7 @@ public final class CelestialClientForgeEvents {
 
     @SubscribeEvent
     public static void onLogout(ClientPlayerNetworkEvent.LoggingOut event) {
+        OrbitVisualDebugClock.clear();
         CelestialSettingsCache.reset();
         SpaceClientState.clear();
         if (RenderSystem.isOnRenderThread()) {

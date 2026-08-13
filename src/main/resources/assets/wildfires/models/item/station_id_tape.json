@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "wildfires:third_party/ntm_space/station_id_tape"
+  }
+}

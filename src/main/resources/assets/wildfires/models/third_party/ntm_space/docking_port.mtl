@@ -1,0 +1,6 @@
+## Adapted for Forge 1.20.1 by Wildfires from the NTM: Space docking-port texture binding.
+## Copyright NTM: Space contributors. SPDX-License-Identifier: LGPL-3.0-only
+newmtl ntm_space
+Ka 1.0 1.0 1.0
+Kd 1.0 1.0 1.0
+map_Kd wildfires:third_party/ntm_space/docking_port

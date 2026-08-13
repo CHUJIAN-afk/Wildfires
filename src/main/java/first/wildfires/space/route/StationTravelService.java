@@ -6,6 +6,8 @@ import first.wildfires.space.station.StationJourneyService;
 import first.wildfires.space.station.StationRecord;
 import first.wildfires.space.station.StationService;
 import first.wildfires.space.station.StationStatus;
+import first.wildfires.space.celestial.CelestialDefinition;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.Objects;
 import java.util.UUID;
@@ -57,7 +59,8 @@ public final class StationTravelService {
         if (!route.fromBody().equals(station.currentBody())) {
             return StationTravelResult.rejected(StationTravelResult.Status.WRONG_ORIGIN);
         }
-        if (!present(celestials, route.fromBody()) || !present(celestials, route.toBody())) {
+        if (!StationRouteSnapshot.isTravelBody(celestials, route.fromBody())
+                || !StationRouteSnapshot.isTravelBody(celestials, route.toBody())) {
             return StationTravelResult.rejected(StationTravelResult.Status.BODY_UNAVAILABLE);
         }
         if (!context.allReturnCapsulesDocked(station)) {
@@ -69,12 +72,20 @@ public final class StationTravelService {
         if (!context.hasLoadedTestEngine(station)) {
             return StationTravelResult.rejected(StationTravelResult.Status.NO_TEST_ENGINE);
         }
+        if (request.mode() == StationTravelMode.JUMP) {
+            if (!isJumpEligible(celestials, route.fromBody(), route.toBody())) {
+                return StationTravelResult.rejected(StationTravelResult.Status.JUMP_ROUTE_INELIGIBLE);
+            }
+            if (!context.hasLoadedJumpTestEngine(station)) {
+                return StationTravelResult.rejected(StationTravelResult.Status.NO_JUMP_TEST_ENGINE);
+            }
+        }
 
         try {
             StationJourneyService.State before = new StationJourneyService.State(
                     station.currentBody(), station.journey(), station.revision());
             StationJourneyService.TransitionResult transition = StationJourneyService.start(
-                    before, route, gameTime, journeyId, actor);
+                    before, route, request.mode(), gameTime, journeyId, actor);
             StationService.OperationResult persisted = StationService.applyJourneyState(
                     data, station.stationId(), actor, transition.state(), StationStatus.ACTIVE, gameTime);
             if (persisted.status() != StationService.OperationStatus.SUCCESS
@@ -87,17 +98,26 @@ public final class StationTravelService {
         }
     }
 
-    private static boolean present(CelestialRegistrySnapshot celestials,
-                                   net.minecraft.resources.ResourceLocation body) {
-        return celestials.lookup(celestials.generation(), body).status()
-                == CelestialRegistrySnapshot.LookupStatus.PRESENT;
-    }
-
     public interface ValidationContext {
         boolean allReturnCapsulesDocked(StationRecord station);
 
         boolean validControlComputer(StationRecord station, StationTravelRequest request);
 
         boolean hasLoadedTestEngine(StationRecord station);
+
+        default boolean hasLoadedJumpTestEngine(StationRecord station) {
+            return false;
+        }
+    }
+
+    /** Jump routes cross parent-planet systems only; local satellite transfers remain conventional. */
+    static boolean isJumpEligible(CelestialRegistrySnapshot celestials, ResourceLocation from,
+                                  ResourceLocation to) {
+        CelestialDefinition fromDefinition = celestials.lookup(celestials.generation(), from).definition()
+                .map(resolved -> resolved.definition()).orElse(null);
+        CelestialDefinition toDefinition = celestials.lookup(celestials.generation(), to).definition()
+                .map(resolved -> resolved.definition()).orElse(null);
+        if (fromDefinition == null || toDefinition == null) return false;
+        return StationTransferTopology.classify(from, fromDefinition, to, toDefinition).isJumpEligible();
     }
 }

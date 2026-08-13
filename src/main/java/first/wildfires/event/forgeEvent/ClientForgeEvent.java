@@ -6,9 +6,11 @@ import com.simibubi.create.foundation.item.KineticStats;
 import com.simibubi.create.foundation.item.TooltipHelper;
 import com.simibubi.create.foundation.item.TooltipModifier;
 import com.simibubi.create.foundation.utility.CreateLang;
+import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.tterrag.registrate.util.entry.BlockEntry;
 import first.wildfires.Wildfires;
 import first.wildfires.client.ThermalDebugRenderer;
+import first.wildfires.client.space.OrbitVisualDebugClock;
 import first.wildfires.api.customEvent.CreativeTabBuildEvent;
 import first.wildfires.kinetic.loom.LoomControlBlock;
 import first.wildfires.network.PlayerInputPacket;
@@ -35,6 +37,7 @@ import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.loading.FMLEnvironment;
 
 import java.util.List;
 import java.util.stream.Stream;
@@ -43,14 +46,17 @@ import java.util.stream.Stream;
 public class ClientForgeEvent {
 
     private static final float LOOM_STRESS_IMPACT = 4.0f;
+    private static boolean jumpWasDown;
 
 
     @SubscribeEvent
     public static void inputEvent(MovementInputUpdateEvent event) {
-        if (event.getInput().jumping) {
+        boolean jumping = event.getInput().jumping;
+        if (jumping && !jumpWasDown) {
             PlayerInputPacket packet = new PlayerInputPacket();
             packet.sendToServer();
         }
+        jumpWasDown = jumping;
     }
 
     @SubscribeEvent
@@ -90,6 +96,30 @@ public class ClientForgeEvent {
                 }));
         event.getDispatcher().register(Commands.literal("wildfires")
                 .then(thermalDebug));
+        if (!FMLEnvironment.production) {
+            var orbitVisualTime = Commands.literal("orbitvisualtime")
+                    .then(Commands.literal("set")
+                            .then(Commands.argument("game_time", DoubleArgumentType.doubleArg(0.0D))
+                                    .then(Commands.argument("calendar_ticks", DoubleArgumentType.doubleArg(0.0D))
+                                            .executes(context -> {
+                                                double gameTime = DoubleArgumentType.getDouble(context, "game_time");
+                                                double calendarTicks = DoubleArgumentType.getDouble(context,
+                                                        "calendar_ticks");
+                                                OrbitVisualDebugClock.set(gameTime, calendarTicks);
+                                                context.getSource().sendSuccess(() -> Component.literal(
+                                                        "Orbit visual time frozen: game=" + gameTime
+                                                                + ", calendar=" + calendarTicks), false);
+                                                return 1;
+                                            }))))
+                    .then(Commands.literal("clear").executes(context -> {
+                        OrbitVisualDebugClock.clear();
+                        context.getSource().sendSuccess(() -> Component.literal(
+                                "Orbit visual time returned to synchronized clocks"), false);
+                        return 1;
+                    }));
+            event.getDispatcher().register(Commands.literal("wildfires")
+                    .then(orbitVisualTime));
+        }
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)

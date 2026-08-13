@@ -7,7 +7,7 @@ import net.minecraft.resources.ResourceLocation;
 
 import java.util.Objects;
 
-/** Stable virtual station-side endpoint used before physical docking-port content exists. */
+/** Stable station endpoint; the primary record is physically materialized as the station core. */
 public record StationDockRecord(ResourceLocation id, BlockPos position) {
 
     public StationDockRecord {

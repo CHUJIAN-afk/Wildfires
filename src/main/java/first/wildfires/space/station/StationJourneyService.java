@@ -1,6 +1,7 @@
 package first.wildfires.space.station;
 
 import first.wildfires.space.route.StationRouteDefinition;
+import first.wildfires.space.route.StationTravelMode;
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.ArrayList;
@@ -17,8 +18,14 @@ public final class StationJourneyService {
 
     public static TransitionResult start(State state, StationRouteDefinition route, long nowGameTime,
                                          UUID journeyId, UUID requestedBy) {
+        return start(state, route, StationTravelMode.NORMAL, nowGameTime, journeyId, requestedBy);
+    }
+
+    public static TransitionResult start(State state, StationRouteDefinition route, StationTravelMode mode,
+                                         long nowGameTime, UUID journeyId, UUID requestedBy) {
         Objects.requireNonNull(state, "state");
         Objects.requireNonNull(route, "route");
+        Objects.requireNonNull(mode, "mode");
         Objects.requireNonNull(journeyId, "journeyId");
         Objects.requireNonNull(requestedBy, "requestedBy");
         requireNonNegative(nowGameTime, "nowGameTime");
@@ -33,7 +40,7 @@ public final class StationJourneyService {
                     + ": " + state.currentBody());
         }
         StationJourney journey = new StationJourney(journeyId, route.id(), route.fromBody(), route.toBody(),
-                StationJourneyPhase.DEPARTING, nowGameTime, route.departureTicks(), requestedBy);
+                mode, StationJourneyPhase.DEPARTING, nowGameTime, route.departureTicks(), requestedBy);
         State next = new State(state.currentBody(), Optional.of(journey), incrementRevision(state.revision()));
         return new TransitionResult(next, List.of(Change.JOURNEY_STARTED));
     }
@@ -60,8 +67,11 @@ public final class StationJourneyService {
             long nextStartedGameTime = workingJourney.phaseEndGameTime();
             switch (workingJourney.phase()) {
                 case DEPARTING -> {
-                    workingJourney = workingJourney.withPhase(StationJourneyPhase.CRUISE,
-                            nextStartedGameTime, route.cruiseTicks());
+                    StationJourneyPhase next = workingJourney.mode() == StationTravelMode.JUMP
+                            ? StationJourneyPhase.JUMP_ACCELERATING : StationJourneyPhase.CRUISE;
+                    long duration = next == StationJourneyPhase.JUMP_ACCELERATING
+                            ? StationJumpTimings.ACCELERATION_TICKS : route.cruiseTicks();
+                    workingJourney = workingJourney.withPhase(next, nextStartedGameTime, duration);
                     workingState = new State(workingState.currentBody(), Optional.of(workingJourney),
                             incrementRevision(workingState.revision()));
                     changes.add(Change.PHASE_CHANGED);
@@ -73,6 +83,28 @@ public final class StationJourneyService {
                             incrementRevision(workingState.revision()));
                     changes.add(Change.PHASE_CHANGED);
                     changes.add(Change.CURRENT_BODY_COMMITTED);
+                }
+                case JUMP_ACCELERATING -> {
+                    workingJourney = workingJourney.withPhase(StationJourneyPhase.JUMP_CRUISING,
+                            nextStartedGameTime, StationJumpTimings.CRUISE_TICKS);
+                    workingState = new State(workingState.currentBody(), Optional.of(workingJourney),
+                            incrementRevision(workingState.revision()));
+                    changes.add(Change.PHASE_CHANGED);
+                }
+                case JUMP_CRUISING -> {
+                    workingJourney = workingJourney.withPhase(StationJourneyPhase.JUMP_DECELERATING,
+                            nextStartedGameTime, StationJumpTimings.DECELERATION_TICKS);
+                    workingState = new State(workingJourney.toBody(), Optional.of(workingJourney),
+                            incrementRevision(workingState.revision()));
+                    changes.add(Change.PHASE_CHANGED);
+                    changes.add(Change.CURRENT_BODY_COMMITTED);
+                }
+                case JUMP_DECELERATING -> {
+                    workingJourney = workingJourney.withPhase(StationJourneyPhase.ARRIVING,
+                            nextStartedGameTime, route.arrivalTicks());
+                    workingState = new State(workingJourney.toBody(), Optional.of(workingJourney),
+                            incrementRevision(workingState.revision()));
+                    changes.add(Change.PHASE_CHANGED);
                 }
                 case ARRIVING -> {
                     workingState = new State(workingJourney.toBody(), Optional.empty(),
@@ -130,6 +162,7 @@ public final class StationJourneyService {
             requireNonNegative(revision, "revision");
             journey.ifPresent(activeJourney -> {
                 ResourceLocation expectedBody = activeJourney.phase() == StationJourneyPhase.ARRIVING
+                        || activeJourney.phase() == StationJourneyPhase.JUMP_DECELERATING
                         ? activeJourney.toBody()
                         : activeJourney.fromBody();
                 if (activeJourney.phase() != StationJourneyPhase.FAULTED

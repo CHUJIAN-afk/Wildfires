@@ -2,12 +2,15 @@ package first.wildfires.network;
 
 import first.wildfires.network.base.ICustomPacketPayload;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.network.NetworkEvent;
 import net.minecraftforge.registries.ForgeRegistries;
+import first.wildfires.space.capsule.ReusableReturnCapsuleEntity;
+import first.wildfires.space.capsule.ReturnCapsuleService;
 
 import java.util.function.Supplier;
 
@@ -29,6 +32,14 @@ public record PlayerInputPacket() implements ICustomPacketPayload {
             if (player != null) {
                 Entity vehicle = player.getVehicle();
                 if (vehicle != null) {
+                    if (vehicle instanceof ReusableReturnCapsuleEntity capsule) {
+                        ReturnCapsuleService.ActionResult result =
+                                ReturnCapsuleService.requestPrimaryAction(player, capsule);
+                        if (!result.successful()) {
+                            player.displayClientMessage(Component.translatable(result.translationKey()), true);
+                        }
+                        return;
+                    }
                     ResourceLocation location = ForgeRegistries.ENTITY_TYPES.getKey(vehicle.getType());
                     if (location != null) {
                         String string = location.toString();

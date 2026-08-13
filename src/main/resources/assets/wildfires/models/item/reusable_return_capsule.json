@@ -1,0 +1,17 @@
+{
+  "loader": "forge:obj",
+  "flip_v": true,
+  "model": "wildfires:models/third_party/ntm_space/rp_drop_pod.obj",
+  "mtl_override": "wildfires:models/third_party/ntm_space/rp_drop_pod.mtl",
+  "automatic_culling": false,
+  "textures": {
+    "particle": "wildfires:third_party/ntm_space/rp_drop_pod"
+  },
+  "display": {
+    "gui": { "rotation": [30, 225, 0], "translation": [0, -4, 0], "scale": [0.28, 0.28, 0.28] },
+    "ground": { "translation": [0, 1, 0], "scale": [0.18, 0.18, 0.18] },
+    "fixed": { "rotation": [0, 180, 0], "translation": [0, -3, 0], "scale": [0.25, 0.25, 0.25] },
+    "firstperson_righthand": { "rotation": [0, 225, 0], "translation": [0, -3, 0], "scale": [0.22, 0.22, 0.22] },
+    "thirdperson_righthand": { "rotation": [75, 225, 0], "translation": [0, -3, 0], "scale": [0.22, 0.22, 0.22] }
+  }
+}

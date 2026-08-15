@@ -156,6 +156,30 @@ public record StationRecord(
                 landingTargets, nextRevision(), gameTime);
     }
 
+    public StationRecord withDock(StationDockRecord dock, boolean present, long gameTime) {
+        Objects.requireNonNull(dock, "dock");
+        if (dock.id().equals(primaryDockId) && !present) {
+            throw new IllegalArgumentException("The primary station dock cannot be removed");
+        }
+        Map<ResourceLocation, StationDockRecord> updated = new LinkedHashMap<>(docks);
+        boolean changed;
+        if (present) {
+            StationDockRecord previous = updated.putIfAbsent(dock.id(), dock);
+            changed = previous == null;
+            if (previous != null && !previous.equals(dock)) {
+                throw new IllegalArgumentException("Station dock id already exists at another position");
+            }
+            if (updated.values().stream().filter(value -> value.position().equals(dock.position())).count() > 1L) {
+                throw new IllegalArgumentException("Station dock position is already registered");
+            }
+        } else {
+            changed = updated.remove(dock.id()) != null;
+        }
+        if (!changed) return this;
+        return copy(name, members, currentBody, journey, status, updated, ownedReturnCapsules,
+                landingTargets, nextRevision(), gameTime);
+    }
+
     private StationRecord copy(String newName, Map<UUID, StationPermission> newMembers,
                                ResourceLocation newCurrentBody, Optional<StationJourney> newJourney,
                                StationStatus newStatus, Map<ResourceLocation, StationDockRecord> newDocks,

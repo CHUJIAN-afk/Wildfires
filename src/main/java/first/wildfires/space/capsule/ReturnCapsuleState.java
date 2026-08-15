@@ -3,7 +3,7 @@
  * Copyright NTM: Space contributors.
  * SPDX-License-Identifier: LGPL-3.0-only
  * Wildfires modifications: split launch/arrival into visually continuous first-release phases,
- * assigned stable persisted IDs and added an explicit recovery state.
+ * assigned stable persisted IDs, retained NTM's liquid-tipping state and added explicit recovery.
  */
 package first.wildfires.space.capsule;
 
@@ -17,7 +17,10 @@ public enum ReturnCapsuleState {
     DEORBIT(30, false),
     REENTRY(40, false),
     SURFACE_LANDING(50, false),
+    SURFACE_TIPPING(55, true),
     SURFACE_LANDED(60, true),
+    /** NTM AWAITING: drive installed, door closing/closed, jump may launch. */
+    SURFACE_CLOSING(65, true),
     SURFACE_LAUNCHING(70, false),
     ASCENT_TRANSITION(80, false),
     ORBIT_INSERTION(90, false),

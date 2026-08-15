@@ -1,6 +1,7 @@
 package first.wildfires.client.celestial;
 
 import com.mojang.blaze3d.platform.GlStateManager;
+import com.mojang.blaze3d.shaders.AbstractUniform;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
@@ -16,6 +17,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.function.Supplier;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraftforge.client.event.RegisterShadersEvent;
@@ -27,7 +29,7 @@ public final class AuroraRenderer {
     private static final Palette[] PALETTES = createPalettes();
     private static final Geometry[] GEOMETRIES = createGeometries();
 
-    private static ShaderInstance shader;
+    private static ShaderBindings bindings;
     private static long activeKey = Long.MIN_VALUE;
     private static double lastAnimationTick;
     private static double fadeAge;
@@ -39,11 +41,12 @@ public final class AuroraRenderer {
 
     public static void registerShader(RegisterShadersEvent event) throws IOException {
         event.registerShader(new ShaderInstance(event.getResourceProvider(), Wildfires.rl("aurora"),
-                DefaultVertexFormat.POSITION_TEX), loaded -> shader = loaded);
+                DefaultVertexFormat.POSITION_TEX), loaded -> bindings = ShaderBindings.create(loaded));
     }
 
     static void render(ClientLevel level, CelestialState state, float partialTick, PoseStack poseStack) {
-        if (shader == null) {
+        ShaderBindings active = bindings;
+        if (active == null) {
             return;
         }
         boolean legacy = CelestialConfig.auroraMode() == CelestialConfig.AuroraMode.LEGACY_GLOBAL;
@@ -74,21 +77,22 @@ public final class AuroraRenderer {
         RenderSystem.blendFuncSeparate(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE,
                 GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ZERO);
         RenderSystem.disableCull();
-        RenderSystem.setShader(() -> shader);
-        shader.safeGetUniform("Time").set((level.getGameTime() + partialTick) / 20.0F * 0.75F);
-        shader.safeGetUniform("Resolution").set(
+        RenderSystem.setShader(active);
+        active.time().set((level.getGameTime() + partialTick) / 20.0F * 0.75F);
+        active.resolution().set(
                 (geometry.nodes() - 1) * geometry.nodeWidth(), 180.0F);
-        shader.safeGetUniform("NodeWidth").set(geometry.nodeWidth());
-        setColor("TopColor", colors.top());
-        setColor("MiddleColor", colors.middle());
-        setColor("BottomColor", colors.bottom());
-        shader.safeGetUniform("Alpha").set(alpha);
-        shader.safeGetUniform("WavePhase").set((float) wavePhaseDegrees(animationTick));
+        active.nodeWidth().set(geometry.nodeWidth());
+        setColor(active.topColor(), colors.top());
+        setColor(active.middleColor(), colors.middle());
+        setColor(active.bottomColor(), colors.bottom());
+        active.alpha().set(alpha);
+        active.wavePhase().set((float) wavePhaseDegrees(animationTick));
 
-        shader.safeGetUniform("Pole").set((float) pole);
+        active.pole().set((float) pole);
         if (geometryBuffer != null) {
             geometryBuffer.bind();
-            geometryBuffer.drawWithShader(poseStack.last().pose(), RenderSystem.getProjectionMatrix(), shader);
+            geometryBuffer.drawWithShader(poseStack.last().pose(), RenderSystem.getProjectionMatrix(),
+                    active.shader());
             VertexBuffer.unbind();
         }
     }
@@ -112,8 +116,8 @@ public final class AuroraRenderer {
         }
     }
 
-    private static void setColor(String uniform, Rgb color) {
-        shader.safeGetUniform(uniform).set(color.red(), color.green(), color.blue(), 1.0F);
+    private static void setColor(AbstractUniform uniform, Rgb color) {
+        uniform.set(color.red(), color.green(), color.blue(), 1.0F);
     }
 
     private static void updateAppearance(long eventKey, double animationTick, int maxBands, double pole) {
@@ -207,6 +211,37 @@ public final class AuroraRenderer {
         for (int index = 0; index < x.length; index++) {
             x[index] = (x[index] - centerX) * scale;
             z[index] = (z[index] - centerZ) * scale;
+        }
+    }
+
+    private record ShaderBindings(ShaderInstance shader,
+                                  AbstractUniform time,
+                                  AbstractUniform resolution,
+                                  AbstractUniform nodeWidth,
+                                  AbstractUniform topColor,
+                                  AbstractUniform middleColor,
+                                  AbstractUniform bottomColor,
+                                  AbstractUniform alpha,
+                                  AbstractUniform wavePhase,
+                                  AbstractUniform pole)
+            implements Supplier<ShaderInstance> {
+
+        private static ShaderBindings create(ShaderInstance shader) {
+            return new ShaderBindings(shader,
+                    shader.safeGetUniform("Time"),
+                    shader.safeGetUniform("Resolution"),
+                    shader.safeGetUniform("NodeWidth"),
+                    shader.safeGetUniform("TopColor"),
+                    shader.safeGetUniform("MiddleColor"),
+                    shader.safeGetUniform("BottomColor"),
+                    shader.safeGetUniform("Alpha"),
+                    shader.safeGetUniform("WavePhase"),
+                    shader.safeGetUniform("Pole"));
+        }
+
+        @Override
+        public ShaderInstance get() {
+            return shader;
         }
     }
 

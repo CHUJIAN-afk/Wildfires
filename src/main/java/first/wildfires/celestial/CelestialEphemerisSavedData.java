@@ -20,6 +20,7 @@ public final class CelestialEphemerisSavedData extends SavedData {
     public static final String FILE_ID = "wildfires_celestial_ephemeris";
 
     private CelestialOrbitalPhases phases;
+    private volatile SettingsCache settingsCache;
 
     public CelestialEphemerisSavedData() {
     }
@@ -38,6 +39,7 @@ public final class CelestialEphemerisSavedData extends SavedData {
                     ^ server.overworld().getSeed();
             data.phases = CelestialOrbitalPhases.random(new Random(seed),
                     CelestialConfig.serverSettings().planetSettings());
+            data.settingsCache = null;
             data.setDirty();
         }
         return data;
@@ -48,6 +50,25 @@ public final class CelestialEphemerisSavedData extends SavedData {
             throw new IllegalStateException("Creation-time ephemeris has not been initialized");
         }
         return phases;
+    }
+
+    /** Reuses the immutable server-settings/creation-ephemeris combination on the hot query path. */
+    CelestialRuntimeSettings settings(CelestialRuntimeSettings base) {
+        Objects.requireNonNull(base, "base");
+        CelestialOrbitalPhases currentPhases = phases();
+        SettingsCache current = settingsCache;
+        if (current != null && current.base() == base && current.phases() == currentPhases) {
+            return current.settings();
+        }
+        synchronized (this) {
+            current = settingsCache;
+            if (current != null && current.base() == base && current.phases() == currentPhases) {
+                return current.settings();
+            }
+            CelestialRuntimeSettings combined = base.withOrbitalPhases(currentPhases);
+            settingsCache = new SettingsCache(base, currentPhases, combined);
+            return combined;
+        }
     }
 
     public static CelestialEphemerisSavedData load(CompoundTag tag) {
@@ -85,5 +106,10 @@ public final class CelestialEphemerisSavedData extends SavedData {
         }
         tag.put("phases", entries);
         return tag;
+    }
+
+    /** One volatile holder prevents readers from observing keys and values from different refreshes. */
+    private record SettingsCache(CelestialRuntimeSettings base, CelestialOrbitalPhases phases,
+                                 CelestialRuntimeSettings settings) {
     }
 }

@@ -24,9 +24,10 @@ public abstract class CelestialFogRendererMixin {
     private static float wildfires$localFogTime(float original, Camera camera, float partialTick,
                                                  ClientLevel level, int renderDistanceChunks,
                                                  float bossColorModifier) {
-        return CelestialClientStateCache.state(level, camera.getPosition(), partialTick)
-                .map(state -> CelestialClientTime.visualCelestialAngle(
-                        state.daylight().apparentDayTime(), state.solarEclipse(), original)).orElse(original);
+        CelestialState state = CelestialClientStateCache.stateOrNull(
+                level, camera.getPosition(), partialTick);
+        return state == null ? original : CelestialClientTime.visualCelestialAngle(
+                state.daylight().apparentDayTime(), state.solarEclipse(), original);
     }
 
     @Redirect(
@@ -36,7 +37,8 @@ public abstract class CelestialFogRendererMixin {
     private static float wildfires$localSunriseDirection(Vector3f look, Vector3fc original,
                                                           Camera camera, float partialTick, ClientLevel level,
                                                           int renderDistanceChunks, float bossColorModifier) {
-        CelestialState state = CelestialClientStateCache.state(level, camera.getPosition(), partialTick).orElse(null);
+        CelestialState state = CelestialClientStateCache.stateOrNull(
+                level, camera.getPosition(), partialTick);
         if (state == null) {
             return look.dot(original);
         }

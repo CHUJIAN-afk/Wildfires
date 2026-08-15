@@ -74,7 +74,8 @@ public record StationAuditEntry(long sequence, long gameTime, UUID stationId,
         REMOVED("removed"),
         DEFINITIONS_RECONCILED("definitions_reconciled"),
         RECOVERED("recovered"),
-        RETURN_CAPSULE_CHANGED("return_capsule_changed");
+        RETURN_CAPSULE_CHANGED("return_capsule_changed"),
+        DOCK_CHANGED("dock_changed");
 
         private static final Map<String, Action> BY_ID;
 

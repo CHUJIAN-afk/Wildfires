@@ -257,6 +257,22 @@ public final class StationService {
         }
     }
 
+    public static OperationResult setDock(SpaceSavedData data, UUID stationId, UUID actor,
+                                          StationDockRecord dock, boolean present, long gameTime) {
+        StationRecord station = data.station(stationId).orElse(null);
+        OperationResult precondition = mutationPrecondition(data, station, actor, false, true);
+        if (precondition != null) return precondition;
+        try {
+            StationRecord updated = station.withDock(dock, present, requireGameTime(gameTime));
+            if (updated == station) return noChange(station, "Station dock is unchanged");
+            data.replaceStation(updated, Optional.of(actor), StationAuditEntry.Action.DOCK_CHANGED,
+                    (present ? "added=" : "removed=") + dock.id(), gameTime);
+            return success(updated, present ? "Station dock added" : "Station dock removed");
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            return rejected(OperationStatus.INVALID_REQUEST, exception.getMessage());
+        }
+    }
+
     private static StationStatus requiredStatus(StationRecord station,
                                                 CelestialRegistrySnapshot definitions) {
         if (!StationRouteSnapshot.isTravelBody(definitions, station.currentBody())) {

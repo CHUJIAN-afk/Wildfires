@@ -51,6 +51,15 @@ public enum CelestialBodies {
     public static final double EARTH_DIAMETER_KM = 12742.0D;
     public static final double EARTH_SEMI_MAJOR_AXIS = 149.598D;
     private static final CelestialBodies[] ORDERED = values();
+    private static final PrimaryOrbitBasis EARTH_ORBIT_BASIS =
+            PrimaryOrbitBasis.create(0.0D, 0.0D);
+    private static final ThreadLocal<BodyCalculationScratch> CALCULATION_SCRATCH =
+            ThreadLocal.withInitial(BodyCalculationScratch::new);
+    static {
+        for (CelestialBodies body : ORDERED) {
+            body.initializeFixedOrbitGeometry();
+        }
+    }
     private static final Map<ResourceLocation, CelestialBodies> BY_ID = createIdIndex();
 
     private final double diameterKm;
@@ -68,7 +77,10 @@ public enum CelestialBodies {
     private final double referencePoleRightAscensionRadians;
     private final double referencePoleDeclinationRadians;
     private final ResourceLocation id;
+    private final ResourceLocation renderTexture;
     private final CelestialBodyParameters defaultParameters;
+    private CelestialVector orbitalReferenceNormalEcliptic;
+    private CelestialMath.SatelliteOrbitBasis satelliteOrbitBasis;
 
     CelestialBodies(double diameterKm, double orbitalDays, double semiMajorMillionKm,
                     double synodicDays, double inclinationDegrees, double ascendingNodeDegrees,
@@ -92,8 +104,17 @@ public enum CelestialBodies {
         this.referencePoleRightAscensionRadians = Math.toRadians(referencePoleRightAscensionDegrees);
         this.referencePoleDeclinationRadians = Math.toRadians(referencePoleDeclinationDegrees);
         this.id = ResourceLocation.fromNamespaceAndPath("wildfires", name().toLowerCase());
+        this.renderTexture = ResourceLocation.fromNamespaceAndPath("wildfires",
+                "textures/sky/planets/" + name().toLowerCase() + ".png");
         this.defaultParameters = new CelestialBodyParameters(diameterKm, orbitalDays, semiMajorMillionKm,
                 synodicDays, this.inclinationRadians);
+    }
+
+    private void initializeFixedOrbitGeometry() {
+        orbitalReferenceNormalEcliptic = computeOrbitalReferenceNormalEcliptic();
+        satelliteOrbitBasis = parent == null ? null
+                : CelestialMath.satelliteOrbitBasis(orbitalReferenceNormalEcliptic,
+                inclinationRadians, ascendingNodeRadians);
     }
 
     public ResourceLocation id() {
@@ -103,6 +124,11 @@ public enum CelestialBodies {
     public ResourceLocation texture() {
         return ResourceLocation.fromNamespaceAndPath("wildfires",
                 "textures/sky/planets/" + name().toLowerCase() + ".png");
+    }
+
+    /** Stable immutable texture identity for the per-frame renderer hot path. */
+    public ResourceLocation renderTexture() {
+        return renderTexture;
     }
 
     public double diameterKm() { return diameterKm; }
@@ -143,6 +169,10 @@ public enum CelestialBodies {
 
     /** Normal of the source element reference plane, expressed in the common J2000 ecliptic frame. */
     public CelestialVector orbitalReferenceNormalEcliptic() {
+        return orbitalReferenceNormalEcliptic;
+    }
+
+    private CelestialVector computeOrbitalReferenceNormalEcliptic() {
         return switch (orbitReferenceFrame) {
             case ECLIPTIC -> new CelestialVector(0.0D, 0.0D, 1.0D);
             case PARENT_EQUATOR -> parent.spinAxisEcliptic();
@@ -216,40 +246,110 @@ public enum CelestialBodies {
     }
 
     public static List<CelestialBodyState> calculate(CelestialMath.Result frame, double calendarYears,
-                                                      CelestialPlanetSettings settings,
-                                                      CelestialOrbitalPhases phases) {
-        CelestialVector[] positions = new CelestialVector[ORDERED.length];
+                                                       CelestialPlanetSettings settings,
+                                                       CelestialOrbitalPhases phases) {
+        return calculate(frame, calendarYears, settings, phases,
+                Math.sin(frame.latitude()), Math.cos(frame.latitude()),
+                Math.sin(frame.localSiderealAngle()), Math.cos(frame.localSiderealAngle()));
+    }
+
+    /** Package path reusing the exact horizon products already evaluated by the full frame. */
+    static List<CelestialBodyState> calculate(CelestialMath.Result frame, double calendarYears,
+                                               CelestialPlanetSettings settings,
+                                               CelestialOrbitalPhases phases,
+                                               double sineLatitude, double cosineLatitude,
+                                               double sineSidereal, double cosineSidereal) {
+        BodyCalculationScratch scratch = CALCULATION_SCRATCH.get();
+        scratch.prepare(settings, phases);
+        double[] positionX = scratch.positionX;
+        double[] positionY = scratch.positionY;
+        double[] positionZ = scratch.positionZ;
         double earthOrbitalDays = settings.earthOrbitalDays();
         double astronomicalDays = calendarYears * earthOrbitalDays
                 + (284.0D / 365.0D + 0.5D) * earthOrbitalDays;
-        double referenceFrameTurns = phases.turns(CelestialOrbitalPhases.EARTH);
-        CelestialVector earth = rotateEcliptic(CelestialMath.orbitalPosition(
-                settings.earthSemiMajorMillionKm(), earthOrbitalDays, 0.0D, 0.0D,
-                false, astronomicalDays), referenceFrameTurns);
+        EclipticRotation forwardRotation = scratch.forwardRotation;
+        EclipticRotation inverseRotation = scratch.inverseRotation;
+        CelestialVector earth = rotateEcliptic(primaryOrbitalPosition(
+                settings.earthSemiMajorMillionKm(), earthOrbitalDays, false,
+                astronomicalDays, 0.0D, EARTH_ORBIT_BASIS), forwardRotation);
         List<CelestialBodyState> states = new ArrayList<>(ORDERED.length);
         for (CelestialBodies body : ORDERED) {
-            CelestialBodyParameters parameters = settings.parameters(body);
-            CelestialVector origin = body.parent == null ? CelestialVector.ZERO : positions[body.parent.ordinal()];
+            int bodyIndex = body.ordinal();
+            CelestialBodyParameters parameters = scratch.parameters[bodyIndex];
+            int parentIndex = body.parent == null ? -1 : body.parent.ordinal();
+            double originX = parentIndex < 0 ? CelestialVector.ZERO.x() : positionX[parentIndex];
+            double originY = parentIndex < 0 ? CelestialVector.ZERO.y() : positionY[parentIndex];
+            double originZ = parentIndex < 0 ? CelestialVector.ZERO.z() : positionZ[parentIndex];
             CelestialVector unrotatedRelative = body.parent == null
-                    ? CelestialMath.orbitalPosition(parameters.semiMajorMillionKm(),
-                            parameters.orbitalDays(), parameters.inclinationRadians(),
-                            body.ascendingNodeRadians, body.retrograde, astronomicalDays,
-                            phases.turns(body.id()))
+                    ? primaryOrbitalPosition(parameters.semiMajorMillionKm(),
+                            parameters.orbitalDays(), body.retrograde, astronomicalDays,
+                            phases.turns(body), scratch.primaryOrbitBases[bodyIndex])
                     : CelestialMath.satelliteOrbitalPosition(parameters.semiMajorMillionKm(),
-                            parameters.orbitalDays(), body.orbitalReferenceNormalEcliptic(),
-                            parameters.inclinationRadians(), body.ascendingNodeRadians,
-                            body.retrograde, astronomicalDays, phases.turns(body.id()));
-            CelestialVector relative = rotateEcliptic(unrotatedRelative, referenceFrameTurns);
-            CelestialVector heliocentric = origin == null ? relative : origin.add(relative);
-            positions[body.ordinal()] = heliocentric;
+                            parameters.orbitalDays(), body.satelliteOrbitBasis,
+                            body.retrograde, astronomicalDays, phases.turns(body));
+            double relativeX = unrotatedRelative.x() * forwardRotation.cosine()
+                    - unrotatedRelative.y() * forwardRotation.sine();
+            double relativeY = unrotatedRelative.x() * forwardRotation.sine()
+                    + unrotatedRelative.y() * forwardRotation.cosine();
+            double relativeZ = unrotatedRelative.z();
+            // Preserve the exact ZERO.add(relative) and parent.add(relative) component order
+            // without retaining an otherwise short-lived heliocentric vector in thread state.
+            double heliocentricX = originX + relativeX;
+            double heliocentricY = originY + relativeY;
+            double heliocentricZ = originZ + relativeZ;
+            positionX[bodyIndex] = heliocentricX;
+            positionY[bodyIndex] = heliocentricY;
+            positionZ[bodyIndex] = heliocentricZ;
             // The world phase rotates the inertial reference frame, not TFC's seasonal axes.
             // Undo that common rotation before exposing Earth-local directions and station visuals.
-            CelestialVector geocentric = rotateEcliptic(heliocentric.subtract(earth),
-                    -referenceFrameTurns);
-            CelestialVector equatorial = rotateEclipticVector(geocentric.normalized());
-            CelestialVector direction = CelestialMath.equatorialToHorizon(equatorial, frame.latitude(),
-                    frame.localSiderealAngle());
-            double distance = Math.max(1.0E-6D, geocentric.length());
+            double relativeToEarthX = heliocentricX - earth.x();
+            double relativeToEarthY = heliocentricY - earth.y();
+            double relativeToEarthZ = heliocentricZ - earth.z();
+            CelestialVector geocentric = new CelestialVector(
+                    relativeToEarthX * inverseRotation.cosine()
+                            - relativeToEarthY * inverseRotation.sine(),
+                    relativeToEarthX * inverseRotation.sine()
+                            + relativeToEarthY * inverseRotation.cosine(),
+                    relativeToEarthZ);
+            double geocentricLength = geocentric.length();
+            double normalizedX;
+            double normalizedY;
+            double normalizedZ;
+            if (geocentricLength > 1.0E-12D) {
+                double inverse = 1.0D / geocentricLength;
+                normalizedX = geocentric.x() * inverse;
+                normalizedY = geocentric.y() * inverse;
+                normalizedZ = geocentric.z() * inverse;
+            } else {
+                normalizedX = 0.0D;
+                normalizedY = 0.0D;
+                normalizedZ = 0.0D;
+            }
+            double rotatedX = normalizedX;
+            double rotatedY = normalizedY * CelestialMath.AXIAL_TILT_COS
+                    - normalizedZ * CelestialMath.AXIAL_TILT_SIN;
+            double rotatedZ = normalizedY * CelestialMath.AXIAL_TILT_SIN
+                    + normalizedZ * CelestialMath.AXIAL_TILT_COS;
+            double rotatedLengthSquared = rotatedX * rotatedX + rotatedY * rotatedY
+                    + rotatedZ * rotatedZ;
+            double rotatedLength = Math.sqrt(rotatedLengthSquared);
+            double equatorialX;
+            double equatorialY;
+            double equatorialZ;
+            if (rotatedLength > 1.0E-12D) {
+                double inverse = 1.0D / rotatedLength;
+                equatorialX = rotatedX * inverse;
+                equatorialY = rotatedY * inverse;
+                equatorialZ = rotatedZ * inverse;
+            } else {
+                equatorialX = 0.0D;
+                equatorialY = 0.0D;
+                equatorialZ = 0.0D;
+            }
+            CelestialVector direction = CelestialMath.equatorialToHorizon(
+                    equatorialX, equatorialY, equatorialZ, sineLatitude, cosineLatitude,
+                    sineSidereal, cosineSidereal);
+            double distance = Math.max(1.0E-6D, geocentricLength);
             double angularRadius = Math.atan2(parameters.diameterKm() * 0.5D, distance * 1_000_000.0D);
             double altitude = Math.asin(Math.max(-1.0D, Math.min(1.0D, direction.y())));
             states.add(new CelestialBodyState(body.id,
@@ -258,6 +358,22 @@ public enum CelestialBodies {
                     Math.min(1.0D, 1.0D / Math.sqrt(distance)), 1.0D, 0.0D));
         }
         return states;
+    }
+
+    /** Same operation order as {@link CelestialMath#orbitalPosition}; only fixed trig is prepared. */
+    private static CelestialVector primaryOrbitalPosition(double radius, double orbitalDays,
+                                                           boolean retrograde,
+                                                           double calendarDays, double phaseTurns,
+                                                           PrimaryOrbitBasis basis) {
+        double sign = retrograde ? -1.0D : 1.0D;
+        double angle = sign * CelestialMath.TAU * calendarDays / orbitalDays
+                + CelestialMath.TAU * phaseTurns;
+        double nodeScale = radius * Math.cos(angle);
+        double transverseScale = radius * Math.sin(angle);
+        return new CelestialVector(basis.nodeCosine * nodeScale
+                + basis.transverseX * transverseScale,
+                basis.nodeSine * nodeScale + basis.transverseY * transverseScale,
+                0.0D * nodeScale + basis.transverseZ * transverseScale);
     }
 
     private double orbitalPlaneInclinationRadians(CelestialPlanetSettings settings) {
@@ -271,10 +387,14 @@ public enum CelestialBodies {
                     -Math.sin(inclination) * Math.cos(ascendingNodeRadians),
                     Math.cos(inclination)).normalized();
         }
+        CelestialMath.SatelliteOrbitBasis basis = inclination == inclinationRadians
+                ? satelliteOrbitBasis
+                : CelestialMath.satelliteOrbitBasis(orbitalReferenceNormalEcliptic,
+                inclination, ascendingNodeRadians);
         CelestialVector atNode = CelestialMath.satelliteOrbitalPosition(1.0D, 4.0D,
-                orbitalReferenceNormalEcliptic(), inclination, ascendingNodeRadians, retrograde, 0.0D);
+                basis, retrograde, 0.0D, 0.0D);
         CelestialVector quarter = CelestialMath.satelliteOrbitalPosition(1.0D, 4.0D,
-                orbitalReferenceNormalEcliptic(), inclination, ascendingNodeRadians, retrograde, 1.0D);
+                basis, retrograde, 1.0D, 0.0D);
         return cross(atNode, quarter).normalized();
     }
 
@@ -309,19 +429,11 @@ public enum CelestialBodies {
         }
     }
 
-    private static CelestialVector rotateEclipticVector(CelestialVector vector) {
-        double cos = Math.cos(CelestialMath.AXIAL_TILT);
-        double sin = Math.sin(CelestialMath.AXIAL_TILT);
-        return new CelestialVector(vector.x(), vector.y() * cos - vector.z() * sin,
-                vector.y() * sin + vector.z() * cos).normalized();
-    }
-
-    private static CelestialVector rotateEcliptic(CelestialVector vector, double turns) {
-        double angle = CelestialMath.TAU * turns;
-        double cosine = Math.cos(angle);
-        double sine = Math.sin(angle);
-        return new CelestialVector(vector.x() * cosine - vector.y() * sine,
-                vector.x() * sine + vector.y() * cosine, vector.z());
+    private static CelestialVector rotateEcliptic(CelestialVector vector,
+                                                   EclipticRotation rotation) {
+        return new CelestialVector(vector.x() * rotation.cosine()
+                - vector.y() * rotation.sine(),
+                vector.x() * rotation.sine() + vector.y() * rotation.cosine(), vector.z());
     }
 
     private static CelestialVector equatorialPoleToEcliptic(double rightAscension, double declination) {
@@ -329,8 +441,8 @@ public enum CelestialBodies {
         double x = cosDeclination * Math.cos(rightAscension);
         double equatorialY = cosDeclination * Math.sin(rightAscension);
         double equatorialZ = Math.sin(declination);
-        double cosObliquity = Math.cos(CelestialMath.AXIAL_TILT);
-        double sinObliquity = Math.sin(CelestialMath.AXIAL_TILT);
+        double cosObliquity = CelestialMath.AXIAL_TILT_COS;
+        double sinObliquity = CelestialMath.AXIAL_TILT_SIN;
         return new CelestialVector(x,
                 equatorialY * cosObliquity + equatorialZ * sinObliquity,
                 -equatorialY * sinObliquity + equatorialZ * cosObliquity).normalized();
@@ -340,6 +452,75 @@ public enum CelestialBodies {
         ECLIPTIC,
         PARENT_EQUATOR,
         J2000_EQUATORIAL_POLE
+    }
+
+    private static final class BodyCalculationScratch {
+        private final double[] positionX = new double[ORDERED.length];
+        private final double[] positionY = new double[ORDERED.length];
+        private final double[] positionZ = new double[ORDERED.length];
+        private final CelestialBodyParameters[] parameters =
+                new CelestialBodyParameters[ORDERED.length];
+        private final PrimaryOrbitBasis[] primaryOrbitBases =
+                new PrimaryOrbitBasis[ORDERED.length];
+        private CelestialPlanetSettings settingsIdentity;
+        private CelestialOrbitalPhases phasesIdentity;
+        private EclipticRotation forwardRotation;
+        private EclipticRotation inverseRotation;
+
+        private void prepare(CelestialPlanetSettings settings, CelestialOrbitalPhases phases) {
+            if (settingsIdentity != settings) {
+                for (CelestialBodies body : ORDERED) {
+                    int index = body.ordinal();
+                    CelestialBodyParameters parameters = settings.parameters(body);
+                    this.parameters[index] = parameters;
+                    primaryOrbitBases[index] = body.parent == null
+                            ? PrimaryOrbitBasis.create(parameters.inclinationRadians(),
+                            body.ascendingNodeRadians)
+                            : null;
+                }
+                settingsIdentity = settings;
+            }
+            if (phasesIdentity != phases) {
+                double turns = phases.earthTurns();
+                forwardRotation = EclipticRotation.forTurns(turns);
+                inverseRotation = EclipticRotation.forTurns(-turns);
+                phasesIdentity = phases;
+            }
+        }
+    }
+
+    private static final class PrimaryOrbitBasis {
+        private final double nodeCosine;
+        private final double nodeSine;
+        private final double transverseX;
+        private final double transverseY;
+        private final double transverseZ;
+
+        private PrimaryOrbitBasis(double nodeCosine, double nodeSine,
+                                  double transverseX, double transverseY,
+                                  double transverseZ) {
+            this.nodeCosine = nodeCosine;
+            this.nodeSine = nodeSine;
+            this.transverseX = transverseX;
+            this.transverseY = transverseY;
+            this.transverseZ = transverseZ;
+        }
+
+        private static PrimaryOrbitBasis create(double inclination, double ascendingNode) {
+            double nodeCosine = Math.cos(ascendingNode);
+            double nodeSine = Math.sin(ascendingNode);
+            double cosineInclination = Math.cos(inclination);
+            return new PrimaryOrbitBasis(nodeCosine, nodeSine,
+                    -nodeSine * cosineInclination,
+                    nodeCosine * cosineInclination, Math.sin(inclination));
+        }
+    }
+
+    private record EclipticRotation(double cosine, double sine) {
+        static EclipticRotation forTurns(double turns) {
+            double angle = CelestialMath.TAU * turns;
+            return new EclipticRotation(Math.cos(angle), Math.sin(angle));
+        }
     }
 
     private static Map<ResourceLocation, CelestialBodies> createIdIndex() {

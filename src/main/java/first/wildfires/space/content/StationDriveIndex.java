@@ -5,6 +5,8 @@ import first.wildfires.space.station.SpaceSavedData;
 import first.wildfires.space.station.StationRecord;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.HashMap;
 import java.util.Iterator;
@@ -22,7 +24,7 @@ public final class StationDriveIndex {
     private StationDriveIndex() {
     }
 
-    public static synchronized void register(StationTestEngineBlockEntity engine) {
+    public static synchronized void register(BlockEntity engine) {
         if (!(engine.getLevel() instanceof ServerLevel level)
                 || level.dimension() != SpaceDimensions.ORBIT) {
             return;
@@ -35,7 +37,7 @@ public final class StationDriveIndex {
                         .add(pos.immutable()));
     }
 
-    public static synchronized void unregister(StationTestEngineBlockEntity engine) {
+    public static synchronized void unregister(BlockEntity engine) {
         if (!(engine.getLevel() instanceof ServerLevel level)) {
             return;
         }
@@ -66,14 +68,15 @@ public final class StationDriveIndex {
         Iterator<BlockPos> iterator = positions.iterator();
         while (iterator.hasNext()) {
             BlockPos pos = iterator.next();
+            BlockState state = level.getBlockState(pos);
             boolean valid = station.region().containsBuildArea(pos)
                     && level.hasChunkAt(pos)
-                    && level.getBlockState(pos).is(SpaceContentRegister.STATION_TEST_ENGINE.get())
+                    && indexedDrive(state)
                     && SpaceSavedData.get(level.getServer()).stationAt(pos.getX(), pos.getZ())
                     .map(current -> current.stationId().equals(station.stationId())).orElse(false);
             if (!valid) {
                 iterator.remove();
-            } else {
+            } else if (enabledDrive(level, pos, state)) {
                 found = true;
             }
         }
@@ -84,5 +87,18 @@ public final class StationDriveIndex {
             BY_LEVEL.remove(level);
         }
         return found;
+    }
+
+    private static boolean indexedDrive(BlockState state) {
+        return state.is(SpaceContentRegister.STATION_TEST_ENGINE.get())
+                || state.is(SpaceContentRegister.ANTIMATTER_TEST_ENGINE.get());
+    }
+
+    private static boolean enabledDrive(ServerLevel level, BlockPos pos, BlockState state) {
+        return state.is(SpaceContentRegister.STATION_TEST_ENGINE.get())
+                || state.is(SpaceContentRegister.ANTIMATTER_TEST_ENGINE.get())
+                && state.getValue(AntimatterTestEngineBlock.ON)
+                && level.getBlockEntity(pos) instanceof AntimatterTestEngineBlockEntity engine
+                && engine.output() == 100;
     }
 }

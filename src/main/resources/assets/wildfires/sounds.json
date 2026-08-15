@@ -3,5 +3,11 @@
     "sounds": [
       "wildfires:metal_pipe_close"
     ]
+  },
+  "return_capsule_ignition": {
+    "sounds": ["wildfires:third_party/ntm_space/rocket_ignition"]
+  },
+  "return_capsule_flight": {
+    "sounds": ["wildfires:third_party/ntm_space/rocket_fly_light"]
   }
 }

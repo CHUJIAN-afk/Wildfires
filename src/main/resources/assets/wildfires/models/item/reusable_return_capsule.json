@@ -7,6 +7,7 @@
   "textures": {
     "particle": "wildfires:third_party/ntm_space/rp_drop_pod"
   },
+  "transform": { "translation": [0.5, 0, 0.5], "origin": "corner" },
   "display": {
     "gui": { "rotation": [30, 225, 0], "translation": [0, -4, 0], "scale": [0.28, 0.28, 0.28] },
     "ground": { "translation": [0, 1, 0], "scale": [0.18, 0.18, 0.18] },

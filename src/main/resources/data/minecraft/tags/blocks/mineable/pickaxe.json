@@ -16,6 +16,7 @@
     "wildfires:unrestricted_charcoal_forge",
     "wildfires:station_control_computer",
     "wildfires:station_test_engine",
-    "wildfires:station_jump_test_engine"
+    "wildfires:station_jump_test_engine",
+    "wildfires:antimatter_test_engine"
   ]
 }

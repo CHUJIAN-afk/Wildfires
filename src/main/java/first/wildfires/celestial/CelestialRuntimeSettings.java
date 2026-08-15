@@ -13,6 +13,9 @@ public record CelestialRuntimeSettings(double synodicDays,
                                        CelestialPlanetSettings planetSettings,
                                        CelestialOrbitalPhases orbitalPhases) {
 
+    private static final ThreadLocal<PreparedPeriodsCache> PREPARED_PERIODS =
+            ThreadLocal.withInitial(PreparedPeriodsCache::new);
+
     public CelestialRuntimeSettings {
         if (lunarPeriodPreset == null || planetSettings == null || orbitalPhases == null) {
             throw new IllegalArgumentException("Celestial runtime settings cannot contain null values");
@@ -76,5 +79,33 @@ public record CelestialRuntimeSettings(double synodicDays,
             case LEGACY_TFCCAELUM -> 29.530588D;
             case CUSTOM -> anomalisticDays;
         };
+    }
+
+    /** Package-only, thread-confined reuse for inputs derived solely from this immutable record. */
+    PreparedPeriods preparedPeriods(int calendarDaysInMonth) {
+        return PREPARED_PERIODS.get().get(this, calendarDaysInMonth);
+    }
+
+    record PreparedPeriods(double synodicDays, double anomalisticDays,
+                           double sineLunarInclination) {
+    }
+
+    private static final class PreparedPeriodsCache {
+        private CelestialRuntimeSettings settingsIdentity;
+        private int daysInMonth;
+        private PreparedPeriods value;
+
+        private PreparedPeriods get(CelestialRuntimeSettings settings, int daysInMonth) {
+            if (settingsIdentity != settings || this.daysInMonth != daysInMonth) {
+                PreparedPeriods prepared = new PreparedPeriods(
+                        settings.resolvedSynodicDays(daysInMonth),
+                        settings.resolvedAnomalisticDays(daysInMonth),
+                        Math.sin(settings.lunarInclinationRadians()));
+                settingsIdentity = settings;
+                this.daysInMonth = daysInMonth;
+                value = prepared;
+            }
+            return value;
+        }
     }
 }

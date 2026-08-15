@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "facing=south,on=false": { "model": "wildfires:block/antimatter_test_engine_off" },
+    "facing=south,on=true": { "model": "wildfires:block/antimatter_test_engine_on" }
+  }
+}

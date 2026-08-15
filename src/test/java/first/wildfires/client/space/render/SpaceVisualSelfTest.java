@@ -8,20 +8,33 @@ import first.wildfires.api.celestial.LunarEclipseState;
 import first.wildfires.api.celestial.SolarEclipseState;
 import first.wildfires.celestial.CelestialBodies;
 import first.wildfires.celestial.CelestialMath;
+import first.wildfires.celestial.CelestialPlanetSettings;
+import first.wildfires.client.space.NtmAscentAtmosphereVisuals;
+import first.wildfires.client.space.NtmObjFastRenderer;
+import first.wildfires.client.space.ObjComponentVisibility;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.blaze3d.vertex.VertexMultiConsumer;
 import first.wildfires.space.celestial.CelestialVisualDefinition;
+import first.wildfires.space.celestial.CelestialTransferProfile;
 import first.wildfires.space.celestial.ObservationContext;
 import first.wildfires.space.celestial.ObservationJourney;
 import first.wildfires.space.station.StationJourneyPhase;
 import first.wildfires.space.route.StationTravelMode;
-import first.wildfires.space.capsule.ReturnCapsuleState;
 import first.wildfires.space.station.StationRegion;
 import first.wildfires.space.station.StationStatus;
 import first.wildfires.thirdparty.genesisadapt.GenesisCubeAtlasLayout;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.client.renderer.block.model.BakedQuad;
+import net.minecraft.core.Direction;
+import org.joml.Quaternionf;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -31,6 +44,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 
@@ -51,11 +65,13 @@ public final class SpaceVisualSelfTest {
 
     public static void main(String[] args) throws Exception {
         genesisAtlasUsesExactFaceContract();
+        ntmAscentAtmosphereUsesExactAltitudeCurve();
         genesisDirectionsAndFallbackSurfaceAreSeamContinuous();
         ntmNightAtlasUsesItsOwnExactFaceContract();
         ntmRelativisticSamplingCrossesAllTwelveEdgesContinuously();
         surfaceTexturePolicyUsesOnlyGenesisCubemapsOrFallback();
         stationObserverUsesUnifiedRealEphemeris();
+        sunEphemerisStaysOnEclipticThroughOrbitTransforms();
         ntmJourneyPhasesKeepTheirOrbitAndTransferSemantics();
         transferArcClearsAnOriginThatBlocksTheTarget();
         localParentMoonAndSiblingMoonTransfersClearEveryCube();
@@ -67,6 +83,10 @@ public final class SpaceVisualSelfTest {
         ntmPointAndCubeLodUsesRecordedThresholds();
         compressedDepthPreservesOcclusionAndAngularSize();
         orbitFrameAndPlanetRotationAreTimeDriven();
+        cachedBodyRotationsMatchLegacyBits();
+        knownLengthNormalizationMatchesLegacyBits();
+        optimizedOrbitPolygonAreaMatchesLegacyBits();
+        optimizedProjectedCubeCoverageMatchesLegacyBits();
         ntmSunSizeUsesBodyEndpointsInsteadOfTransferChordDistance();
         ntmIlluminationUsesRotatedCubeOcclusion();
         satelliteShadowsUseBoundedThreeDimensionalCubeCasters();
@@ -74,59 +94,758 @@ public final class SpaceVisualSelfTest {
         orbitalCloudMaterialMovesWithoutRotatingShell();
         vacuumBackgroundDepthAndBlockLightRemainIndependent();
         developmentClockDrivesSkyAndLightmapTogether();
+        developmentClientSuppressesCitadelDevFollower();
         copiedNtmTexturesMatchRecordedHashes();
         adaptedShadersDeclareAlphaAndValidMatrices();
         relativisticJumpMathIsFiniteAndDirectional();
-        reusableCapsuleTransitionIsAContinuousVacuumFade();
+        jumpArrivalPathAndSkyOrientationStayContinuous();
+        orbitVisualFrameCacheIsExactAndLossless();
+        ntmObjFastRendererIsBitExactAndStrictlyBounded();
+        reusableCapsuleTransitionUsesOnlyTheCapturedGenesisFrame();
+        reusableCapsuleInputUsesGameplayEdgesAndTransitionPolling();
+        reusableCapsuleRenderAndTransferSourceContractsStayAligned();
+        reusableCapsuleParticlesKeepTheCompleteNtmContract();
         System.out.println("SpaceVisualSelfTest passed");
     }
 
-    private static void reusableCapsuleTransitionIsAContinuousVacuumFade() throws Exception {
-        Class<?> overlay = Class.forName("first.wildfires.client.space.ReturnCapsuleTransitionOverlay");
-        Method opacity = overlay.getDeclaredMethod("opacity",
-                ReturnCapsuleState.class, int.class, float.class);
-        opacity.setAccessible(true);
+    private static void ntmObjFastRendererIsBitExactAndStrictlyBounded() throws Exception {
+        NtmObjFastRenderer.clear();
+        Set<String> outerPrevious = ObjComponentVisibility.enter(Set.of("Port"));
+        assertTrue(ObjComponentVisibility.visible("Port")
+                        && !ObjComponentVisibility.visible("ArmZP")
+                        && ObjComponentVisibility.fastPathActive(),
+                "explicit outer component scope selects only its NTM mesh");
+        Set<String> innerPrevious = ObjComponentVisibility.enter(Set.of("ArmZP"));
+        assertTrue(ObjComponentVisibility.visible("ArmZP")
+                        && !ObjComponentVisibility.visible("Port"),
+                "nested component scope temporarily replaces the outer selection");
+        ObjComponentVisibility.exit(innerPrevious);
+        assertTrue(ObjComponentVisibility.visible("Port")
+                        && !ObjComponentVisibility.visible("ArmZP"),
+                "nested component scope restores the exact outer selection");
+        ObjComponentVisibility.exit(outerPrevious);
+        assertTrue(ObjComponentVisibility.visible("Port")
+                        && ObjComponentVisibility.visible("ArmZP")
+                        && !ObjComponentVisibility.fastPathActive(),
+                "leaving all scopes restores ordinary Forge rendering");
+        Random random = new Random(0x4E544D4F424AL);
+        List<BakedQuad> lastQuads = null;
+        PoseStack lastPoses = null;
+        int lastLight = 0;
+        int lastOverlay = 0;
+        for (int sample = 0; sample < 160; sample++) {
+            List<BakedQuad> quads = new ArrayList<>();
+            int quadCount = 1 + random.nextInt(5);
+            for (int quadIndex = 0; quadIndex < quadCount; quadIndex++) {
+                int[] vertices = new int[32];
+                for (int vertex = 0; vertex < 4; vertex++) {
+                    int offset = vertex * 8;
+                    vertices[offset] = Float.floatToRawIntBits(random.nextFloat(-8.0F, 8.0F));
+                    vertices[offset + 1] = Float.floatToRawIntBits(random.nextFloat(-8.0F, 8.0F));
+                    vertices[offset + 2] = Float.floatToRawIntBits(random.nextFloat(-8.0F, 8.0F));
+                    vertices[offset + 3] = random.nextInt();
+                    vertices[offset + 4] = Float.floatToRawIntBits(random.nextFloat(-2.0F, 3.0F));
+                    vertices[offset + 5] = Float.floatToRawIntBits(random.nextFloat(-2.0F, 3.0F));
+                    vertices[offset + 6] = random.nextInt();
+                    if ((sample + vertex) % 7 == 0) {
+                        vertices[offset + 7] = 0;
+                    } else {
+                        int normalX = random.nextInt(255) - 127;
+                        int normalY = random.nextInt(255) - 127;
+                        int normalZ = random.nextInt(255) - 127;
+                        vertices[offset + 7] = (normalX & 0xFF)
+                                | (normalY & 0xFF) << 8 | (normalZ & 0xFF) << 16;
+                    }
+                }
+                quads.add(new BakedQuad(vertices, -1,
+                        Direction.values()[random.nextInt(Direction.values().length)],
+                        null, true));
+            }
 
-        assertClose(0.0D, overlayOpacity(opacity, ReturnCapsuleState.SURFACE_LANDED, 0),
-                "landed capsule has no transition cover");
-        assertClose(0.0D, overlayOpacity(opacity, ReturnCapsuleState.SURFACE_LAUNCHING, 84),
-                "surface launch fade starts transparent");
-        assertClose(0.5D, overlayOpacity(opacity, ReturnCapsuleState.SURFACE_LAUNCHING, 92),
-                "surface launch midpoint is continuous");
-        assertClose(1.0D, overlayOpacity(opacity, ReturnCapsuleState.SURFACE_LAUNCHING, 100),
-                "surface launch reaches black vacuum before dimension transfer");
-        assertClose(1.0D, overlayOpacity(opacity, ReturnCapsuleState.ASCENT_TRANSITION, 0),
-                "ascent dimension handoff remains fully hidden");
-        assertClose(1.0D, overlayOpacity(opacity, ReturnCapsuleState.ORBIT_INSERTION, 0),
-                "orbit insertion begins under the same full cover");
-        assertClose(0.5D, overlayOpacity(opacity, ReturnCapsuleState.ORBIT_INSERTION, 10),
-                "orbit insertion reveals space continuously");
-        assertClose(0.0D, overlayOpacity(opacity, ReturnCapsuleState.ORBIT_INSERTION, 20),
-                "orbit insertion finishes fully visible");
+            PoseStack poses = new PoseStack();
+            poses.translate(random.nextDouble(-4.0D, 4.0D), random.nextDouble(-4.0D, 4.0D),
+                    random.nextDouble(-4.0D, 4.0D));
+            poses.mulPose(com.mojang.math.Axis.XP.rotation(random.nextFloat(-3.0F, 3.0F)));
+            poses.mulPose(com.mojang.math.Axis.YP.rotation(random.nextFloat(-3.0F, 3.0F)));
+            poses.mulPose(com.mojang.math.Axis.ZP.rotation(random.nextFloat(-3.0F, 3.0F)));
+            poses.scale(nonZeroScale(random), nonZeroScale(random), nonZeroScale(random));
+            int light = random.nextInt();
+            int overlay = random.nextInt();
 
-        assertClose(0.0D, overlayOpacity(opacity, ReturnCapsuleState.STATION_UNDOCKING, 24),
-                "undocking deorbit fade starts transparent");
-        assertClose(0.5D, overlayOpacity(opacity, ReturnCapsuleState.STATION_UNDOCKING, 32),
-                "undocking deorbit midpoint is continuous");
-        assertClose(1.0D, overlayOpacity(opacity, ReturnCapsuleState.STATION_UNDOCKING, 40),
-                "undocking reaches full cover");
-        assertClose(1.0D, overlayOpacity(opacity, ReturnCapsuleState.DEORBIT, 0),
-                "surface dimension handoff remains fully hidden");
-        assertClose(1.0D, overlayOpacity(opacity, ReturnCapsuleState.REENTRY, 0),
-                "reentry starts under the same full cover");
-        assertClose(0.0D, overlayOpacity(opacity, ReturnCapsuleState.REENTRY, 50),
-                "mid-reentry is fully visible");
-        assertClose(1.0D, overlayOpacity(opacity, ReturnCapsuleState.REENTRY, 100),
-                "reentry hides the handoff into terminal landing presentation");
-        assertClose(1.0D, overlayOpacity(opacity, ReturnCapsuleState.SURFACE_LANDING, 0),
-                "terminal landing starts under full cover");
-        assertClose(0.0D, overlayOpacity(opacity, ReturnCapsuleState.SURFACE_LANDING, 20),
-                "terminal landing reveals the surface continuously");
+            byte[] reference = forgeObjVertexBytes(poses, quads, light, overlay, false);
+            byte[] optimized = forgeObjVertexBytes(poses, quads, light, overlay, true);
+            assertTrue(java.util.Arrays.equals(reference, optimized),
+                    "NTM fast OBJ output is byte-for-byte Forge-equivalent for sample " + sample);
+            lastQuads = quads;
+            lastPoses = poses;
+            lastLight = light;
+            lastOverlay = overlay;
+        }
+
+        Method cacheSize = NtmObjFastRenderer.class.getDeclaredMethod("cachedMeshCountForTesting");
+        cacheSize.setAccessible(true);
+        int beforeReuse = (Integer) cacheSize.invoke(null);
+        forgeObjVertexBytes(lastPoses, lastQuads, lastLight, lastOverlay, true);
+        assertEquals(beforeReuse, ((Integer) cacheSize.invoke(null)).intValue(),
+                "same mesh identity reuses one decoded primitive cache entry");
+
+        com.sun.management.ThreadMXBean allocationBean =
+                (com.sun.management.ThreadMXBean) java.lang.management.ManagementFactory.getThreadMXBean();
+        if (allocationBean.isThreadAllocatedMemorySupported()) {
+            allocationBean.setThreadAllocatedMemoryEnabled(true);
+            int iterations = 2_000;
+            long threadId = Thread.currentThread().getId();
+            BufferBuilder optimizedBuilder = new BufferBuilder(300_000);
+            optimizedBuilder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.NEW_ENTITY);
+            long optimizedBefore = allocationBean.getThreadAllocatedBytes(threadId);
+            for (int iteration = 0; iteration < iterations; iteration++) {
+                assertTrue(NtmObjFastRenderer.render(lastPoses.last(), optimizedBuilder,
+                                lastQuads, lastLight, lastOverlay),
+                        "steady-state exact buffer keeps using the primitive path");
+            }
+            long optimizedAllocated = allocationBean.getThreadAllocatedBytes(threadId) - optimizedBefore;
+            optimizedBuilder.discard();
+
+            BufferBuilder forgeBuilder = new BufferBuilder(300_000);
+            forgeBuilder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.NEW_ENTITY);
+            long forgeBefore = allocationBean.getThreadAllocatedBytes(threadId);
+            for (int iteration = 0; iteration < iterations; iteration++) {
+                for (BakedQuad quad : lastQuads) {
+                    forgeBuilder.putBulkData(lastPoses.last(), quad, 1.0F, 1.0F, 1.0F, 1.0F,
+                            lastLight, lastOverlay, true);
+                }
+            }
+            long forgeAllocated = allocationBean.getThreadAllocatedBytes(threadId) - forgeBefore;
+            forgeBuilder.discard();
+            System.out.println("NtmObjFastRenderer allocations over " + iterations
+                    + " submissions: optimized=" + optimizedAllocated + "B, forge="
+                    + forgeAllocated + "B");
+            assertTrue(optimizedAllocated <= 1_024L,
+                    "cached NTM primitive submission has no repeating per-frame allocation: "
+                            + optimizedAllocated + " bytes");
+            assertTrue(forgeAllocated > optimizedAllocated + 1_000_000L,
+                    "Forge bulk submission retains measurable per-quad allocation pressure: "
+                            + forgeAllocated + " bytes");
+        }
+
+        BufferBuilder first = new BufferBuilder(32);
+        BufferBuilder second = new BufferBuilder(32);
+        assertTrue(!NtmObjFastRenderer.render(lastPoses.last(),
+                        VertexMultiConsumer.create(first, second), lastQuads, lastLight, lastOverlay),
+                "wrapped or custom vertex consumers always fall back to Forge");
+        List<BakedQuad> malformed = List.of(new BakedQuad(new int[31], -1, Direction.UP,
+                null, true));
+        assertTrue(!NtmObjFastRenderer.render(lastPoses.last(), new BufferBuilder(32),
+                        malformed, lastLight, lastOverlay),
+                "nonstandard quad layouts fall back before writing any vertex");
+
+        NtmObjFastRenderer.clear();
+        assertEquals(0, ((Integer) cacheSize.invoke(null)).intValue(),
+                "resource reload clears all decoded NTM mesh identities");
+        String mixin = Files.readString(Path.of(
+                "src/main/java/first/wildfires/mixin/minecraft/CompositeRenderableMeshMixin.java"));
+        String visibility = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/ObjComponentVisibility.java"));
+        String models = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/NtmSpaceObjModels.java"));
+        String fast = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/NtmObjFastRenderer.java"));
+        String mixinConfig = Files.readString(Path.of("src/main/resources/wildfires.mixins.json"));
+        String capsuleRenderer = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/ReusableReturnCapsuleRenderer.java"));
+        assertTrue(mixin.contains("fastPathActive()")
+                        && mixin.contains("NtmObjFastRenderer.render")
+                        && mixinConfig.contains("minecraft.CompositeRenderableMeshMixin")
+                        && fast.contains("consumer.getClass() != BufferBuilder.class")
+                        && fast.contains("ThreadLocal.withInitial(Scratch::new)"),
+                "fast submission is restricted to explicit NTM scopes and exact BufferBuilder");
+        assertTrue(visibility.contains("ThreadLocal<Set<String>>")
+                        && !visibility.contains("Predicate") && !visibility.contains("Runnable")
+                        && models.contains("NtmObjFastRenderer.clear()")
+                        && models.contains("volatile CompositeRenderable"),
+                "component scopes allocate no lambdas and model/cache reload ownership stays aligned");
+        assertTrue(capsuleRenderer.indexOf("if (visual.orbitRenderAll())")
+                        < capsuleRenderer.indexOf("ObjComponentVisibility.enter"),
+                "complete orbit capsule remains on untouched Forge submission without a selected scope");
     }
 
-    private static double overlayOpacity(Method method, ReturnCapsuleState state, int ticks)
-            throws ReflectiveOperationException {
-        return ((Float) method.invoke(null, state, ticks, 0.0F)).doubleValue();
+    private static float nonZeroScale(Random random) {
+        float magnitude = random.nextFloat(0.20F, 2.50F);
+        return random.nextBoolean() ? magnitude : -magnitude;
+    }
+
+    private static byte[] forgeObjVertexBytes(PoseStack poses, List<BakedQuad> quads,
+                                              int light, int overlay, boolean optimized) {
+        BufferBuilder builder = new BufferBuilder(Math.max(256, quads.size() * 128));
+        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.NEW_ENTITY);
+        if (optimized) {
+            assertTrue(NtmObjFastRenderer.render(poses.last(), builder, quads, light, overlay),
+                    "exact BufferBuilder accepts the NTM primitive fast path");
+        } else {
+            for (BakedQuad quad : quads) {
+                builder.putBulkData(poses.last(), quad, 1.0F, 1.0F, 1.0F, 1.0F,
+                        light, overlay, true);
+            }
+        }
+        BufferBuilder.RenderedBuffer rendered = builder.end();
+        try {
+            ByteBuffer view = rendered.vertexBuffer();
+            byte[] bytes = new byte[view.remaining()];
+            view.get(bytes);
+            return bytes;
+        } finally {
+            rendered.release();
+        }
+    }
+
+    private static void ntmAscentAtmosphereUsesExactAltitudeCurve() {
+        assertClose(1.0D, NtmAscentAtmosphereVisuals.curvature(299.0D),
+                "NTM ascent atmosphere remains complete below Y=300");
+        assertClose(1.0D, NtmAscentAtmosphereVisuals.curvature(300.0D),
+                "NTM ascent atmosphere starts at full strength at Y=300");
+        assertClose(0.5D, NtmAscentAtmosphereVisuals.curvature(550.0D),
+                "NTM ascent atmosphere is half strength at Y=550");
+        assertClose(0.0D, NtmAscentAtmosphereVisuals.curvature(800.0D),
+                "NTM ascent atmosphere reaches vacuum black at Y=800");
+        assertClose(0.0D, NtmAscentAtmosphereVisuals.curvature(901.0D),
+                "NTM ascent atmosphere stays black through the Y>900 transfer boundary");
+        assertClose(1.0D, NtmAscentAtmosphereVisuals.curvature(Double.NaN),
+                "non-finite diagnostic altitude does not black out an unrelated scene");
+        assertClose(0.0D, NtmAscentAtmosphereVisuals.planetAlpha(199.0D),
+                "NTM underfoot body remains hidden below Y=200");
+        assertClose(0.0D, NtmAscentAtmosphereVisuals.planetAlpha(200.0D),
+                "NTM underfoot body starts transparent at Y=200");
+        assertClose(0.5D, NtmAscentAtmosphereVisuals.planetAlpha(350.0D),
+                "NTM underfoot body is half visible at Y=350");
+        assertClose(1.0D, NtmAscentAtmosphereVisuals.planetAlpha(500.0D),
+                "NTM underfoot body is fully visible at Y=500");
+        assertClose(1.0D, NtmAscentAtmosphereVisuals.planetAlpha(901.0D),
+                "NTM underfoot body remains complete through the transfer boundary");
+        assertClose(0.0D, NtmAscentAtmosphereVisuals.planetAlpha(Double.NaN),
+                "non-finite diagnostic altitude cannot reveal a body");
+        Quaternionf rotation = new Quaternionf().rotateXYZ(0.62F, 0.37F, -0.21F);
+        double outerExit = NtmAscentAtmosphereVisuals.outerShellExitDistance(rotation, 1.025D);
+        double lowDistance = NtmAscentAtmosphereVisuals.planetCenterDistance(200.0D, outerExit);
+        double middleDistance = NtmAscentAtmosphereVisuals.planetCenterDistance(350.0D, outerExit);
+        double highDistance = NtmAscentAtmosphereVisuals.planetCenterDistance(900.0D, outerExit);
+        assertTrue(Double.isFinite(lowDistance) && Double.isFinite(highDistance)
+                        && outerExit > NtmAscentAtmosphereVisuals.PLANET_HALF_SIZE
+                        && Double.doubleToLongBits(lowDistance) == Double.doubleToLongBits(outerExit)
+                        && middleDistance > outerExit
+                        && highDistance > lowDistance,
+                "rotated Genesis cube starts on its outer shell and moves monotonically outside");
+        assertClose(0.0D, NtmAscentAtmosphereVisuals.planetAlpha(
+                        350.0D, outerExit - 1.0D, outerExit),
+                "camera inside a rotated atmosphere shell cannot reveal the square planet");
+        assertClose(0.0D, NtmAscentAtmosphereVisuals.planetAlpha(
+                        200.0D, lowDistance, outerExit),
+                "surface-exit boundary begins from zero opacity");
+        assertClose(0.5D, NtmAscentAtmosphereVisuals.planetAlpha(
+                        350.0D, middleDistance, outerExit),
+                "planet reveal resumes the NTM altitude curve only after geometric exit");
+        assertTrue(!NtmAscentAtmosphereVisuals.hasLeftRenderedSurface(200.0D)
+                        && NtmAscentAtmosphereVisuals.hasLeftRenderedSurface(200.01D),
+                "local cloud deck is disabled at the same strict surface-exit edge");
+
+        CelestialTransferProfile earth = CelestialTransferProfile.resolve(EARTH,
+                visual(Optional.of(id("earth_test")), id("three_by_two_v1")),
+                CelestialPlanetSettings.DEFAULT);
+        CelestialTransferProfile jupiter = CelestialTransferProfile.resolve(JUPITER,
+                visual(Optional.of(id("jupiter_test")), id("three_by_two_v1")),
+                CelestialPlanetSettings.DEFAULT);
+        CelestialVisualDefinition.Atmosphere denseAtmosphere = new CelestialVisualDefinition.Atmosphere(
+                true, 1.06D, 12.0D, new CelestialVisualDefinition.Color(0.8D, 0.6D, 0.3D),
+                Optional.empty(), Optional.empty(), 1.0D, 1.0D, 1.0D,
+                3.0D, 4.0D, 0.6D, 2.0D, 0.72D, 1.0D);
+        CelestialVisualDefinition denseVisual = new CelestialVisualDefinition(
+                Optional.of(id("dense_test")), true, id("three_by_two_v1"), id("cube"),
+                denseAtmosphere, CelestialVisualDefinition.CloudLayer.NONE);
+        CelestialTransferProfile denseEarth = CelestialTransferProfile.resolve(EARTH, denseVisual,
+                CelestialPlanetSettings.DEFAULT);
+        assertTrue(jupiter.planetHalfSize() > earth.planetHalfSize()
+                        && jupiter.revealEndAltitude() > earth.revealEndAltitude(),
+                "larger bound bodies receive a longer square-body reveal corridor");
+        assertTrue(NtmAscentAtmosphereVisuals.hasLeftRenderedSurface(
+                        earth.revealStartAltitude() + 0.01D, earth)
+                        && !NtmAscentAtmosphereVisuals.hasLeftRenderedSurface(
+                        earth.revealStartAltitude(), earth)
+                        && !NtmAscentAtmosphereVisuals.hasLeftRenderedSurface(
+                        earth.revealStartAltitude() + 0.01D, jupiter),
+                "terrain, cloud and weather gates share the strict size-aware reveal boundary");
+        assertTrue(denseEarth.atmosphereFadeEndAltitude() > earth.atmosphereFadeEndAltitude()
+                        && denseEarth.transferAltitude() > earth.transferAltitude(),
+                "thicker denser atmospheres receive a longer fade and transfer corridor");
+    }
+
+    private static void reusableCapsuleInputUsesGameplayEdgesAndTransitionPolling() throws Exception {
+        String client = Files.readString(Path.of(
+                "src/main/java/first/wildfires/event/forgeEvent/ClientForgeEvent.java"));
+        String packet = Files.readString(Path.of(
+                "src/main/java/first/wildfires/network/PlayerInputPacket.java"));
+        assertTrue(client.contains("MovementInputUpdateEvent")
+                        && client.contains("syncJumpState(event.getInput().jumping)")
+                        && client.contains("if (ReturnCapsuleClientTransition.armed()) syncPhysicalJumpKey()")
+                        && client.contains("syncJumpState(minecraft.options.keyJump.isDown())"),
+                "normal gameplay uses Forge jump edges while the receiving screen retains physical polling");
+        assertTrue(packet.contains("handlePrimaryActionInput(player, capsule, pressed)")
+                        && !packet.contains("recordPrimaryActionInput(player, pressed);\n"
+                        + "                Entity vehicle"),
+                "one return-capsule input packet is recorded and executed through one service entry");
+    }
+
+    private static void reusableCapsuleParticlesKeepTheCompleteNtmContract() throws Exception {
+        String shock = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/ReturnCapsuleShockSmokeParticle.java"));
+        String flame = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/ReturnCapsuleGasFlameParticle.java"));
+        String visuals = Files.readString(Path.of(
+                "src/main/java/first/wildfires/space/capsule/ReturnCapsuleVisuals.java"));
+        String shockJson = Files.readString(Path.of(
+                "src/main/resources/assets/wildfires/particles/return_capsule_shock_smoke.json"));
+        String flameJson = Files.readString(Path.of(
+                "src/main/resources/assets/wildfires/particles/return_capsule_gas_flame.json"));
+
+        assertTrue(shock.contains("QUAD_COUNT = 6")
+                        && shock.contains("new Random(renderId)")
+                        && shock.contains("geometry.nextGaussian() - 1.0D")
+                        && shock.contains("xd *= DAMPING")
+                        && shock.contains("move(xd, yd, zd)")
+                        && shock.indexOf("xd *= DAMPING") < shock.indexOf("move(xd, yd, zd)")
+                        && !shock.contains("one deterministic grey smoke sprite"),
+                "NTM shock smoke retains six stable quads, Gaussian offsets and pre-move damping");
+        assertTrue(visuals.contains("int count = 1 + capsule.level().random.nextInt(3)")
+                        && visuals.contains("double strength = 1.0D + capsule.level().random.nextGaussian()")
+                        && visuals.contains("Mth.TWO_PI / count")
+                        && visuals.contains("capsule.flightVelocity()")
+                        && visuals.contains("capsule.getY() - groundY < 10.0D")
+                        && visuals.contains("groundY + 1.0D")
+                        && visuals.contains("addAlwaysVisibleParticle")
+                        && visuals.contains("RETURN_CAPSULE_SHOCK_SMOKE.get(), true")
+                        && visuals.contains("RETURN_CAPSULE_GAS_FLAME.get(), true")
+                        && !visuals.contains("count * 6"),
+                "NTM terrain shock uses one to three equal-angle forced particle states at full strength");
+        assertTrue(shockJson.contains("wildfires:third_party/ntm_space/particle_base")
+                        && Files.exists(Path.of(
+                        "src/main/resources/assets/wildfires/textures/particle/third_party/ntm_space/particle_base.png")),
+                "NTM particle_base is the sole shock-smoke sprite");
+        assertTrue(flame.contains("this.xd = this.xd * 0.1D + speedX")
+                        && flame.contains("this.friction = 0.96F")
+                        && flame.contains("yd += 0.004D")
+                        && flame.contains("xd *= 0.75D")
+                        && flame.contains("yd += 0.005D")
+                        && flame.contains("this.quadSize = 0.65F")
+                        && flame.contains("7 - age * 8 / lifetime")
+                        && flame.contains("return 0xF000F0"),
+                "NTM gas flame retains legacy smoke seed, damping, lift, scale and fullbright");
+        assertTrue(flameJson.indexOf("minecraft:generic_0")
+                        < flameJson.indexOf("minecraft:generic_7"),
+                "NTM gas flame keeps the canonical smoke frame index table");
+
+        Path particle = Path.of(
+                "src/main/resources/assets/wildfires/textures/particle/third_party/ntm_space/particle_base.png");
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(particle));
+        StringBuilder actual = new StringBuilder(64);
+        for (byte value : digest) actual.append(String.format("%02x", value & 0xFF));
+        assertEquals("ed0a1b6efd067b3ea7803e91904fbc9ebc71b3245dbcb8cc521ff6115f0ae0eb",
+                actual.toString(), "NTM particle_base SHA-256");
+    }
+
+    private static void reusableCapsuleRenderAndTransferSourceContractsStayAligned() throws Exception {
+        String mixins = Files.readString(Path.of("src/main/resources/wildfires.mixins.json"));
+        String capsuleRenderer = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/ReusableReturnCapsuleRenderer.java"));
+        String passengerPose = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/ReturnCapsulePassengerPose.java"));
+        String passengerMixin = Files.readString(Path.of(
+                "src/main/java/first/wildfires/mixin/minecraft/ReturnCapsuleLivingEntityRendererMixin.java"));
+        String playerRendererMixin = Files.readString(Path.of(
+                "src/main/java/first/wildfires/mixin/minecraft/ReturnCapsulePlayerRendererMixin.java"));
+        String entityRendererMixin = Files.readString(Path.of(
+                "src/main/java/first/wildfires/mixin/minecraft/ReturnCapsuleEntityRendererMixin.java"));
+        String cameraMixin = Files.readString(Path.of(
+                "src/main/java/first/wildfires/mixin/minecraft/ReturnCapsuleCameraMixin.java"));
+        String coreRenderer = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/StationCoreRenderer.java"));
+        String coreItemModel = Files.readString(Path.of(
+                "src/main/resources/assets/wildfires/models/item/station_core.json"));
+        String coreEntity = Files.readString(Path.of(
+                "src/main/java/first/wildfires/space/content/StationCoreBlockEntity.java"));
+        String coreBlock = Files.readString(Path.of(
+                "src/main/java/first/wildfires/space/content/StationCoreBlock.java"));
+        String capsuleRegistration = Files.readString(Path.of(
+                "src/main/java/first/wildfires/space/content/SpaceContentRegister.java"));
+        String flightSound = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/ReturnCapsuleFlightSound.java"));
+        String receiving = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/ReturnCapsuleReceivingScreen.java"));
+        String transition = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/ReturnCapsuleClientTransition.java"));
+        String orbitSky = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/render/OrbitSkyRenderer.java"));
+        String ascentAtmosphere = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/NtmAscentAtmosphereVisuals.java"));
+        String ascentFogMixin = Files.readString(Path.of(
+                "src/main/java/first/wildfires/mixin/minecraft/NtmAscentFogRendererMixin.java"));
+        String ascentLevelMixin = Files.readString(Path.of(
+                "src/main/java/first/wildfires/mixin/minecraft/NtmAscentLevelRendererMixin.java"));
+        String ascentPlanet = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/render/NtmAscentPlanetRenderer.java"));
+        String overworldSky = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/celestial/CelestialRenderer.java"));
+        String clientForgeEvents = Files.readString(Path.of(
+                "src/main/java/first/wildfires/event/forgeEvent/ClientForgeEvent.java"));
+        String celestialStateCache = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/celestial/CelestialClientStateCache.java"));
+        String service = Files.readString(Path.of(
+                "src/main/java/first/wildfires/space/capsule/ReturnCapsuleService.java"));
+        String capsuleEntity = Files.readString(Path.of(
+                "src/main/java/first/wildfires/space/capsule/ReusableReturnCapsuleEntity.java"));
+        String stationServerEvents = Files.readString(Path.of(
+                "src/main/java/first/wildfires/space/station/StationServerEvents.java"));
+        String stationCoreService = Files.readString(Path.of(
+                "src/main/java/first/wildfires/space/content/StationCoreService.java"));
+        String stationStructure = Files.readString(Path.of(
+                "src/main/java/first/wildfires/space/content/StationStructureBlock.java"));
+        String stationFluidPort = Files.readString(Path.of(
+                "src/main/java/first/wildfires/space/content/StationFluidPortBlockEntity.java"));
+        String stationOverlay = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/StationCoreOverlay.java"));
+        String armedPacket = Files.readString(Path.of(
+                "src/main/java/first/wildfires/network/ReturnCapsuleTransitionArmedPacket.java"));
+        String abortPacket = Files.readString(Path.of(
+                "src/main/java/first/wildfires/network/ReturnCapsuleTransitionAbortPacket.java"));
+        String network = Files.readString(Path.of(
+                "src/main/java/first/wildfires/register/NetworkPacketRegister.java"));
+
+        assertTrue(mixins.contains("minecraft.CompositeRenderableComponentMixin"),
+                "Forge OBJ component visibility mixin is registered on the client");
+        assertTrue(capsuleRenderer.contains(
+                        "Set.of(\"DropPod\", \"Door\", \"Legs\")")
+                        && capsuleRenderer.contains("Set.of(\"Airbrake0\")")
+                        && !capsuleRenderer.contains("Set.of(\"HeatShield\")")
+                        && capsuleRenderer.contains("index < 4")
+                        && capsuleRenderer.contains("visual.orbitRenderAll()"),
+                "surface pod excludes HeatShield, repeats Airbrake0 four times, and orbit renders all");
+        int firstYaw = passengerPose.indexOf("rotationDegrees(yawAroundPitch)");
+        int pitch = passengerPose.indexOf("rotationDegrees(pitch)", firstYaw);
+        int inverseYaw = passengerPose.indexOf("rotationDegrees(-yawAroundPitch)", pitch);
+        assertTrue(capsuleRenderer.contains("ReturnCapsulePassengerPose.applyAttitude(")
+                        && firstYaw >= 0 && pitch > firstYaw && inverseYaw > pitch,
+                "pod and passenger share the exact NTM yaw-conjugated pitch order");
+        assertTrue(mixins.contains("minecraft.ReturnCapsuleLivingEntityRendererMixin")
+                        && mixins.contains("minecraft.ReturnCapsuleCameraMixin")
+                        && mixins.contains("minecraft.ReturnCapsuleEntityRendererMixin")
+                        && mixins.contains("minecraft.ReturnCapsulePlayerRendererMixin")
+                        && passengerMixin.contains("@Mixin(LivingEntityRenderer.class)")
+                        && passengerMixin.contains("shift = At.Shift.BEFORE")
+                        && passengerMixin.contains("entity.getVehicle() instanceof ReusableReturnCapsuleEntity")
+                        && passengerMixin.contains("ReturnCapsulePassengerPose.applyAttitudeToPassenger(")
+                        && passengerPose.contains("Mth.rotLerp(partialTick, capsule.yRotO, capsule.getYRot())")
+                        && passengerPose.contains("capsule.phaseTicks() + partialTick")
+                        && passengerPose.contains("interpolatedSeatPosition")
+                        && passengerPose.contains("interpolatedRenderSeatPosition")
+                        && passengerPose.contains("entity.xOld")
+                        && passengerPose.contains("entity.xo")
+                        && passengerPose.contains("passengerRenderOffset")
+                        && passengerPose.contains("ReusableReturnCapsuleEntity.CAPSULE_SEAT_OFFSET")
+                        && playerRendererMixin.contains("@Mixin(PlayerRenderer.class)")
+                        && playerRendererMixin.contains("@Inject(method = \"getRenderOffset\"")
+                        && playerRendererMixin.contains("passengerRenderOffset(")
+                        && playerRendererMixin.contains("callback.getReturnValue().add(")
+                        && entityRendererMixin.contains("@Mixin(EntityRenderer.class)")
+                        && entityRendererMixin.contains("@Inject(method = \"shouldRender\"")
+                         && entityRendererMixin.contains("capsule.hasPassenger(entity)")
+                         && entityRendererMixin.contains("callback.setReturnValue(true)")
+                         && cameraMixin.contains("@Mixin(Camera.class)")
+                         && cameraMixin.contains("target = \"Lnet/minecraft/client/Camera;getMaxZoom(D)D\"")
+                         && cameraMixin.contains("if (!detached ||")
+                         && cameraMixin.contains("interpolatedRenderSeatPosition(")
+                         && cameraMixin.contains("capsuleRenderSeat.subtract(playerCameraAnchor)")
+                         && cameraMixin.contains("setPosition(current.add(")
+                         && cameraMixin.contains("if (detached) return;")
+                         && cameraMixin.contains("interpolatedSeatPosition(capsule, partialTick)")
+                         && cameraMixin.contains("attitude.transform(offset)")
+                         && cameraMixin.contains("setPosition(seat.add(offset.x, offset.y, offset.z))")
+                        && cameraMixin.contains("rotation.premul(attitude).normalize()")
+                         && cameraMixin.contains("forwards.set(0.0F, 0.0F, 1.0F).rotate(rotation)")
+                         && capsuleEntity.contains("CAPSULE_HEIGHT - 3.0D"),
+                 "seat, third-person camera/body and first-person attitude share the exact pod domains");
+        assertTrue(coreRenderer.contains("Set.of(\"Port\")")
+                        && coreRenderer.contains("Set.of(\"ArmZP\")")
+                        && coreRenderer.contains("index < 4")
+                        && coreRenderer.contains("index * 90.0F"),
+                "station port repeats the single ArmZP mesh four times");
+        assertTrue(coreRenderer.contains("poses.translate(0.5D, 1.0D, 0.5D)")
+                        && !coreRenderer.contains("poses.scale(")
+                        && coreItemModel.contains("\"scale\": [0.125, 0.125, 0.125]")
+                        && coreItemModel.contains("\"translation\": [0, 2, 0]"),
+                "station core keeps NTM 1:1 world scale and its ten-pixel inventory presentation");
+        assertTrue(coreEntity.contains("clientPreviousArmRotation = core.clientArmRotation")
+                        && coreEntity.contains("clientArmRotation + 2.25F")
+                        && coreEntity.contains("clientArmRotation - 2.25F")
+                        && coreEntity.contains("reservedCapsuleId")
+                        && coreEntity.contains("public boolean reserveDock")
+                        && coreEntity.contains("public boolean completeDock")
+                        && coreBlock.contains("StationCoreBlockEntity::clientTick")
+                        && coreRenderer.contains("core.clientArmRotation(partialTick)"),
+                "station reservation is separate while true docking alone drives NTM clamp animation");
+        assertTrue(capsuleRegistration.contains(".sized(2.0F, 4.0F)")
+                        && service.contains("CAPSULE_HEIGHT = 4.0D")
+                        && service.contains("CAPSULE_HALF_WIDTH = 1.0D")
+                        && service.contains("capsule.setFlightVelocity(0.1D)")
+                        && service.contains("capsule.getY() + 0.1D * NTM_MOTION_MULTIPLIER")
+                        && service.contains("capsule.setFlightVelocity(-0.1D)")
+                        && service.contains("capsule.getY() - 0.1D * NTM_MOTION_MULTIPLIER")
+                        && service.contains("motion.scale(NTM_MOTION_MULTIPLIER)")
+                        && service.contains("stationUndockEnd(ticket.sourcePosition()).y")
+                        && service.contains("capsule.getY() - targetHeight <= 0.25D")
+                        && !service.contains("NTM_MANEUVER_SUBSTEPS")
+                        && capsuleEntity.contains("clientLerpSteps = Math.max(1, steps)")
+                        && !capsuleEntity.contains("clientLerpSteps = 1;")
+                        && service.contains("landed.y + altitude")
+                        && service.contains("CelestialTransferProfile.resolve")
+                        && service.contains("getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES")
+                        && flightSound.contains("this.volume = 1.0F"),
+                "pod bounds, fourfold NTM motion, client convergence, body-relative reentry and sound match NTM");
+        assertTrue(ascentPlanet.contains("RenderSystem.enableDepthTest()")
+                        && ascentPlanet.contains("RenderSystem.depthMask(true)")
+                        && ascentPlanet.contains("RenderSystem.enableCull()")
+                        && !ascentPlanet.contains("RenderSystem.depthMask(false);\n            RenderSystem.disableCull();\n            RenderSystem.disableBlend();"),
+                "AFTER_SKY square-planet rendering restores depth writes and culling before pod and passenger geometry");
+        assertTrue(!receiving.contains("super.render(")
+                        && receiving.contains("graphics.fill(0, 0, width, height, 0xFF000000)")
+                        && receiving.contains("targetSceneReadyForPreview()")
+                        && transition.contains("return toStation ? orbitSceneReady()")
+                        && transition.contains("!armed() || !targetGraphReady()"),
+                "capsule receiving screen hides vanilla loading but reveals only a proven live target frame");
+        assertTrue(mixins.contains("minecraft.NtmAscentFogRendererMixin")
+                        && mixins.contains("minecraft.NtmAscentLevelRendererMixin")
+                        && ascentAtmosphere.contains("frame.profile().curvature(frame.altitude())")
+                        && ascentAtmosphere.contains("state != ReturnCapsuleState.SURFACE_LAUNCHING")
+                        && ascentAtmosphere.contains("state != ReturnCapsuleState.ASCENT_TRANSITION")
+                        && ascentAtmosphere.contains("capsule.activeBodyId()")
+                        && ascentAtmosphere.contains("definition.surfaceDimension()")
+                        && ascentAtmosphere.contains("level.dimension().location()::equals")
+                        && ascentFogMixin.contains("@Inject(method = \"setupColor\", at = @At(\"TAIL\"))")
+                        && ascentFogMixin.contains("RenderSystem.clearColor(fogRed, fogGreen, fogBlue, 0.0F)")
+                        && ascentLevelMixin.contains("@Inject(method = \"renderClouds\"")
+                        && ascentLevelMixin.contains("NtmAscentAtmosphereVisuals.hideLocalClouds")
+                        && ascentLevelMixin.contains("@Inject(method = \"renderSnowAndRain\"")
+                        && ascentLevelMixin.contains("@Inject(method = \"tickRain\"")
+                        && ascentLevelMixin.contains("NtmAscentAtmosphereVisuals.hideLocalWeather")
+                        && ascentLevelMixin.contains("@Inject(method = \"renderChunkLayer\"")
+                        && ascentLevelMixin.contains("NtmAscentAtmosphereVisuals.hideLocalTerrain")
+                        && overworldSky.contains("NtmAscentAtmosphereVisuals.fadeSky")
+                        && overworldSky.contains("state.weatherVisibility()) * atmosphere"),
+                "body-relative NTM atmosphere curve affects only the capsule's bound surface sky, weather, twilight and fog");
+        assertTrue(clientForgeEvents.contains("RenderLevelStageEvent.Stage.AFTER_SKY")
+                        && clientForgeEvents.contains("NtmAscentPlanetRenderer.render(")
+                        && clientForgeEvents.contains(".ascentBody(minecraft.level, event.getCamera())")
+                        && clientForgeEvents.contains("CelestialClientStateCache.stateForBoundSurfaceAscent")
+                        && celestialStateCache.contains("ExistingCelestialEphemeris.INSTANCE.state")
+                        && celestialStateCache.contains("if (registered != null) return registered")
+                        && ascentPlanet.contains("GenesisPlanetMesh.ensure()")
+                        && ascentPlanet.contains("GenesisPlanetMesh.drawSurface")
+                        && ascentPlanet.contains("GenesisPlanetMesh.drawAtmosphere")
+                        && ascentPlanet.contains("OrbitBodyTextureManager.surface(")
+                        && ascentPlanet.contains("OrbitBodyTextureManager.clouds(")
+                        && ascentPlanet.contains("bodyRotation(bodyId, state.calendarTicks())")
+                        && ascentPlanet.contains("incomingLightDirection(bodyId, state)")
+                        && ascentPlanet.contains("outerShellExitDistance(rotation")
+                        && ascentPlanet.contains("outerShellRadiusMultiplier(definition.visual())")
+                        && ascentAtmosphere.contains("centerDistance <= outerShellExitDistance")
+                        && !ascentPlanet.contains("state.sun().geocentricPosition()")
+                        && !ascentPlanet.contains("earthToSun")
+                        && ascentPlanet.indexOf("poseStack.mulPose(rotation)")
+                        < ascentPlanet.indexOf("drawClouds(")
+                        && !ascentPlanet.contains("planet.png")
+                        && !ascentPlanet.contains("new GenesisPlanetMesh")
+                        && !ascentPlanet.contains("new OrbitBodyTextureManager")
+                        && capsuleEntity.contains("EntityDataSerializers.STRING")
+                        && capsuleEntity.contains("ticket.bodyId().toString()")
+                        && capsuleEntity.contains("activeBodyId()"),
+                "NTM high-altitude reveal is body/data driven and uses cached Genesis cube, rigid clouds, atmosphere and physical incoming light");
+        assertTrue(stationCoreService.contains("new ArrayList<>(49)")
+                        && stationCoreService.contains("for (int x = -2; x <= 2; x++)")
+                        && stationCoreService.contains("for (int z = -2; z <= 2; z++)")
+                        && stationCoreService.contains("coreForTopCenterBlock")
+                        && stationCoreService.contains("interactTopCenter")
+                        && stationStructure.contains("StationCoreService.interactTopCenter")
+                        && capsuleEntity.contains("getDismountLocationForPassenger")
+                        && capsuleEntity.contains("stationDismountPosition")
+                        && coreEntity.contains("ForgeCapabilities.FLUID_HANDLER")
+                        && coreEntity.contains("value.fuelTank().fill(resource, action)")
+                        && stationCoreService.contains("new ArrayList<>(12)")
+                        && stationCoreService.contains("fluidPortOffsets()")
+                        && stationStructure.contains("BooleanProperty.create(\"fluid_port\")")
+                        && stationFluidPort.contains("target.fill(resource, action)")
+                        && stationFluidPort.contains("return FluidStack.EMPTY")
+                        && !stationFluidPort.contains("static void tick")
+                        && stationOverlay.contains("RenderGuiOverlayEvent.Post")
+                        && stationOverlay.contains("coreForTopCenterBlock")
+                        && !stationServerEvents.contains("StationServerEvents::onServerTick")
+                        && !stationServerEvents.contains("CORE_REPAIR_QUEUE"),
+                "NTM 5x5x2 top-centre interaction, twelve no-tick Forge-water ports and event-only proxy ownership remain complete");
+        assertTrue(transition.contains("REQUIRED_STABLE_TICKS = 2")
+                        && transition.contains("REQUIRED_RENDERED_FRAMES = 2")
+                        && transition.contains("renderedTargetFrames >= REQUIRED_RENDERED_FRAMES")
+                        && transition.contains("targetGraphReady()")
+                        && transition.contains("holdAndRepairTargetPassengerGraph()")
+                        && transition.contains("minecraft.level.entitiesForRendering()")
+                        && transition.contains("capsule.getUUID().equals(capsuleId)")
+                        && transition.contains("minecraft.player.getVehicle() == tracked")
+                        && transition.contains("tracked.hasPassenger(minecraft.player)")
+                        && transition.contains("if (!tracked.getPassengers().isEmpty()) tracked.ejectPassengers()")
+                        && transition.contains("minecraft.player.setDeltaMovement(Vec3.ZERO)")
+                        && transition.contains("minecraft.player.fallDistance = 0.0F")
+                        && capsuleEntity.contains("if (!level().isClientSide() && !transferDismountInProgress")
+                        && capsuleEntity.contains("return level().isClientSide() || capsuleState().interactive()")
+                        && stationServerEvents.contains("if (!event.getEntity().level().isClientSide()")
+                        && transition.contains("ReturnCapsuleTransitionArmedPacket")
+                        && transition.indexOf("sendArmedAcknowledgementIfDue(false)")
+                        < transition.indexOf("holdAndRepairTargetPassengerGraph()")
+                        && transition.indexOf("holdAndRepairTargetPassengerGraph()")
+                        < transition.indexOf("if (!targetGraphReady())"),
+                "target transfer lets vanilla rebuild and accept the client graph, removes only exact stale capsule links, then waits for rendered frames");
+        assertTrue(transition.contains("if (!toStation && serverConfirmed && targetGraphReady())")
+                        && transition.contains("markOrbitSceneRendered(boolean contextReady")
+                        && transition.contains("orbitContextReady && orbitCelestialReady && orbitBodyRendered")
+                        && orbitSky.contains("body.body().equals(context.currentBody())")
+                        && orbitSky.contains("markOrbitSceneRendered(true, true, currentBodyRendered)")
+                        && orbitSky.contains("return depthWritten;"),
+                "orbit release requires the current body's Genesis cube, while surface release uses ordinary frames");
+        int targetVehicleAdded = service.indexOf("destination.addDuringTeleport(moved)");
+        int targetPlayerTeleported = service.indexOf("player.teleportTo(destination", targetVehicleAdded);
+        int targetPassengerMounted = service.indexOf("player.startRiding(moved, true)", targetPlayerTeleported);
+        assertTrue(targetVehicleAdded >= 0
+                        && targetPlayerTeleported > targetVehicleAdded
+                        && targetPassengerMounted > targetPlayerTeleported
+                        && !service.contains("capsule.changeDimension(destination"),
+                "Forge 1.20.1 transfer tracks the Genesis-style target vehicle before Respawn and remount");
+        assertTrue(service.contains("TicketType<UUID> TRANSFER_TICKET")
+                        && service.contains("addRegionTicket(TRANSFER_TICKET, currentPos")
+                        && service.contains("removeRegionTicket(TRANSFER_TICKET, new ChunkPos(previous)")
+                        && service.contains("ticket.ticketId()")
+                        && capsuleEntity.contains("flightTicketChunk")
+                        && !service.contains("setChunkForced(")
+                        && !service.contains("unloadChunk("),
+                "each capsule releases only its ticket UUID and cannot unload a co-located player's chunk");
+        assertTrue(service.contains("Stage.CLIENT_ARMED")
+                        && service.indexOf("new StationContextPacket(ObservationContext.from(station")
+                        < service.indexOf("new ReturnCapsuleTransitionPacket(",
+                                service.indexOf("private static void sendTransferHandshake"))
+                        && service.contains("ClientboundSetPassengersPacket")
+                        && service.contains("PASSENGER_GRAPH_RETRY_TICKS = 5")
+                        && service.contains("ticket.stage() != ReturnCapsuleTransitionTicket.Stage.CLIENT_ARMED")
+                        && armedPacket.contains("confirmClientArmed")
+                        && network.contains("Version = \"17\"")
+                        && network.contains("ReturnCapsuleTransitionArmedPacket.class")
+                        && network.indexOf("ReturnCapsuleTransitionCompletePacket.class")
+                        < network.indexOf("ReturnCapsuleTransitionAbortPacket.class")
+                        && abortPacket.contains("ReturnCapsuleClientTransition.abort(ticketId, capsuleId)")
+                        && transition.contains("if (!ticket.equals(ticketId) || !capsule.equals(capsuleId)) return;")
+                        && transition.indexOf("complete();", transition.indexOf("public static void abort"))
+                        < transition.indexOf("releaseCapturedFrame();", transition.indexOf("public static void abort"))
+                        && transition.indexOf("releaseCapturedFrame();", transition.indexOf("public static void abort"))
+                        < transition.indexOf("minecraft.setScreen(null)", transition.indexOf("public static void abort"))
+                        && transition.contains("RenderTarget frame = captured;")
+                        && transition.contains("captured = null;")
+                        && transition.contains("RenderSystem.recordRenderCall(frame::destroyBuffers)")
+                        && clientForgeEvents.contains("ReturnCapsuleClientTransition.shutdown()"),
+                "source pre-arm, target passenger replay, exact recovery abort and GPU capture cleanup remain registered");
+    }
+
+    private static void reusableCapsuleTransitionUsesOnlyTheCapturedGenesisFrame() throws Exception {
+        boolean removed;
+        try {
+            Class.forName("first.wildfires.client.space.ReturnCapsuleTransitionOverlay");
+            removed = false;
+        } catch (ClassNotFoundException expected) {
+            removed = true;
+        }
+        assertTrue(removed, "synthetic capsule transition overlay was restored");
+        Class<?> receiving = Class.forName(
+                "first.wildfires.client.space.ReturnCapsuleReceivingScreen");
+        assertTrue(net.minecraft.client.gui.screens.ReceivingLevelScreen.class
+                        .isAssignableFrom(receiving)
+                        && receiving.getDeclaredMethod("render", net.minecraft.client.gui.GuiGraphics.class,
+                        int.class, int.class, float.class) != null
+                        && receiving.getDeclaredMethod("tick") != null,
+                "captured-frame receiving screen contract is missing");
+    }
+
+    private static void orbitVisualFrameCacheIsExactAndLossless() {
+        Object context = new Object();
+        Object state = new Object();
+        java.util.concurrent.atomic.AtomicInteger builds = new java.util.concurrent.atomic.AtomicInteger();
+        OrbitVisualFrameCache.SingleEntryCache<Object> cache =
+                new OrbitVisualFrameCache.SingleEntryCache<>((ignoredContext, ignoredState,
+                                                               ignoredGameTime, ignoredCalendarTicks,
+                                                               ignoredCalendarRate, ignoredMonthLength) -> {
+            builds.incrementAndGet();
+            return new Object();
+        });
+        Object first = cache.get(context, state, 12.25D, 34.5D, 1.0D, 8);
+        Object repeated = cache.get(context, state, 12.25D, 34.5D, 1.0D, 8);
+        assertTrue(first == repeated && builds.get() == 1,
+                "identical frame inputs reuse the exact immutable result");
+
+        java.util.concurrent.atomic.AtomicBoolean failBuild = new java.util.concurrent.atomic.AtomicBoolean();
+        OrbitVisualFrameCache.SingleEntryCache<Object> transactionalCache =
+                new OrbitVisualFrameCache.SingleEntryCache<>((ignoredContext, ignoredState,
+                                                               ignoredGameTime, ignoredCalendarTicks,
+                                                               ignoredCalendarRate, ignoredMonthLength) -> {
+                    if (failBuild.get()) throw new IllegalStateException("expected factory failure");
+                    return new Object();
+                });
+        Object retained = transactionalCache.get(context, state, 1.0D, 2.0D, 3.0D, 8);
+        failBuild.set(true);
+        try {
+            transactionalCache.get(context, state, 2.0D, 2.0D, 3.0D, 8);
+            throw new AssertionError("failing frame construction must propagate");
+        } catch (IllegalStateException expected) {
+            assertTrue("expected factory failure".equals(expected.getMessage()),
+                    "frame factory failure remains visible");
+        }
+        failBuild.set(false);
+        assertTrue(transactionalCache.get(context, state, 1.0D, 2.0D, 3.0D, 8) == retained,
+                "failed frame construction does not poison the prior exact cache entry");
+
+        Object[] contexts = {context, new Object()};
+        Object[] states = {state, new Object()};
+        double[] gameTimes = {12.25D, Math.nextUp(12.25D)};
+        double[] calendarTicks = {34.5D, Math.nextUp(34.5D)};
+        double[] calendarRates = {1.0D, Math.nextUp(1.0D)};
+        int[] monthLengths = {8, 9};
+        cache.clear();
+        Object previous = cache.get(contexts[0], states[0], gameTimes[0], calendarTicks[0],
+                calendarRates[0], monthLengths[0]);
+        for (int changed = 0; changed < 6; changed++) {
+            Object next = cache.get(contexts[changed == 0 ? 1 : 0], states[changed == 1 ? 1 : 0],
+                    gameTimes[changed == 2 ? 1 : 0], calendarTicks[changed == 3 ? 1 : 0],
+                    calendarRates[changed == 4 ? 1 : 0], monthLengths[changed == 5 ? 1 : 0]);
+            assertTrue(next != previous,
+                    "every frame cache identity or raw-bit field independently invalidates");
+            cache.clear();
+            previous = cache.get(contexts[0], states[0], gameTimes[0], calendarTicks[0],
+                    calendarRates[0], monthLengths[0]);
+        }
+
+        ObservationJourney cruise = new ObservationJourney(EARTH, MARS, StationTravelMode.JUMP,
+                StationJourneyPhase.JUMP_CRUISING, 60L, 160L);
+        ObservationContext visualContext = context(EARTH, Optional.of(cruise));
+        CelestialState visualState = state();
+        OrbitVisualFrameCache.reset();
+        OrbitVisualRules.Frame direct = OrbitVisualRules.frame(
+                visualContext, visualState, 100.25D, 0.0D, 1.0D, 8);
+        OrbitVisualRules.Frame cached = OrbitVisualFrameCache.frame(
+                visualContext, visualState, 100.25D, 0.0D, 1.0D, 8);
+        assertTrue(direct.equals(cached),
+                "frame cache preserves every orbit and relativistic visual value");
+        assertTrue(cached == OrbitVisualFrameCache.frame(
+                        visualContext, visualState, 100.25D, 0.0D, 1.0D, 8),
+                "sky and lightmap can share one exact frame object");
+        OrbitVisualFrameCache.reset();
     }
 
     private static void genesisAtlasUsesExactFaceContract() {
@@ -653,8 +1372,8 @@ public final class SpaceVisualSelfTest {
                 0.0D, 1.0D, calendarTicks, 8,
                 settings.resolvedSynodicDays(8), settings.resolvedAnomalisticDays(8),
                 settings.nodalYears(), settings.lunarInclinationRadians()));
-        CelestialBodyState sun = body(SUN, null, frame.sunGeocentric()
-                .scale(settings.planetSettings().earthSemiMajorMillionKm()), 0.69634D);
+        CelestialBodyState sun = body(SUN, null, testSunEclipticPosition(frame,
+                settings.planetSettings().earthSemiMajorMillionKm()), 0.69634D);
         CelestialBodyState moon = body(MOON, EARTH, testEquatorialToEcliptic(frame.moonGeocentric())
                 .scale(CelestialMath.MOON_MEAN_DISTANCE_MILLION_KM * frame.moonDistance()), 0.001737D);
         List<CelestialBodyState> orbiting = CelestialBodies.calculate(frame,
@@ -665,6 +1384,39 @@ public final class SpaceVisualSelfTest {
                 orbiting, 0, 0.0D, 0.0D, SolarEclipseState.NONE, 0.0D,
                 LunarEclipseState.NONE, 0.0D, 0.0D, 1.0D, 1.0D, 1.0D,
                 new DaylightState(0.0D, true, 0.0D, 1.0D));
+    }
+
+    private static void sunEphemerisStaysOnEclipticThroughOrbitTransforms() {
+        double distance = first.wildfires.celestial.CelestialRuntimeSettings.DEFAULT
+                .planetSettings().earthSemiMajorMillionKm();
+        CelestialVector eclipticNorth = OrbitVisualRules.ntmFrameVector(
+                new CelestialVector(0.0D, 0.0D, 1.0D));
+        for (int sample = 0; sample < 16; sample++) {
+            double calendarTicks = sample * 6.0D * CelestialMath.TICKS_IN_DAY;
+            CelestialState state = authoritativeStateAt(calendarTicks);
+            CelestialVector sun = state.sun().geocentricPosition();
+            assertNear(0.0D, sun.z(), 1.0E-12D,
+                    "orbit Sun has zero ecliptic latitude at sample " + sample);
+            assertNear(distance, sun.length(), 1.0E-12D,
+                    "orbit Sun keeps Earth semi-major distance at sample " + sample);
+
+            CelestialVector ntmSun = OrbitVisualRules.ntmFrameVector(sun.normalized());
+            assertNear(0.0D, ntmSun.dot(eclipticNorth), 1.0E-12D,
+                    "NTM frame keeps Sun on ecliptic at sample " + sample);
+            OrbitVisualRules.Frame visualFrame = OrbitVisualRules.frame(
+                    context(EARTH, Optional.empty()), state, sample * 173.0D,
+                    calendarTicks, 1.0D, 8);
+            org.joml.Vector3f viewedSun = new org.joml.Vector3f(
+                    (float) ntmSun.x(), (float) ntmSun.y(), (float) ntmSun.z());
+            org.joml.Vector3f viewedNorth = new org.joml.Vector3f(
+                    (float) eclipticNorth.x(), (float) eclipticNorth.y(),
+                    (float) eclipticNorth.z());
+            org.joml.Quaternionf view = OrbitVisualRules.frameViewOrientation(visualFrame);
+            view.transform(viewedSun);
+            view.transform(viewedNorth);
+            assertNear(0.0D, viewedSun.dot(viewedNorth), 2.0E-6D,
+                    "shared orbit camera keeps Sun on rotated ecliptic at sample " + sample);
+        }
     }
 
     private static void acceleratedEarthMoonTransfersClearBothMovingCubes() {
@@ -814,6 +1566,317 @@ public final class SpaceVisualSelfTest {
                 "orbit is not globally locked to noon; station-local NTM illumination drives its lightmap");
     }
 
+    private static void cachedBodyRotationsMatchLegacyBits() {
+        List<ResourceLocation> bodies = new ArrayList<>();
+        bodies.add(EARTH);
+        bodies.add(MOON);
+        for (CelestialBodies body : CelestialBodies.values()) {
+            bodies.add(body.id());
+        }
+        bodies.add(id("unknown_rotation_body"));
+        double[] ticks = {-1.0E12D, -24_000.25D, -0.0D, 0.0D, 1.0D,
+                12_345.75D, 24_000.0D, 1.0E12D};
+        for (ResourceLocation body : bodies) {
+            for (double calendarTicks : ticks) {
+                org.joml.Quaternionf expected = legacyBodyRotation(body, calendarTicks);
+                org.joml.Quaternionf actual = OrbitVisualRules.bodyRotation(body, calendarTicks);
+                assertRawFloat(expected.x(), actual.x(), "cached body rotation x " + body);
+                assertRawFloat(expected.y(), actual.y(), "cached body rotation y " + body);
+                assertRawFloat(expected.z(), actual.z(), "cached body rotation z " + body);
+                assertRawFloat(expected.w(), actual.w(), "cached body rotation w " + body);
+                if (expected == actual) {
+                    throw new AssertionError("body rotation unexpectedly reused a mutable quaternion "
+                            + body);
+                }
+            }
+        }
+    }
+
+    private static org.joml.Quaternionf legacyBodyRotation(ResourceLocation body,
+                                                             double calendarTicks) {
+        CelestialVector renderAxis = OrbitVisualRules.ntmFrameVector(
+                OrbitVisualRules.spinAxisEcliptic(body)).normalized();
+        org.joml.Vector3f axis = new org.joml.Vector3f((float) renderAxis.x(),
+                (float) renderAxis.y(), (float) renderAxis.z());
+        return new org.joml.Quaternionf()
+                .rotationTo(new org.joml.Vector3f(0.0F, 1.0F, 0.0F), axis)
+                .rotateY((float) OrbitVisualRules.surfaceRotationRadians(body, calendarTicks));
+    }
+
+    private static void knownLengthNormalizationMatchesLegacyBits() {
+        List<CelestialVector> fixed = List.of(
+                CelestialVector.ZERO,
+                new CelestialVector(-0.0D, 0.0D, -0.0D),
+                new CelestialVector(1.0E-14D, -1.0E-14D, 1.0E-14D),
+                new CelestialVector(1.0D, 2.0D, 3.0D),
+                new CelestialVector(Double.MIN_VALUE, -Double.MIN_VALUE, Double.MIN_VALUE),
+                new CelestialVector(Double.MAX_VALUE, 1.0D, -1.0D),
+                new CelestialVector(Double.NaN, 1.0D, 2.0D),
+                new CelestialVector(Double.POSITIVE_INFINITY, 1.0D, 2.0D));
+        for (CelestialVector vector : fixed) {
+            assertKnownLengthNormalization(vector, "fixed known-length normalization");
+        }
+        java.util.Random random = new java.util.Random(0x4E4F524D4C454E47L);
+        for (int sample = 0; sample < 2048; sample++) {
+            CelestialVector vector = new CelestialVector(
+                    (random.nextDouble() * 2.0D - 1.0D) * 1.0E12D,
+                    (random.nextDouble() * 2.0D - 1.0D) * 1.0E12D,
+                    (random.nextDouble() * 2.0D - 1.0D) * 1.0E12D);
+            assertKnownLengthNormalization(vector,
+                    "random known-length normalization " + sample);
+        }
+    }
+
+    private static void assertKnownLengthNormalization(CelestialVector vector, String name) {
+        double length = vector.length();
+        CelestialVector expected = vector.normalized();
+        CelestialVector actual = OrbitVisualRules.normalizedAtLength(vector, length);
+        assertRawDouble(expected.x(), actual.x(), name + " x");
+        assertRawDouble(expected.y(), actual.y(), name + " y");
+        assertRawDouble(expected.z(), actual.z(), name + " z");
+        if ((expected == CelestialVector.ZERO) != (actual == CelestialVector.ZERO)) {
+            throw new AssertionError(name + " changed shared ZERO identity");
+        }
+    }
+
+    private static void optimizedOrbitPolygonAreaMatchesLegacyBits() {
+        List<List<OrbitVisualRules.ProjectedPoint>> fixed = List.of(
+                List.of(),
+                List.of(new OrbitVisualRules.ProjectedPoint(-0.0D, 0.0D)),
+                List.of(new OrbitVisualRules.ProjectedPoint(0.0D, 0.0D),
+                        new OrbitVisualRules.ProjectedPoint(1.0D, 0.0D),
+                        new OrbitVisualRules.ProjectedPoint(0.0D, 1.0D)),
+                List.of(new OrbitVisualRules.ProjectedPoint(Double.NaN, 1.0D),
+                        new OrbitVisualRules.ProjectedPoint(2.0D, Double.POSITIVE_INFINITY)),
+                List.of(new OrbitVisualRules.ProjectedPoint(Double.MAX_VALUE, 1.0D),
+                        new OrbitVisualRules.ProjectedPoint(-Double.MAX_VALUE, 2.0D),
+                        new OrbitVisualRules.ProjectedPoint(0.0D, -Double.MAX_VALUE)));
+        for (List<OrbitVisualRules.ProjectedPoint> polygon : fixed) {
+            assertRawDouble(legacyOrbitPolygonArea(polygon),
+                    OrbitVisualRules.polygonArea(polygon), "fixed orbit polygon area");
+        }
+        java.util.Random random = new java.util.Random(0x504F4C59474F4E4CL);
+        for (int sample = 0; sample < 1024; sample++) {
+            int count = random.nextInt(17);
+            List<OrbitVisualRules.ProjectedPoint> polygon = new ArrayList<>(count);
+            for (int index = 0; index < count; index++) {
+                polygon.add(new OrbitVisualRules.ProjectedPoint(
+                        (random.nextDouble() * 2.0D - 1.0D) * 1.0E8D,
+                        (random.nextDouble() * 2.0D - 1.0D) * 1.0E8D));
+            }
+            assertRawDouble(legacyOrbitPolygonArea(polygon),
+                    OrbitVisualRules.polygonArea(polygon),
+                    "random orbit polygon area " + sample);
+        }
+    }
+
+    private static double legacyOrbitPolygonArea(
+            List<OrbitVisualRules.ProjectedPoint> polygon) {
+        double twiceArea = 0.0D;
+        for (int index = 0; index < polygon.size(); index++) {
+            OrbitVisualRules.ProjectedPoint first = polygon.get(index);
+            OrbitVisualRules.ProjectedPoint second = polygon.get((index + 1) % polygon.size());
+            twiceArea += first.x() * second.y() - first.y() * second.x();
+        }
+        return Math.abs(twiceArea) * 0.5D;
+    }
+
+    private static void optimizedProjectedCubeCoverageMatchesLegacyBits() {
+        CelestialVector north = new CelestialVector(0.0D, 1.0D, 0.0D);
+        List<ProjectedCubeCase> fixed = List.of(
+                new ProjectedCubeCase(new CelestialVector(0.0D, 0.0D, 1.0D), 0.1D,
+                        new CelestialVector(0.0D, 0.0D, 2.0D), 0.25D,
+                        new org.joml.Quaternionf(), north),
+                new ProjectedCubeCase(new CelestialVector(1.0D, 2.0D, 3.0D), 0.2D,
+                        new CelestialVector(3.0D, 6.0D, 9.0D), 0.5D,
+                        new org.joml.Quaternionf().rotationXYZ(0.25F, -0.5F, 1.0F), north),
+                new ProjectedCubeCase(CelestialVector.ZERO, 0.1D,
+                        new CelestialVector(0.0D, 0.0D, 1.0D), 0.25D,
+                        new org.joml.Quaternionf(), north),
+                new ProjectedCubeCase(new CelestialVector(Double.NaN, 0.0D, 1.0D), 0.1D,
+                        new CelestialVector(0.0D, 0.0D, 1.0D), 0.25D,
+                        new org.joml.Quaternionf(), north));
+        for (ProjectedCubeCase sample : fixed) {
+            assertProjectedCubeCoverageRaw(sample, "fixed projected cube coverage");
+        }
+        java.util.Random random = new java.util.Random(0x43554245434F5645L);
+        for (int sample = 0; sample < 1024; sample++) {
+            CelestialVector sun = new CelestialVector(
+                    random.nextDouble() * 2.0D - 1.0D,
+                    random.nextDouble() * 2.0D - 1.0D,
+                    random.nextDouble() * 2.0D - 1.0D);
+            if (sun.length() <= 0.01D) {
+                sun = new CelestialVector(0.0D, 0.0D, 1.0D);
+            }
+            CelestialVector unitSun = sun.normalized();
+            double distance = 2.0D + random.nextDouble() * 200.0D;
+            CelestialVector center = unitSun.scale(distance).add(new CelestialVector(
+                    (random.nextDouble() * 2.0D - 1.0D) * distance * 0.2D,
+                    (random.nextDouble() * 2.0D - 1.0D) * distance * 0.2D,
+                    (random.nextDouble() * 2.0D - 1.0D) * distance * 0.2D));
+            org.joml.Quaternionf rotation = new org.joml.Quaternionf().rotationXYZ(
+                    random.nextFloat() * 6.0F - 3.0F,
+                    random.nextFloat() * 6.0F - 3.0F,
+                    random.nextFloat() * 6.0F - 3.0F);
+            ProjectedCubeCase value = new ProjectedCubeCase(sun,
+                    0.001D + random.nextDouble(), center,
+                    0.001D + random.nextDouble(), rotation,
+                    new CelestialVector(random.nextDouble() * 2.0D - 1.0D,
+                            random.nextDouble() * 2.0D - 1.0D,
+                            random.nextDouble() * 2.0D - 1.0D));
+            assertProjectedCubeCoverageRaw(value,
+                    "random projected cube coverage " + sample);
+        }
+    }
+
+    private static void assertProjectedCubeCoverageRaw(ProjectedCubeCase sample, String name) {
+        double expected = legacyProjectedCubeCoverage(sample.sunDirection(), sample.sunHalfTangent(),
+                sample.cubeCenter(), sample.cubeHalfSize(), sample.rotation(),
+                sample.celestialNorth());
+        double actual = OrbitVisualRules.projectedCubeCoverage(sample.sunDirection(),
+                sample.sunHalfTangent(), sample.cubeCenter(), sample.cubeHalfSize(),
+                sample.rotation(), sample.celestialNorth());
+        assertRawDouble(expected, actual, name);
+    }
+
+    private static double legacyProjectedCubeCoverage(
+            CelestialVector sunDirection, double sunHalfTangent,
+            CelestialVector cubeCenter, double cubeHalfSize,
+            org.joml.Quaternionf cubeRotation, CelestialVector celestialNorth) {
+        if (!legacyFinite(sunDirection) || !legacyFinite(cubeCenter)
+                || !(sunHalfTangent > 0.0D) || !(cubeHalfSize > 0.0D)
+                || !Double.isFinite(sunHalfTangent) || !Double.isFinite(cubeHalfSize)
+                || cubeRotation == null) {
+            return 0.0D;
+        }
+        CelestialVector sun = sunDirection.normalized();
+        first.wildfires.celestial.CelestialDiscGeometry.Basis basis =
+                first.wildfires.celestial.CelestialDiscGeometry.stableBasis(sun, celestialNorth);
+        List<LegacyProjectedPoint> points = new ArrayList<>(8);
+        for (int xIndex = 0; xIndex < 2; xIndex++) {
+            int x = xIndex == 0 ? -1 : 1;
+            for (int yIndex = 0; yIndex < 2; yIndex++) {
+                int y = yIndex == 0 ? -1 : 1;
+                for (int zIndex = 0; zIndex < 2; zIndex++) {
+                    int z = zIndex == 0 ? -1 : 1;
+                    org.joml.Vector3f local = new org.joml.Vector3f(x, y, z)
+                            .mul((float) cubeHalfSize);
+                    cubeRotation.transform(local);
+                    CelestialVector corner = cubeCenter.add(
+                            new CelestialVector(local.x, local.y, local.z));
+                    double forward = corner.dot(sun);
+                    if (!(forward > 1.0E-12D) || !Double.isFinite(forward)) {
+                        return 0.0D;
+                    }
+                    points.add(new LegacyProjectedPoint(corner.dot(basis.right()) / forward,
+                            corner.dot(basis.up()) / forward));
+                }
+            }
+        }
+        List<LegacyProjectedPoint> polygon = legacyConvexHull(points);
+        polygon = legacyClip(polygon, true, -sunHalfTangent, true);
+        polygon = legacyClip(polygon, true, sunHalfTangent, false);
+        polygon = legacyClip(polygon, false, -sunHalfTangent, true);
+        polygon = legacyClip(polygon, false, sunHalfTangent, false);
+        double coverage = legacyProjectedPolygonArea(polygon)
+                / (4.0D * sunHalfTangent * sunHalfTangent);
+        return Math.max(0.0D, Math.min(1.0D, coverage));
+    }
+
+    private static List<LegacyProjectedPoint> legacyConvexHull(
+            List<LegacyProjectedPoint> points) {
+        List<LegacyProjectedPoint> sorted = new ArrayList<>(points);
+        sorted.sort(java.util.Comparator.comparingDouble(LegacyProjectedPoint::x)
+                .thenComparingDouble(LegacyProjectedPoint::y));
+        List<LegacyProjectedPoint> hull = new ArrayList<>(16);
+        for (LegacyProjectedPoint point : sorted) {
+            while (hull.size() >= 2 && legacyProjectedCross(hull.get(hull.size() - 2),
+                    hull.get(hull.size() - 1), point) <= 0.0D) {
+                hull.remove(hull.size() - 1);
+            }
+            hull.add(point);
+        }
+        int lower = hull.size();
+        for (int index = sorted.size() - 2; index >= 0; index--) {
+            LegacyProjectedPoint point = sorted.get(index);
+            while (hull.size() > lower && legacyProjectedCross(hull.get(hull.size() - 2),
+                    hull.get(hull.size() - 1), point) <= 0.0D) {
+                hull.remove(hull.size() - 1);
+            }
+            hull.add(point);
+        }
+        if (hull.size() > 1) {
+            hull.remove(hull.size() - 1);
+        }
+        return hull;
+    }
+
+    private static List<LegacyProjectedPoint> legacyClip(
+            List<LegacyProjectedPoint> input, boolean xAxis,
+            double boundary, boolean keepGreater) {
+        if (input.isEmpty()) {
+            return input;
+        }
+        List<LegacyProjectedPoint> output = new ArrayList<>(input.size() + 4);
+        LegacyProjectedPoint previous = input.get(input.size() - 1);
+        boolean previousInside = legacyProjectedInside(previous, xAxis, boundary, keepGreater);
+        for (LegacyProjectedPoint current : input) {
+            boolean currentInside = legacyProjectedInside(current, xAxis, boundary, keepGreater);
+            if (currentInside != previousInside) {
+                double from = xAxis ? previous.x() : previous.y();
+                double to = xAxis ? current.x() : current.y();
+                double fraction = Math.max(0.0D,
+                        Math.min(1.0D, (boundary - from) / (to - from)));
+                output.add(new LegacyProjectedPoint(
+                        previous.x() + (current.x() - previous.x()) * fraction,
+                        previous.y() + (current.y() - previous.y()) * fraction));
+            }
+            if (currentInside) {
+                output.add(current);
+            }
+            previous = current;
+            previousInside = currentInside;
+        }
+        return output;
+    }
+
+    private static boolean legacyProjectedInside(LegacyProjectedPoint point, boolean xAxis,
+                                                  double boundary, boolean keepGreater) {
+        double value = xAxis ? point.x() : point.y();
+        return keepGreater ? value >= boundary : value <= boundary;
+    }
+
+    private static double legacyProjectedCross(LegacyProjectedPoint first,
+                                               LegacyProjectedPoint second,
+                                               LegacyProjectedPoint third) {
+        return (second.x() - first.x()) * (third.y() - first.y())
+                - (second.y() - first.y()) * (third.x() - first.x());
+    }
+
+    private static double legacyProjectedPolygonArea(List<LegacyProjectedPoint> polygon) {
+        double twiceArea = 0.0D;
+        for (int index = 0; index < polygon.size(); index++) {
+            LegacyProjectedPoint first = polygon.get(index);
+            LegacyProjectedPoint second = polygon.get((index + 1) % polygon.size());
+            twiceArea += first.x() * second.y() - first.y() * second.x();
+        }
+        return Math.abs(twiceArea) * 0.5D;
+    }
+
+    private static boolean legacyFinite(CelestialVector vector) {
+        return vector != null && Double.isFinite(vector.x()) && Double.isFinite(vector.y())
+                && Double.isFinite(vector.z());
+    }
+
+    private record ProjectedCubeCase(CelestialVector sunDirection, double sunHalfTangent,
+                                     CelestialVector cubeCenter, double cubeHalfSize,
+                                     org.joml.Quaternionf rotation,
+                                     CelestialVector celestialNorth) {
+    }
+
+    private record LegacyProjectedPoint(double x, double y) {
+    }
+
     private static void ntmSunSizeUsesBodyEndpointsInsteadOfTransferChordDistance() {
         CelestialState separated = stateWithMars(new CelestialVector(300.0D, 0.0D, 0.0D));
         double source = OrbitVisualRules.frame(context(EARTH, Optional.empty()), separated, 0.0D)
@@ -842,7 +1905,8 @@ public final class SpaceVisualSelfTest {
     }
 
     private static void sunIsASeparateFlatNtmLayerAndLightsPlanetsFromSystemCenter() {
-        OrbitVisualRules.Frame frame = OrbitVisualRules.frame(context(EARTH, Optional.empty()), state(), 0.0D);
+        CelestialState state = state();
+        OrbitVisualRules.Frame frame = OrbitVisualRules.frame(context(EARTH, Optional.empty()), state, 0.0D);
         assertTrue(frame.bodies().stream().noneMatch(body -> body.body().equals(SUN)),
                 "Sun never enters square-body list");
         assertEquals(id("textures/third_party/ntm_space/kerbol.png"), NtmOrbitSkyRenderer.SUN,
@@ -853,6 +1917,12 @@ public final class SpaceVisualSelfTest {
                 body(frame, EARTH).incomingLightDirection(), "Earth incoming center-star light");
         assertVector(new CelestialVector(0.0D, 1.0D, 0.0D),
                 body(frame, MARS).incomingLightDirection(), "Mars incoming center-star light");
+        assertVector(body(frame, EARTH).incomingLightDirection(),
+                OrbitVisualRules.incomingLightDirection(EARTH, state),
+                "surface ascent derives Earth light from the selected body ephemeris");
+        assertVector(body(frame, MARS).incomingLightDirection(),
+                OrbitVisualRules.incomingLightDirection(MARS, state),
+                "surface ascent derives non-Earth light from the selected body ephemeris");
         assertClose(OrbitVisualRules.NTM_SUN_RENDER_SCALE,
                 frame.sun().apparentSize() / OrbitVisualRules.apparentSize(1.0D, 100.0D),
                 "NTM Sun size is calculated at the currently orbited body");
@@ -992,6 +2062,14 @@ public final class SpaceVisualSelfTest {
                 "visual clock command is registered only outside production");
     }
 
+    private static void developmentClientSuppressesCitadelDevFollower() throws Exception {
+        String clientEvents = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/SpaceContentClientEvents.java"));
+        assertTrue(clientEvents.contains("if (!FMLEnvironment.production)")
+                        && clientEvents.contains("ClientProxy.hideFollower = true"),
+                "development client suppresses Citadel's false-positive Dev Patreon follower only outside production");
+    }
+
     private static void copiedNtmTexturesMatchRecordedHashes() throws Exception {
         assertHash("night.png", "8a76403ad140614beea2f0d044fcb36f9be8603b3affcc4f265b36fd373217dc");
         assertHash("kerbol.png", "6a59dde88aa746b20df95ae46525825926800c8099b1655942b7f1b23a865431");
@@ -1041,6 +2119,15 @@ public final class SpaceVisualSelfTest {
         assertTrue(vertex.contains("surfaceDirection = Position")
                         && !vertex.contains("surfaceDirection = normalize(Position)"),
                 "shadow receiver uses actual planar cube coordinates across faces, edges and corners");
+        String orbitRenderer = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/render/OrbitSkyRenderer.java"));
+        assertTrue(orbitRenderer.contains("boolean depthWritten = false")
+                        && orbitRenderer.contains("if (depthWritten)")
+                        && orbitRenderer.contains("depthWritten = drawCubeBody")
+                        && !orbitRenderer.substring(orbitRenderer.indexOf("private static void drawSunLayer"),
+                        orbitRenderer.indexOf("private static boolean drawBodyLayer"))
+                        .contains("clearLayerDepth"),
+                "point-only and depth-disabled Sun passes skip clears without changing cube isolation");
     }
 
     private static void relativisticJumpMathIsFiniteAndDirectional() {
@@ -1092,33 +2179,163 @@ public final class SpaceVisualSelfTest {
                 StationJourneyPhase.JUMP_ACCELERATING, 0L, 60L);
         ObservationJourney decelerating = new ObservationJourney(EARTH, MARS, StationTravelMode.JUMP,
                 StationJourneyPhase.JUMP_DECELERATING, 220L, 60L);
+        ObservationJourney contractionCruise = new ObservationJourney(EARTH, MARS, StationTravelMode.JUMP,
+                StationJourneyPhase.JUMP_CRUISING, 60L, 160L);
         assertClose(0.0D, RelativisticVisualRules.state(accelerating, 0.0D).beta(), "jump starts at rest");
         assertTrue(RelativisticVisualRules.state(accelerating, 60.0D).beta() > 0.98D,
                 "acceleration reaches near-light beta in three seconds");
         assertClose(0.0D, RelativisticVisualRules.state(decelerating, 280.0D).beta(),
                 "deceleration ends at rest");
-        ObservationJourney contractionCruise = new ObservationJourney(EARTH, MARS, StationTravelMode.JUMP,
-                StationJourneyPhase.JUMP_CRUISING, 60L, 160L);
+        double accelerationTrailMiddle = RelativisticVisualRules.state(
+                accelerating, 30.0D).starTrailStrength();
+        double accelerationTrailNearEnd = RelativisticVisualRules.state(
+                accelerating, 58.0D).starTrailStrength();
+        assertClose(0.0D, RelativisticVisualRules.state(
+                accelerating, 0.0D).starTrailStrength(), "acceleration trail starts from zero");
+        assertTrue(accelerationTrailMiddle > 0.90D
+                        && accelerationTrailNearEnd > 0.0D
+                        && accelerationTrailNearEnd < accelerationTrailMiddle * 0.35D,
+                "three-second acceleration has an obvious speed-driven trail that retracts near its end");
+        double accelerationTrailEnd = RelativisticVisualRules.state(
+                accelerating, 60.0D).starTrailStrength();
+        double cruiseTrailStart = RelativisticVisualRules.state(
+                contractionCruise, 60.0D).starTrailStrength();
+        double cruiseTrailMiddle = RelativisticVisualRules.state(
+                contractionCruise, 70.0D).starTrailStrength();
+        assertTrue(accelerationTrailEnd > 0.0D
+                        && accelerationTrailEnd < accelerationTrailMiddle * 0.15D,
+                "acceleration keeps only a short residual trail at its three-second boundary");
+        assertClose(accelerationTrailEnd, cruiseTrailStart,
+                "acceleration trail hands the first cruise second one continuous residual length");
+        assertTrue(cruiseTrailMiddle > 0.0D && cruiseTrailMiddle < cruiseTrailStart,
+                "the added cruise second keeps smoothly retracting the acceleration trail");
+        assertClose(0.0D, RelativisticVisualRules.state(
+                contractionCruise, 80.0D).starTrailStrength(),
+                "acceleration trail finishes retracting exactly one second into cruise");
+        double cruiseTrailEndSlope = (RelativisticVisualRules.state(
+                contractionCruise, 80.0D).starTrailStrength() - RelativisticVisualRules.state(
+                contractionCruise, 79.999D).starTrailStrength()) / 0.001D;
+        assertNear(0.0D, cruiseTrailEndSlope, 1.0E-4D,
+                "extended acceleration trail reaches zero with a smooth end slope");
+        double previousAccelerationTrail = Math.abs(RelativisticVisualRules.state(
+                accelerating, 48.0D).starTrailStrength());
+        for (double time = 48.5D; time < 60.0D; time += 0.5D) {
+            double currentTrail = Math.abs(RelativisticVisualRules.state(
+                    accelerating, time).starTrailStrength());
+            assertTrue(currentTrail > 0.0D && currentTrail < previousAccelerationTrail,
+                    "acceleration trail continuously contracts toward its retained star point");
+            previousAccelerationTrail = currentTrail;
+        }
+        double previousCruiseTrail = cruiseTrailStart;
+        for (double time = 60.5D; time < 80.0D; time += 0.5D) {
+            double currentTrail = RelativisticVisualRules.state(
+                    contractionCruise, time).starTrailStrength();
+            assertTrue(currentTrail > 0.0D && currentTrail < previousCruiseTrail,
+                    "first cruise second monotonically retracts the acceleration trail");
+            previousCruiseTrail = currentTrail;
+        }
+        double decelerationTrailMiddle = RelativisticVisualRules.state(
+                decelerating, 250.0D).starTrailStrength();
+        double decelerationTrailNearEnd = RelativisticVisualRules.state(
+                decelerating, 278.0D).starTrailStrength();
+        assertClose(0.0D, RelativisticVisualRules.state(
+                decelerating, 220.0D).starTrailStrength(), "release trail fades in from zero");
+        assertTrue(decelerationTrailMiddle < -0.90D
+                        && decelerationTrailNearEnd < 0.0D
+                        && Math.abs(decelerationTrailNearEnd) < Math.abs(decelerationTrailMiddle) * 0.10D,
+                "three-second release reverses the obvious trail and retracts it near its end");
+        assertClose(0.0D, RelativisticVisualRules.state(
+                decelerating, 280.0D).starTrailStrength(),
+                "release trail reaches zero smoothly at the arrival boundary");
+        double decelerationTrailEndSlope = (RelativisticVisualRules.state(
+                decelerating, 280.0D).starTrailStrength() - RelativisticVisualRules.state(
+                decelerating, 279.999D).starTrailStrength()) / 0.001D;
+        assertNear(0.0D, decelerationTrailEndSlope, 1.0E-4D,
+                "release trail retracts with zero end slope instead of disappearing abruptly");
+        double previousDecelerationTrail = Math.abs(RelativisticVisualRules.state(
+                decelerating, 268.0D).starTrailStrength());
+        for (double time = 268.5D; time < 280.0D; time += 0.5D) {
+            double currentTrail = Math.abs(RelativisticVisualRules.state(
+                    decelerating, time).starTrailStrength());
+            assertTrue(currentTrail > 0.0D && currentTrail < previousDecelerationTrail,
+                    "release trail continuously contracts toward its retained star point");
+            previousDecelerationTrail = currentTrail;
+        }
         double contractionStart = RelativisticVisualRules.state(contractionCruise, 60.0D).aberrationBeta();
-        double contractionMiddle = RelativisticVisualRules.state(contractionCruise, 135.0D).aberrationBeta();
-        double contractionAtSevenPointFive = RelativisticVisualRules.state(
-                contractionCruise, 210.0D).aberrationBeta();
+        double contractionTwoSeconds = RelativisticVisualRules.state(contractionCruise, 100.0D).aberrationBeta();
+        double contractionFourSeconds = RelativisticVisualRules.state(contractionCruise, 140.0D).aberrationBeta();
+        double contractionSixSeconds = RelativisticVisualRules.state(contractionCruise, 180.0D).aberrationBeta();
+        double contractionEnd = RelativisticVisualRules.state(contractionCruise, 220.0D).aberrationBeta();
         assertClose(RelativisticVisualRules.ACCELERATION_END_ABERRATION_BETA, contractionStart,
                 "cruise starts from acceleration contraction without a jump");
-        assertTrue(contractionStart < contractionMiddle
-                        && contractionMiddle < contractionAtSevenPointFive,
-                "first 7.5 cruise seconds continue slowly contracting the star field");
-        assertClose(RelativisticVisualRules.VISUAL_ABERRATION_MAX_BETA, contractionAtSevenPointFive,
-                "cruise reaches its tightest finite contraction at 7.5 seconds");
-        assertClose(contractionAtSevenPointFive,
-                RelativisticVisualRules.state(contractionCruise, 220.0D).aberrationBeta(),
-                "last half cruise second holds the tight point-like star field");
-        assertClose(contractionAtSevenPointFive,
+        assertTrue(contractionStart < contractionTwoSeconds
+                        && contractionTwoSeconds < contractionFourSeconds
+                        && contractionFourSeconds < contractionSixSeconds
+                        && contractionSixSeconds < contractionEnd,
+                "all eight cruise seconds continue contracting the star field");
+        assertClose(RelativisticVisualRules.CRUISE_END_ABERRATION_BETA, contractionEnd,
+                "cruise reaches its tighter but finite dramatic endpoint");
+        assertClose(0.0D, RelativisticVisualRules.state(
+                contractionCruise, 180.0D).starTrailStrength(),
+                "the remaining seven cruise seconds stay completely free of star trails");
+        assertTrue(contractionEnd > 0.90D
+                        && contractionEnd < RelativisticVisualRules.VISUAL_ABERRATION_MAX_BETA,
+                "new cruise endpoint is tighter than the old curve with safety headroom remaining");
+        double firstTwoSecondGain = contractionTwoSeconds - contractionStart;
+        double secondTwoSecondGain = contractionFourSeconds - contractionTwoSeconds;
+        double thirdTwoSecondGain = contractionSixSeconds - contractionFourSeconds;
+        double fourthTwoSecondGain = contractionEnd - contractionSixSeconds;
+        assertTrue(firstTwoSecondGain > secondTwoSecondGain
+                        && secondTwoSecondGain > thirdTwoSecondGain * 0.99D,
+                "first four cruise seconds smoothly reduce contraction rate");
+        assertClose(thirdTwoSecondGain, fourthTwoSecondGain,
+                "last four cruise seconds retain a constant slow contraction rate");
+        double sampleStep = 0.0001D;
+        double accelerationJoinRate = (RelativisticVisualRules.state(accelerating, 60.0D).aberrationBeta()
+                - RelativisticVisualRules.state(accelerating, 60.0D - sampleStep).aberrationBeta()) / sampleStep;
+        double cruiseStartRate = (RelativisticVisualRules.state(contractionCruise, 60.0D + sampleStep)
+                .aberrationBeta() - contractionStart) / sampleStep;
+        assertNear(accelerationJoinRate, cruiseStartRate, 1.0E-6D,
+                "acceleration and cruise contraction rates join continuously");
+        double transitionLeftRate = (contractionFourSeconds
+                - RelativisticVisualRules.state(contractionCruise, 140.0D - sampleStep).aberrationBeta())
+                / sampleStep;
+        double transitionRightRate = (RelativisticVisualRules.state(
+                contractionCruise, 140.0D + sampleStep).aberrationBeta() - contractionFourSeconds) / sampleStep;
+        assertNear(transitionLeftRate, transitionRightRate, 1.0E-7D,
+                "four-second cruise rate transition has no visual kink");
+        assertClose(contractionEnd,
                 RelativisticVisualRules.state(decelerating, 220.0D).aberrationBeta(),
                 "deceleration begins from the exact cruise contraction state");
+        double cruiseEndRate = (contractionEnd - RelativisticVisualRules.state(
+                contractionCruise, 220.0D - sampleStep).aberrationBeta()) / sampleStep;
+        double decelerationStartRate = (RelativisticVisualRules.state(
+                decelerating, 220.0D + sampleStep).aberrationBeta() - contractionEnd) / sampleStep;
+        assertNear(cruiseEndRate, decelerationStartRate, 1.0E-6D,
+                "cruise and deceleration contraction rates join continuously");
         assertTrue(RelativisticVisualRules.state(decelerating, 240.0D).aberrationBeta()
-                        < contractionAtSevenPointFive,
+                        < contractionEnd,
                 "three-second deceleration rapidly releases contraction while still moving");
+        assertClose(0.0D, RelativisticVisualRules.state(decelerating, 280.0D).aberrationBeta(),
+                "three-second deceleration fully releases sky contraction");
+        double tightestContraction = 0.0D;
+        for (int sample = 0; sample <= 600; sample++) {
+            tightestContraction = Math.max(tightestContraction,
+                    RelativisticVisualRules.state(accelerating, sample * 0.1D).visualAberrationBeta());
+        }
+        for (int sample = 0; sample <= 1600; sample++) {
+            tightestContraction = Math.max(tightestContraction,
+                    RelativisticVisualRules.state(contractionCruise, 60.0D + sample * 0.1D)
+                            .visualAberrationBeta());
+        }
+        for (int sample = 0; sample <= 600; sample++) {
+            tightestContraction = Math.max(tightestContraction,
+                    RelativisticVisualRules.state(decelerating, 220.0D + sample * 0.1D)
+                            .visualAberrationBeta());
+        }
+        assertTrue(Double.isFinite(tightestContraction)
+                        && tightestContraction < RelativisticVisualRules.VISUAL_ABERRATION_MAX_BETA,
+                "complete jump contraction curve remains finite and below its point-collapse guard");
         CelestialState visualState = state();
         ObservationJourney jumpCruise = new ObservationJourney(EARTH, MARS, StationTravelMode.JUMP,
                 StationJourneyPhase.JUMP_CRUISING, 60L, 160L);
@@ -1211,6 +2428,10 @@ public final class SpaceVisualSelfTest {
                 context(MARS, Optional.of(jumpArrival)), visualState, 285.0D);
         OrbitVisualRules.Frame arrivalRevealEnd = OrbitVisualRules.frame(
                 context(MARS, Optional.of(jumpArrival)), visualState, 290.0D);
+        OrbitVisualRules.Frame predictedArrivalMiddle = OrbitVisualRules.frame(
+                context(EARTH, Optional.of(decelerating)), visualState, 285.0D);
+        OrbitVisualRules.Frame predictedArrivalEnd = OrbitVisualRules.frame(
+                context(EARTH, Optional.of(decelerating)), visualState, 290.0D);
         assertVector(decelerationEnd, arrivalStart.observerPosition(),
                 "deceleration ends at the moving half-second reveal path start");
         double derivativeStep = 1.0E-4D;
@@ -1233,6 +2454,14 @@ public final class SpaceVisualSelfTest {
                         && body(arrivalMiddle, MARS).cubeAlpha() > 0.0D
                         && body(arrivalRevealEnd, MARS).cubeAlpha() > body(arrivalMiddle, MARS).cubeAlpha(),
                 "target remains a star point at deceleration end then enlarges continuously for 0.5 seconds");
+        assertClose(body(arrivalMiddle, MARS).cubeAlpha(),
+                body(predictedArrivalMiddle, MARS).cubeAlpha(),
+                "a late ARRIVING packet cannot hold the target point through the reveal midpoint");
+        assertClose(body(arrivalRevealEnd, MARS).renderHalfSize(),
+                body(predictedArrivalEnd, MARS).renderHalfSize(),
+                "stale deceleration extrapolates the same continuous ten-tick target enlargement");
+        assertVector(arrivalMiddle.observerPosition(), predictedArrivalMiddle.observerPosition(),
+                "late phase delivery keeps ship and background on the authoritative reveal path");
         assertTrue(arrivalStart.targetLockStrength() == 1.0D
                         && arrivalRevealEnd.targetLockStrength() == 1.0D,
                 "target stays centered throughout the moving half-second enlargement");
@@ -1338,26 +2567,66 @@ public final class SpaceVisualSelfTest {
                 "ordinary orbital phasing finds a clear straight jump lock before acceleration");
         assertTrue(phasedLock.subtract(initiallyBlocked).length() > 0.1D,
                 "blocked jump visibly changes orbit before locking the target");
+        java.util.Random lineRandom = new java.util.Random(0x57494C4446495245L);
+        for (int sample = 0; sample < 2_000; sample++) {
+            CelestialVector observer = new CelestialVector(lineRandom.nextDouble(-30.0D, 30.0D),
+                    lineRandom.nextDouble(-30.0D, 30.0D), lineRandom.nextDouble(-30.0D, 30.0D));
+            CelestialVector targetPosition = new CelestialVector(lineRandom.nextDouble(-30.0D, 30.0D),
+                    lineRandom.nextDouble(-30.0D, 30.0D), lineRandom.nextDouble(-30.0D, 30.0D));
+            java.util.Map<ResourceLocation, OrbitVisualRules.BodyEphemeris> obstacles =
+                    new java.util.LinkedHashMap<>();
+            obstacles.put(blockedTarget, new OrbitVisualRules.BodyEphemeris(
+                    targetPosition, lineRandom.nextDouble(0.01D, 2.0D), OrbitVisualRules.SUN));
+            for (int index = 0; index < 20; index++) {
+                ResourceLocation obstacleId = ResourceLocation.fromNamespaceAndPath(
+                        "wildfires", "line_obstacle_" + index);
+                obstacles.put(obstacleId, new OrbitVisualRules.BodyEphemeris(new CelestialVector(
+                        lineRandom.nextDouble(-30.0D, 30.0D),
+                        lineRandom.nextDouble(-30.0D, 30.0D),
+                        lineRandom.nextDouble(-30.0D, 30.0D)),
+                        lineRandom.nextDouble(0.01D, 2.0D), OrbitVisualRules.SUN));
+            }
+            assertTrue(OrbitVisualRules.hasClearTargetLine(observer, blockedTarget,
+                            targetPosition, obstacles)
+                            == referenceHasClearTargetLine(observer, blockedTarget,
+                            targetPosition, obstacles),
+                    "allocation-free jump obstruction math is exactly decision-equivalent");
+        }
         try {
             String sky = Files.readString(Path.of(
                     "src/main/resources/assets/wildfires/shaders/core/relativistic_sky.vsh"));
             String renderer = Files.readString(Path.of(
                     "src/main/java/first/wildfires/client/space/render/NtmOrbitSkyRenderer.java"));
+            String shaderBindings = Files.readString(Path.of(
+                    "src/main/java/first/wildfires/client/space/render/RelativisticSkyShader.java"));
             String fragment = Files.readString(Path.of(
                     "src/main/resources/assets/wildfires/shaders/core/relativistic_sky.fsh"));
+            String shaderJson = Files.readString(Path.of(
+                    "src/main/resources/assets/wildfires/shaders/core/relativistic_sky.json"));
             assertTrue(sky.contains("gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0)")
                             && !sky.contains("shifted") && !sky.contains("Beta"),
                     "skybox geometry remains rigid instead of folding toward jump velocity");
-            assertTrue(fragment.contains("ntmAtlasUv") && fragment.contains("source = observed")
+            assertTrue(fragment.contains("ntmAtlasUv") && fragment.contains("inverseAberrationSource")
                             && fragment.contains("AberrationBeta") && fragment.contains("doppler")
                             && fragment.contains("gamma * (1.0 - beta * observedCosine)"),
                     "fragment shader slides stars across all atlas faces and preserves Doppler colour");
+            assertTrue(fragment.contains("clamp(AberrationBeta, 0.0, 0.94)")
+                            && fragment.contains("visualBeta / 0.94")
+                            && !fragment.contains("clamp(AberrationBeta, 0.0, 0.90)")
+                            && !fragment.contains("visualBeta / 0.90"),
+                    "GPU aberration limit matches the Java 0.94 guard throughout all eight cruise seconds");
             assertTrue(fragment.contains("vec2(1.0, 1.0)") && fragment.contains("vec2(2.0, 0.0)")
                             && fragment.contains("vec2(1.0, 0.0)") && fragment.contains("vec2(0.0, 0.0)")
                             && fragment.contains("vec2(2.0, 1.0)") && fragment.contains("vec2(0.0, 1.0)"),
                     "shader inverse mapping covers all six exact NTM atlas cells");
-            assertTrue(renderer.contains("RelativisticSkyShader") && renderer.contains("AberrationBeta")
-                            && renderer.contains("starVisibility(starVisibility, relativity)"),
+            assertTrue(renderer.contains("RelativisticSkyShader")
+                            && renderer.contains("aberrationBeta().set")
+                            && renderer.contains("starTrailStrength().set")
+                            && renderer.contains("starVisibility(starVisibility, relativity)")
+                            && !renderer.contains("safeGetUniform")
+                            && shaderBindings.contains("safeGetUniform(\"AberrationBeta\")")
+                            && shaderBindings.contains("safeGetUniform(\"StarTrailStrength\")")
+                            && shaderJson.contains("\"name\":\"StarTrailStrength\""),
                     "NTM star cubemap receives bounded sliding and boosted jump exposure");
             assertTrue(fragment.contains("pow(clamp(doppler, 0.0, 1.0), 1.65)")
                             && fragment.contains("forwardCone")
@@ -1365,6 +2634,28 @@ public final class SpaceVisualSelfTest {
                             && fragment.contains("observedCosine")
                             && !fragment.contains("1.0 + 0.82 * exposure"),
                     "shader gives a seamless radial forward brightness independent of cubemap faces");
+            assertTrue(fragment.contains("if (trailMagnitude > 0.0)")
+                            && !fragment.contains("if (trailMagnitude > 0.01)")
+                            && !fragment.contains("smoothstep(0.04")
+                            && !fragment.contains("nearTrail") && !fragment.contains("farTrail")
+                            && fragment.contains("const int STAR_TRAIL_SAMPLES = 12")
+                            && fragment.contains("trailIndex <= STAR_TRAIL_SAMPLES")
+                            && fragment.contains("float(trailIndex) / float(STAR_TRAIL_SAMPLES)")
+                            && fragment.contains("normalize(mix(source, tailSource, trailFraction))")
+                            && fragment.contains("1.0 - smoothstep(0.0, 1.0, trailFraction)")
+                            && fragment.contains("trailSample - sampled")
+                            && fragment.contains("trailResidual = max(trailResidual, residual)")
+                            && fragment.contains("0.165 * StarTrailStrength")
+                            && !fragment.contains("0.055 * StarTrailStrength")
+                            && fragment.contains("sampled.rgb += trailResidual.rgb * 0.68"),
+                    "fixed seamless integration keeps one continuous long band with a fading remote tail");
+            String orbitRenderer = Files.readString(Path.of(
+                    "src/main/java/first/wildfires/client/space/render/OrbitSkyRenderer.java"));
+            assertTrue(orbitRenderer.contains("prewarmJumpTarget(level, context)")
+                            && orbitRenderer.contains("OrbitBodyTextureManager.surface(journey.toBody()")
+                            && orbitRenderer.contains("journey.phase().isJumpPhase()")
+                            && orbitRenderer.contains("OrbitBodyTextureManager.clouds(journey.toBody()"),
+                    "jump target surface and clouds are cached before the half-second reveal");
         } catch (java.io.IOException exception) {
             throw new AssertionError("cannot inspect relativistic sky shader", exception);
         }
@@ -1401,8 +2692,21 @@ public final class SpaceVisualSelfTest {
                 new CelestialVector(4.0D, 20.0D, 0.0D), 0.40D, parentId));
         ephemeris.put(behind, new OrbitVisualRules.BodyEphemeris(
                 new CelestialVector(-4.0D, 0.0D, 0.0D), 0.40D, parentId));
+        java.util.Map<ResourceLocation, OrbitVisualRules.BodyEphemeris> immutableEphemeris =
+                java.util.Map.copyOf(ephemeris);
+        List<OrbitVisualRules.SatelliteShadow> expected = legacySatelliteShadows(
+                parentId, parent, immutableEphemeris, sun);
         List<OrbitVisualRules.SatelliteShadow> selected = OrbitVisualRules.satelliteShadows(
-                parentId, parent, java.util.Map.copyOf(ephemeris), sun);
+                parentId, parent, immutableEphemeris, sun);
+        assertSatelliteShadowsRaw(expected, selected, "optimized satellite-shadow candidates");
+        CelestialVector parentFromSun = parent.position().subtract(sun.position());
+        double parentSunDistance = parentFromSun.length();
+        CelestialVector incomingLight = parentFromSun.normalized();
+        double sunHalfTangent = sun.radius() / Math.max(1.0E-12D, parentSunDistance);
+        List<OrbitVisualRules.SatelliteShadow> prepared = OrbitVisualRules.satelliteShadows(
+                parentId, parent, immutableEphemeris, incomingLight, sunHalfTangent);
+        assertSatelliteShadowsRaw(expected, prepared,
+                "frame-prepared satellite-shadow candidates");
         assertEquals(OrbitVisualRules.MAX_SATELLITE_SHADOWS, selected.size(),
                 "fixed maximum satellite shadow budget");
         assertEquals(childA, selected.get(0).satellite(), "largest angular caster has priority");
@@ -1413,9 +2717,90 @@ public final class SpaceVisualSelfTest {
 
         String renderer = Files.readString(Path.of(
                 "src/main/java/first/wildfires/client/space/render/OrbitSkyRenderer.java"));
-        assertTrue(renderer.contains("ShadowCount") && renderer.contains("ShadowAxisX")
-                        && renderer.contains("MAX_SATELLITE_SHADOWS") == false,
-                "renderer uploads OBB axes and uses the already bounded caster list");
+        String ascentRenderer = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/render/NtmAscentPlanetRenderer.java"));
+        String bindings = Files.readString(Path.of(
+                "src/main/java/first/wildfires/thirdparty/genesisadapt/GenesisPlanetShader.java"));
+        assertTrue(renderer.contains("shadowCount()") && renderer.contains("axisX(index)")
+                        && !renderer.contains("safeGetUniform")
+                        && !renderer.contains("MAX_SATELLITE_SHADOWS")
+                        && bindings.contains("safeGetUniform(\"ShadowCount\")")
+                        && bindings.contains("uniforms(shader, \"ShadowAxisX\")"),
+                "renderer uploads cached OBB axes and uses the already bounded caster list");
+        assertTrue(ascentRenderer.contains("satelliteShadowFrame(bodyId, state)")
+                        && ascentRenderer.contains("OrbitSkyRenderer.configureSatelliteShadows")
+                        && !ascentRenderer.contains("clearSatelliteShadows")
+                        && !ascentRenderer.contains("shadowCount().set(0)"),
+                "bound-surface ascent reuses the same geometric satellite umbra/penumbra frame");
+    }
+
+    private static List<OrbitVisualRules.SatelliteShadow> legacySatelliteShadows(
+            ResourceLocation parentId, OrbitVisualRules.BodyEphemeris parent,
+            Map<ResourceLocation, OrbitVisualRules.BodyEphemeris> ephemeris,
+            OrbitVisualRules.BodyEphemeris sun) {
+        CelestialVector incomingLight = parent.position().subtract(sun.position()).normalized();
+        double sunHalfTangent = sun.radius() / Math.max(1.0E-12D,
+                parent.position().subtract(sun.position()).length());
+        List<java.util.Map.Entry<OrbitVisualRules.SatelliteShadow, Double>> candidates =
+                new ArrayList<>();
+        for (Map.Entry<ResourceLocation, OrbitVisualRules.BodyEphemeris> entry
+                : ephemeris.entrySet()) {
+            OrbitVisualRules.BodyEphemeris satellite = entry.getValue();
+            if (!parentId.equals(satellite.parent())) {
+                continue;
+            }
+            CelestialVector relative = satellite.position().subtract(parent.position());
+            double signedLightDistance = relative.dot(incomingLight);
+            double satelliteToParent = -signedLightDistance;
+            if (!(satelliteToParent > satellite.radius())
+                    || !Double.isFinite(satelliteToParent)) {
+                continue;
+            }
+            CelestialVector lateralVector = relative.subtract(
+                    incomingLight.scale(signedLightDistance));
+            double lateral = lateralVector.length();
+            double parentCorner = Math.sqrt(3.0D) * parent.radius();
+            double satelliteCorner = Math.sqrt(3.0D) * satellite.radius();
+            double squareStarSpread = Math.sqrt(2.0D) * sunHalfTangent * satelliteToParent;
+            if (lateral > parentCorner + satelliteCorner + squareStarSpread) {
+                continue;
+            }
+            double priority = satellite.radius() / satelliteToParent;
+            OrbitVisualRules.SatelliteShadow shadow = new OrbitVisualRules.SatelliteShadow(
+                    entry.getKey(), OrbitVisualRules.ntmFrameVector(relative),
+                    satellite.radius() / parent.radius());
+            candidates.add(new java.util.AbstractMap.SimpleImmutableEntry<>(shadow, priority));
+        }
+        candidates.sort(java.util.Comparator
+                .<java.util.Map.Entry<OrbitVisualRules.SatelliteShadow, Double>>comparingDouble(
+                        java.util.Map.Entry::getValue).reversed()
+                .thenComparing(candidate -> candidate.getKey().satellite().toString()));
+        int selectedCount = Math.min(OrbitVisualRules.MAX_SATELLITE_SHADOWS,
+                candidates.size());
+        List<OrbitVisualRules.SatelliteShadow> selected = new ArrayList<>(selectedCount);
+        for (int index = 0; index < selectedCount; index++) {
+            selected.add(candidates.get(index).getKey());
+        }
+        return List.copyOf(selected);
+    }
+
+    private static void assertSatelliteShadowsRaw(
+            List<OrbitVisualRules.SatelliteShadow> expected,
+            List<OrbitVisualRules.SatelliteShadow> actual, String name) {
+        assertEquals(expected.size(), actual.size(), name + " size");
+        for (int index = 0; index < expected.size(); index++) {
+            OrbitVisualRules.SatelliteShadow oldShadow = expected.get(index);
+            OrbitVisualRules.SatelliteShadow newShadow = actual.get(index);
+            assertEquals(oldShadow.satellite(), newShadow.satellite(), name + " id " + index);
+            assertRawDouble(oldShadow.relativePosition().x(), newShadow.relativePosition().x(),
+                    name + " x " + index);
+            assertRawDouble(oldShadow.relativePosition().y(), newShadow.relativePosition().y(),
+                    name + " y " + index);
+            assertRawDouble(oldShadow.relativePosition().z(), newShadow.relativePosition().z(),
+                    name + " z " + index);
+            assertRawDouble(oldShadow.halfSize(), newShadow.halfSize(),
+                    name + " half-size " + index);
+        }
     }
 
     private static void assertPlane(NtmOrbitSkyRenderer.NightFace face, char axis,
@@ -1554,8 +2939,8 @@ public final class SpaceVisualSelfTest {
                 0.0D, 1.0D, calendarTicks, 8,
                 settings.resolvedSynodicDays(8), settings.resolvedAnomalisticDays(8),
                 settings.nodalYears(), settings.lunarInclinationRadians()));
-        CelestialVector sunPosition = frame.sunGeocentric()
-                .scale(settings.planetSettings().earthSemiMajorMillionKm());
+        CelestialVector sunPosition = testSunEclipticPosition(frame,
+                settings.planetSettings().earthSemiMajorMillionKm());
         CelestialVector moonPosition = testEquatorialToEcliptic(frame.moonGeocentric())
                 .scale(CelestialMath.MOON_MEAN_DISTANCE_MILLION_KM * frame.moonDistance());
         CelestialBodyState sun = body(SUN, null, sunPosition, 0.69634D);
@@ -1572,6 +2957,12 @@ public final class SpaceVisualSelfTest {
         double sine = Math.sin(CelestialMath.AXIAL_TILT);
         return new CelestialVector(vector.x(), vector.y() * cosine + vector.z() * sine,
                 -vector.y() * sine + vector.z() * cosine);
+    }
+
+    private static CelestialVector testSunEclipticPosition(CelestialMath.Result frame,
+                                                            double distance) {
+        return new CelestialVector(Math.cos(frame.solarLongitude()) * distance,
+                Math.sin(frame.solarLongitude()) * distance, 0.0D);
     }
 
     private static CelestialState stateWithOrbitingJovianMoons(double calendarTicks) {
@@ -1653,6 +3044,65 @@ public final class SpaceVisualSelfTest {
         return new CelestialVector(viewed.x, viewed.y, viewed.z).normalized();
     }
 
+    private static void jumpArrivalPathAndSkyOrientationStayContinuous() {
+        CelestialState visualState = state();
+        ObservationJourney arrival = new ObservationJourney(EARTH, MARS, StationTravelMode.JUMP,
+                StationJourneyPhase.ARRIVING, 280L, 200L);
+        ObservationContext arrivingContext = context(MARS, Optional.of(arrival));
+        OrbitVisualRules.Frame previous = OrbitVisualRules.frame(arrivingContext, visualState, 280.0D);
+        Quaternionf previousOrientation = OrbitVisualRules.frameViewOrientation(previous);
+        CelestialVector previousViewedTarget = viewedDirection(previous, MARS);
+        double maximumPositionStep = 0.0D;
+        double maximumOrientationStep = 0.0D;
+        double maximumTargetStep = 0.0D;
+        double maximumPositionTime = 280.0D;
+        double maximumOrientationTime = 280.0D;
+        double maximumTargetTime = 280.0D;
+        for (int sample = 1; sample <= 4_000; sample++) {
+            double time = 280.0D + sample * 0.05D;
+            OrbitVisualRules.Frame current = OrbitVisualRules.frame(arrivingContext, visualState, time);
+            Quaternionf orientation = OrbitVisualRules.frameViewOrientation(current);
+            CelestialVector viewedTarget = viewedDirection(current, MARS);
+            double positionStep = current.observerPosition().subtract(previous.observerPosition()).length();
+            double orientationStep = 2.0D * Math.acos(Math.min(1.0D,
+                    Math.abs(previousOrientation.dot(orientation))));
+            double targetStep = Math.acos(Math.max(-1.0D, Math.min(1.0D,
+                    previousViewedTarget.dot(viewedTarget))));
+            if (positionStep > maximumPositionStep) {
+                maximumPositionStep = positionStep;
+                maximumPositionTime = time;
+            }
+            if (orientationStep > maximumOrientationStep) {
+                maximumOrientationStep = orientationStep;
+                maximumOrientationTime = time;
+            }
+            if (targetStep > maximumTargetStep) {
+                maximumTargetStep = targetStep;
+                maximumTargetTime = time;
+            }
+            previous = current;
+            previousOrientation = orientation;
+            previousViewedTarget = viewedTarget;
+        }
+        OrbitVisualRules.Frame ordinary = OrbitVisualRules.frame(
+                context(MARS, Optional.empty()), visualState, 480.0D);
+        assertVector(ordinary.observerPosition(), previous.observerPosition(),
+                "jump ARRIVING path ends at the live ordinary target orbit");
+        assertTrue(Math.abs(OrbitVisualRules.frameViewOrientation(ordinary)
+                        .dot(previousOrientation)) > 0.999999F,
+                "jump ARRIVING sky ends at the ordinary inertial attitude");
+        assertTrue(maximumPositionStep < 0.02D,
+                "jump ARRIVING observer path has no teleport; maximum 0.05-tick step="
+                        + maximumPositionStep + " at " + maximumPositionTime);
+        assertTrue(maximumOrientationStep < Math.toRadians(1.0D),
+                "jump ARRIVING sky has no large adjacent rotation; maximum 0.05-tick step="
+                        + Math.toDegrees(maximumOrientationStep) + " degrees at "
+                        + maximumOrientationTime);
+        assertTrue(maximumTargetStep < Math.toRadians(1.0D),
+                "jump ARRIVING target screen motion is continuous; maximum 0.05-tick step="
+                        + Math.toDegrees(maximumTargetStep) + " degrees at " + maximumTargetTime);
+    }
+
     private static java.util.Map<ResourceLocation, OrbitVisualRules.BodyEphemeris> testEphemeris(
             CelestialState state) {
         java.util.Map<ResourceLocation, OrbitVisualRules.BodyEphemeris> ephemeris = new java.util.LinkedHashMap<>();
@@ -1667,6 +3117,29 @@ public final class SpaceVisualSelfTest {
                     Math.tan(body.angularRadiusRadians()) * body.distance(), body.parentId()));
         }
         return java.util.Map.copyOf(ephemeris);
+    }
+
+    private static boolean referenceHasClearTargetLine(CelestialVector observer,
+                                                        ResourceLocation targetId,
+                                                        CelestialVector targetPosition,
+                                                        java.util.Map<ResourceLocation,
+                                                                OrbitVisualRules.BodyEphemeris> ephemeris) {
+        CelestialVector segment = targetPosition.subtract(observer);
+        double segmentLengthSquared = segment.dot(segment);
+        if (!(segmentLengthSquared > 1.0E-18D)) return false;
+        for (java.util.Map.Entry<ResourceLocation, OrbitVisualRules.BodyEphemeris> entry
+                : ephemeris.entrySet()) {
+            if (entry.getKey().equals(targetId)) continue;
+            OrbitVisualRules.BodyEphemeris obstacle = entry.getValue();
+            double along = Math.max(0.0D, Math.min(1.0D,
+                    obstacle.position().subtract(observer).dot(segment) / segmentLengthSquared));
+            CelestialVector closest = observer.add(segment.scale(along));
+            double conservativeCubeRadius = obstacle.radius() * Math.sqrt(3.0D) * 1.05D;
+            if (closest.subtract(obstacle.position()).length() <= conservativeCubeRadius) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static GenesisCubeAtlasLayout.Direction edge(GenesisCubeAtlasLayout.Face face,
@@ -1750,6 +3223,30 @@ public final class SpaceVisualSelfTest {
         if (!Double.isFinite(expected) || !Double.isFinite(actual)
                 || Math.abs(expected - actual) > 1.0E-9D) {
             throw new AssertionError(name + ": expected " + expected + " but was " + actual);
+        }
+    }
+
+    private static void assertRawDouble(double expected, double actual, String name) {
+        if (Double.doubleToRawLongBits(expected) != Double.doubleToRawLongBits(actual)) {
+            throw new AssertionError(name + ": expected raw 0x"
+                    + Long.toHexString(Double.doubleToRawLongBits(expected)) + " but was 0x"
+                    + Long.toHexString(Double.doubleToRawLongBits(actual)));
+        }
+    }
+
+    private static void assertRawFloat(float expected, float actual, String name) {
+        if (Float.floatToRawIntBits(expected) != Float.floatToRawIntBits(actual)) {
+            throw new AssertionError(name + ": expected raw 0x"
+                    + Integer.toHexString(Float.floatToRawIntBits(expected)) + " but was 0x"
+                    + Integer.toHexString(Float.floatToRawIntBits(actual)));
+        }
+    }
+
+    private static void assertNear(double expected, double actual, double tolerance, String name) {
+        if (!Double.isFinite(expected) || !Double.isFinite(actual)
+                || Math.abs(expected - actual) > tolerance) {
+            throw new AssertionError(name + ": expected " + expected + " +/- " + tolerance
+                    + " but was " + actual);
         }
     }
 

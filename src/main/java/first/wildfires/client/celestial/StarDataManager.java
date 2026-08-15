@@ -51,9 +51,11 @@ public final class StarDataManager extends SimpleJsonResourceReloadListener impl
 
     public VertexBuffer customBuffer() {
         RenderSystem.assertOnRenderThread();
-        ConfigSignature signature = ConfigSignature.current();
-        if (dirty || !Objects.equals(signature, builtFor)) {
-            rebuild(signature);
+        double maxMagnitude = CelestialConfig.maxMagnitude();
+        boolean colors = CelestialConfig.starColors();
+        double size = CelestialConfig.starSize();
+        if (dirty || builtFor == null || !builtFor.matches(maxMagnitude, colors, size)) {
+            rebuild(new ConfigSignature(maxMagnitude, colors, size));
         }
         return customBuffer;
     }
@@ -67,12 +69,14 @@ public final class StarDataManager extends SimpleJsonResourceReloadListener impl
         close();
         BufferBuilder builder = Tesselator.getInstance().getBuilder();
         builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
-        double catalogMin = loadedStars.stream().mapToDouble(StarTableLoader.Star::magnitude).min().orElse(0.0D);
-        double catalogMax = loadedStars.stream().mapToDouble(StarTableLoader.Star::magnitude).max().orElse(0.0D);
-        List<StarTableLoader.Star> visible = loadedStars.stream()
-                .filter(star -> star.magnitude() <= signature.maxMagnitude()).toList();
+        MagnitudeRange range = magnitudeRange(loadedStars);
+        double catalogMin = range.minimum();
+        double catalogMax = range.maximum();
         RandomSource random = RandomSource.create(10842L);
-        for (StarTableLoader.Star star : visible) {
+        for (StarTableLoader.Star star : loadedStars) {
+            if (!visibleMagnitude(star.magnitude(), signature.maxMagnitude())) {
+                continue;
+            }
             CelestialVisualRules.StarAppearance appearance = CelestialVisualRules.starAppearance(
                     star.magnitude(), catalogMin, catalogMax, signature.size());
             double size = appearance.radius();
@@ -94,8 +98,9 @@ public final class StarDataManager extends SimpleJsonResourceReloadListener impl
 
     private static void appendStar(BufferBuilder builder, RandomSource random, double ascension,
                                    double declination, double size, int red, int green, int blue, int alpha) {
-        double x = Math.cos(declination) * Math.cos(ascension);
-        double y = Math.cos(declination) * Math.sin(ascension);
+        double cosineDeclination = Math.cos(declination);
+        double x = cosineDeclination * Math.cos(ascension);
+        double y = cosineDeclination * Math.sin(ascension);
         double z = Math.sin(declination);
         double centerX = x * 100.0D;
         double centerY = y * 100.0D;
@@ -123,6 +128,26 @@ public final class StarDataManager extends SimpleJsonResourceReloadListener impl
         }
     }
 
+    /** Finite catalog reduction in the same encounter order used by DoubleStream min/max. */
+    static MagnitudeRange magnitudeRange(List<StarTableLoader.Star> stars) {
+        Objects.requireNonNull(stars, "stars");
+        if (stars.isEmpty()) {
+            return MagnitudeRange.ZERO;
+        }
+        double minimum = stars.get(0).magnitude();
+        double maximum = minimum;
+        for (int index = 1; index < stars.size(); index++) {
+            double magnitude = stars.get(index).magnitude();
+            minimum = Math.min(minimum, magnitude);
+            maximum = Math.max(maximum, magnitude);
+        }
+        return new MagnitudeRange(minimum, maximum);
+    }
+
+    static boolean visibleMagnitude(double magnitude, double maximumMagnitude) {
+        return magnitude <= maximumMagnitude;
+    }
+
     @Override
     public void close() {
         if (customBuffer != null) {
@@ -137,10 +162,15 @@ public final class StarDataManager extends SimpleJsonResourceReloadListener impl
         return Math.max(min, Math.min(max, value));
     }
 
-    private record ConfigSignature(double maxMagnitude, boolean colors, double size) {
-        private static ConfigSignature current() {
-            return new ConfigSignature(CelestialConfig.maxMagnitude(), CelestialConfig.starColors(),
-                    CelestialConfig.starSize());
+    record ConfigSignature(double maxMagnitude, boolean colors, double size) {
+        boolean matches(double currentMaxMagnitude, boolean currentColors, double currentSize) {
+            return Double.compare(maxMagnitude, currentMaxMagnitude) == 0
+                    && colors == currentColors
+                    && Double.compare(size, currentSize) == 0;
         }
+    }
+
+    record MagnitudeRange(double minimum, double maximum) {
+        private static final MagnitudeRange ZERO = new MagnitudeRange(0.0D, 0.0D);
     }
 }

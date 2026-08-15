@@ -7,7 +7,11 @@ uniform vec4 ColorModulator;
 uniform vec3 Velocity;
 uniform float Beta;
 uniform float AberrationBeta;
+uniform float StarTrailStrength;
 out vec4 fragColor;
+
+// Constant-bounded integration: the compiler can unroll this and ordinary cruise frames skip it.
+const int STAR_TRAIL_SAMPLES = 12;
 
 vec2 ntmAtlasUv(vec3 direction) {
     vec3 ray = normalize(direction);
@@ -92,25 +96,53 @@ vec4 sampleNtmAtlasSeamless(vec3 direction) {
     return sampled;
 }
 
+vec3 inverseAberrationSource(vec3 observed, vec3 velocity, float beta) {
+    float gamma = inversesqrt(max(1.0e-6, 1.0 - beta * beta));
+    float observedCosine = dot(observed, velocity);
+    return normalize(observed + velocity * ((gamma - 1.0) * observedCosine - gamma * beta));
+}
+
 void main() {
     vec3 observed = normalize(observedDirection);
     vec3 velocity = normalize(Velocity);
-    float visualBeta = clamp(AberrationBeta, 0.0, 0.90);
-    float visualGamma = inversesqrt(max(1.0e-6, 1.0 - visualBeta * visualBeta));
+    float visualBeta = clamp(AberrationBeta, 0.0, 0.94);
     float observedCosine = dot(observed, velocity);
 
     // Inverse source-direction aberration: find which stationary atlas ray arrives at the current
     // rigid sky direction.  Only texture lookup moves; gl_Position never does.
-    vec3 source = observed + velocity * ((visualGamma - 1.0) * observedCosine
-                                         - visualGamma * visualBeta);
-    source = normalize(source);
+    vec3 source = inverseAberrationSource(observed, velocity, visualBeta);
 
     float beta = clamp(Beta, 0.0, 0.999999);
     float gamma = inversesqrt(max(1.0e-12, 1.0 - beta * beta));
     // Colour/exposure is radial around the observed forward centre.  The cubemap source ray only
     // selects the sliding star texture and cannot introduce a face-dependent brightness boundary.
     float doppler = 1.0 / max(1.0e-6, gamma * (1.0 - beta * observedCosine));
-    vec4 sampled = sampleNtmAtlasSeamless(source) * ColorModulator;
+    vec4 sampled = sampleNtmAtlasSeamless(source);
+    float trailMagnitude = abs(StarTrailStrength);
+    // The uniform branch is zero throughout cruise/arrival, so their ordinary frames pay no extra
+    // atlas samples. A fixed seamless integration makes one stable band without a history buffer,
+    // dynamic sample count, or cubemap-face discontinuity.
+    if (trailMagnitude > 0.0) {
+        // Calculate the two ends once, then cover the complete spherical lookup arc uniformly.
+        // Length changes only lookup position: sample count and point-return contract stay fixed.
+        float trailExtent = 0.165 * StarTrailStrength;
+        float tailBeta = clamp(visualBeta - trailExtent, 0.0, 0.94);
+        vec3 tailSource = inverseAberrationSource(observed, velocity, tailBeta);
+        vec4 trailResidual = vec4(0.0);
+        for (int trailIndex = 1; trailIndex <= STAR_TRAIL_SAMPLES; ++trailIndex) {
+            float trailFraction = float(trailIndex) / float(STAR_TRAIL_SAMPLES);
+            vec3 trailSource = normalize(mix(source, tailSource, trailFraction));
+            vec4 trailSample = sampleNtmAtlasSeamless(trailSource);
+            // Smoothly reaches zero at the remote end, so it reads as a fading band rather than
+            // a second star. Per-channel maximum prevents overlapping taps from making hot beads.
+            float tailFade = 1.0 - smoothstep(0.0, 1.0, trailFraction);
+            vec4 residual = max(trailSample - sampled, vec4(0.0)) * tailFade;
+            trailResidual = max(trailResidual, residual);
+        }
+        sampled.rgb += trailResidual.rgb * 0.68;
+        sampled.a = max(sampled.a, trailResidual.a * 0.78);
+    }
+    sampled *= ColorModulator;
 
     // Strong but bounded SDR proxy. Doppler remains the attachment-equivalent physical k.
     // Rear shoulders remain visible, but the exact rear has no artificial brightness floor.
@@ -123,7 +155,7 @@ void main() {
         : pow(clamp(doppler, 0.0, 1.0), 1.65);
     float forwardCone = smoothstep(0.30, 1.0, observedCosine);
     brightness *= 1.0 + 1.8 * forwardCone * forwardCone
-        * clamp(visualBeta / 0.90, 0.0, 1.0);
+        * clamp(visualBeta / 0.94, 0.0, 1.0);
     vec3 tint = mix(vec3(1.0), vec3(0.30, 0.65, 1.80), blue);
     tint = mix(tint, vec3(1.80, 0.42, 0.18), red);
     fragColor = vec4(sampled.rgb * tint * brightness, sampled.a);

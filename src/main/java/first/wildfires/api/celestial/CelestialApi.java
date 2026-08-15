@@ -29,11 +29,15 @@ public final class CelestialApi {
     }
 
     public static Optional<DaylightState> daylight(Level level, BlockPos observer) {
-        return state(level, observer.getCenter(), 0.0F).map(CelestialState::daylight);
+        CelestialProvider provider = PROVIDERS.get(level.dimension());
+        return provider == null ? Optional.empty()
+                : provider.daylightOptional(level, observer, 0.0F);
     }
 
     /** Current local Sun/Moon event state with horizon and day/night eligibility already applied. */
     public static Optional<CelestialEventState> events(Level level, BlockPos observer) {
-        return state(level, observer.getCenter(), 0.0F).map(CelestialEventState::from);
+        CelestialProvider provider = PROVIDERS.get(level.dimension());
+        return provider == null ? Optional.empty()
+                : provider.eventsOptional(level, observer, 0.0F);
     }
 }

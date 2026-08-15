@@ -19,6 +19,8 @@ public final class CelestialOrbitalPhases {
     public static final CelestialOrbitalPhases ZERO = new CelestialOrbitalPhases(zeroPhases());
 
     private final Map<ResourceLocation, Double> turnsByBody;
+    private final double earthTurns;
+    private final double[] bodyTurns;
 
     public CelestialOrbitalPhases(Map<ResourceLocation, Double> turnsByBody) {
         Objects.requireNonNull(turnsByBody, "turnsByBody");
@@ -34,6 +36,11 @@ public final class CelestialOrbitalPhases {
             validated.put(id, positiveModulo(value));
         }
         this.turnsByBody = Collections.unmodifiableMap(validated);
+        this.earthTurns = validated.get(EARTH);
+        this.bodyTurns = new double[CelestialBodies.values().length];
+        for (CelestialBodies body : CelestialBodies.values()) {
+            bodyTurns[body.ordinal()] = validated.get(body.id());
+        }
     }
 
     public double turns(ResourceLocation body) {
@@ -46,6 +53,14 @@ public final class CelestialOrbitalPhases {
 
     public Map<ResourceLocation, Double> asMap() {
         return turnsByBody;
+    }
+
+    double earthTurns() {
+        return earthTurns;
+    }
+
+    double turns(CelestialBodies body) {
+        return bodyTurns[Objects.requireNonNull(body, "body").ordinal()];
     }
 
     public static List<ResourceLocation> orderedIds() {

@@ -12,6 +12,8 @@ public final class CelestialMath {
     public static final int MONTHS_IN_YEAR = 12;
     public static final double DEG_TO_RAD = Math.PI / 180.0D;
     public static final double AXIAL_TILT = 23.44D * DEG_TO_RAD;
+    public static final double AXIAL_TILT_SIN = Math.sin(AXIAL_TILT);
+    public static final double AXIAL_TILT_COS = Math.cos(AXIAL_TILT);
     public static final double LUNAR_INCLINATION = 5.14D * DEG_TO_RAD;
     public static final double SYNODIC_DAYS = 16.13D;
     public static final double ANOMALISTIC_DAYS = SYNODIC_DAYS * 27.55455D / 29.530588D;
@@ -20,6 +22,12 @@ public final class CelestialMath {
     public static final double MOON_ANGULAR_RADIUS = 0.2725D * DEG_TO_RAD;
     public static final double MOON_MEAN_DISTANCE_MILLION_KM = 0.3844D;
     public static final double SUPERMOON_FULL_MOON_HALF_WINDOW_DAYS = 0.5D;
+    private static final CelestialVector EQUATORIAL_NORTH_ECLIPTIC =
+            new CelestialVector(0.0D, AXIAL_TILT_SIN, AXIAL_TILT_COS);
+    private static final CelestialVector EQUATORIAL_NORTH =
+            new CelestialVector(0.0D, 0.0D, 1.0D);
+    private static final ThreadLocal<SupermoonCache> SUPERMOON_CACHE =
+            ThreadLocal.withInitial(SupermoonCache::new);
 
     private CelestialMath() {
     }
@@ -36,72 +44,664 @@ public final class CelestialMath {
     }
 
     public static Result calculate(Input input) {
-        double daysInYear = daysInYear(input.daysInMonth);
-        double calendarDays = calendarDays(input.calendarTicks);
-        double fractionOfDay = positiveModulo(input.calendarTicks, TICKS_IN_DAY) / TICKS_IN_DAY;
+        return calculate(input.z, input.hemisphereScale, input.calendarTicks, input.daysInMonth,
+                input.synodicDays, input.anomalisticDays, input.nodalYears,
+                input.lunarInclination, input.sunScale, input.moonScale);
+    }
+
+    /** Allocation-free package path for callers that already hold the validated scalar inputs. */
+    static Result calculate(double z, double hemisphereScale, double calendarTicks,
+                            int daysInMonth, double synodicDays, double anomalisticDays,
+                            double nodalYears, double lunarInclination,
+                            double sunScale, double moonScale) {
+        return calculate(z, hemisphereScale, calendarTicks, daysInMonth, synodicDays,
+                anomalisticDays, nodalYears, lunarInclination, sunScale, moonScale,
+                Math.sin(lunarInclination));
+    }
+
+    /** Prepared path for repeated frames that share the same lunar-inclination setting. */
+    static Result calculate(double z, double hemisphereScale, double calendarTicks,
+                            int daysInMonth, double synodicDays, double anomalisticDays,
+                            double nodalYears, double lunarInclination,
+                            double sunScale, double moonScale,
+                            double sineLunarInclination) {
+        return calculate(z, hemisphereScale, calendarTicks, daysInMonth, synodicDays,
+                anomalisticDays, nodalYears, lunarInclination, sunScale, moonScale,
+                sineLunarInclination, null);
+    }
+
+    /**
+     * Prepared full-frame path that also publishes the exact horizon products already evaluated
+     * by this calculation.  The mutable sink is package-private and thread-confined by its caller;
+     * it does not become part of the public immutable {@link Result} contract.
+     */
+    static Result calculate(double z, double hemisphereScale, double calendarTicks,
+                            int daysInMonth, double synodicDays, double anomalisticDays,
+                            double nodalYears, double lunarInclination,
+                            double sunScale, double moonScale,
+                            double sineLunarInclination, HorizonProducts horizonProducts) {
+        double daysInYear = daysInYear(daysInMonth);
+        double calendarDays = calendarDays(calendarTicks);
+        double fractionOfDay = positiveModulo(calendarTicks, TICKS_IN_DAY) / TICKS_IN_DAY;
         double fractionOfYear = positiveModulo(calendarDays, daysInYear) / daysInYear;
-        double latitude = latitude(input.z, input.hemisphereScale);
+        double latitude = latitude(z, hemisphereScale);
 
         double solarLongitude = TAU * positiveModulo(284.0D / 365.0D + fractionOfYear, 1.0D);
-        CelestialVector rawSun = eclipticToEquatorial(solarLongitude, 0.0D, AXIAL_TILT);
+        CelestialVector rawSun = eclipticToEquatorialFixedTilt(solarLongitude, 0.0D);
         double declination = AXIAL_TILT * Math.sin(solarLongitude);
         double sunRightAscension = Math.atan2(rawSun.y(), rawSun.x());
-        CelestialVector sunEquatorial = fromRightAscension(sunRightAscension, declination);
+        double sineDeclination = Math.sin(declination);
+        double cosineDeclination = Math.cos(declination);
+        CelestialVector sunEquatorial = fromRightAscension(sunRightAscension,
+                sineDeclination, cosineDeclination);
         double localSiderealAngle = sunRightAscension + TAU * (fractionOfDay - 0.5D);
-        CelestialVector sunDirection = equatorialToHorizon(sunEquatorial, latitude, localSiderealAngle);
+        double cosineSidereal = Math.cos(localSiderealAngle);
+        double sineSidereal = Math.sin(localSiderealAngle);
+        double sineLatitude = Math.sin(latitude);
+        double cosineLatitude = Math.cos(latitude);
+        if (horizonProducts != null) {
+            horizonProducts.set(sineLatitude, cosineLatitude, sineSidereal, cosineSidereal);
+        }
+        CelestialVector sunDirection = equatorialToHorizon(sunEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
 
-        double synodicProgress = positiveModulo(calendarDays / input.synodicDays, 1.0D);
+        double synodicProgress = positiveModulo(calendarDays / synodicDays, 1.0D);
         double elongation = Math.PI + TAU * synodicProgress;
         double moonLongitude = solarLongitude + elongation;
-        double ascendingNode = lunarAscendingNode(calendarDays, daysInYear, input.nodalYears);
-        double moonLatitude = Math.asin(Math.sin(input.lunarInclination)
+        double ascendingNode = lunarAscendingNode(calendarDays, daysInYear, nodalYears);
+        double moonLatitude = Math.asin(sineLunarInclination
                 * Math.sin(moonLongitude - ascendingNode));
-        CelestialVector moonEquatorial = eclipticToEquatorial(moonLongitude, moonLatitude, AXIAL_TILT);
-        CelestialVector rawMoonDirection = equatorialToHorizon(moonEquatorial, latitude, localSiderealAngle);
+        CelestialVector moonEquatorial = eclipticToEquatorialFixedTilt(moonLongitude, moonLatitude);
+        CelestialVector rawMoonDirection = equatorialToHorizon(moonEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
 
-        double anomalisticProgress = positiveModulo(calendarDays / input.anomalisticDays, 1.0D);
+        double anomalisticProgress = positiveModulo(calendarDays / anomalisticDays, 1.0D);
         double moonDistance = 1.0D - 0.07D * Math.cos(TAU * anomalisticProgress);
         double moonRadius = MOON_ANGULAR_RADIUS / moonDistance;
         double sunMoonSeparation = angle(sunDirection, rawMoonDirection);
-        CelestialVector celestialNorth = equatorialToHorizon(new CelestialVector(0.0D, 0.0D, 1.0D),
-                latitude, localSiderealAngle);
+        CelestialVector celestialNorth = equatorialToHorizon(EQUATORIAL_NORTH, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
         double physicalSolarEclipse = circleCoverage(SUN_ANGULAR_RADIUS, moonRadius, sunMoonSeparation);
         double sunPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(
-                CelestialDiscGeometry.sunBodyHalfSize(input.sunScale));
-        double moonBodyHalfSize = CelestialDiscGeometry.moonBodyHalfSize(input.moonScale, moonDistance);
+                CelestialDiscGeometry.sunBodyHalfSize(sunScale));
+        double moonBodyHalfSize = CelestialDiscGeometry.moonBodyHalfSize(moonScale, moonDistance);
         double moonPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(moonBodyHalfSize,
                 CelestialDiscGeometry.PIXEL_COVER_RADIUS);
-        SolarEclipseRegion.Event solarEvent = SolarEclipseRegion.eventFor(calendarDays, daysInYear,
-                input.synodicDays, input.nodalYears, input.lunarInclination);
+        SolarEclipseRegion.Event solarEvent = SolarEclipseRegion.eventForPrepared(
+                calendarDays, daysInYear,
+                synodicDays, nodalYears, lunarInclination, sineLunarInclination);
         SolarEclipseRegion.Projection solarProjection = SolarEclipseRegion.project(solarEvent,
                 calendarDays, latitude, sunDirection, rawMoonDirection, celestialNorth,
-                sunPixelHalfTangent, moonPixelHalfTangent, input.synodicDays);
+                sunPixelHalfTangent, moonPixelHalfTangent, synodicDays);
         CelestialVector moonDirection = solarProjection.moonDirection();
         double solarEclipse = solarProjection.coverage();
         double lunarPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(moonBodyHalfSize);
-        LunarEclipseRegion.Event lunarEvent = LunarEclipseRegion.eventFor(calendarDays, daysInYear,
-                input.synodicDays, input.nodalYears, input.lunarInclination);
-        LunarEclipseRegion.Projection lunarProjection = LunarEclipseRegion.project(lunarEvent,
+        LunarEclipseRegion.Event lunarEvent = LunarEclipseRegion.eventForPrepared(
+                calendarDays, daysInYear,
+                synodicDays, nodalYears, lunarInclination, sineLunarInclination);
+        LunarEclipseState lunarState = LunarEclipseRegion.projectState(lunarEvent,
                 rawMoonDirection, sunDirection, celestialNorth,
                 lunarPixelHalfTangent, lunarPixelHalfTangent);
-        double lunarEclipse = lunarProjection.umbraCoverage();
+        double lunarEclipse = lunarState.umbraCoverage();
         // Phase illumination remains a property of the physical three-dimensional orbit.
         // The regional apparent direction may move a non-eclipse conjunction clear of the
         // enlarged pixel Sun, but it must not erase the 16.13-day new/full Moon cycle.
         double illuminated = clamp((1.0D - sunDirection.dot(rawMoonDirection)) * 0.5D, 0.0D, 1.0D);
         int moonPhase = moonPhaseFromGeometry(synodicProgress, sunMoonSeparation);
-        double supermoon = supermoonAtFullMoon(calendarDays, input.synodicDays,
-                input.anomalisticDays);
+        double supermoon = supermoonAtFullMoon(calendarDays, synodicDays, anomalisticDays);
         double solarElevation = Math.asin(clamp(sunDirection.y(), -1.0D, 1.0D));
         double moonElevation = Math.asin(clamp(moonDirection.y(), -1.0D, 1.0D));
         double daylight = smoothstep(-6.0D * DEG_TO_RAD, 0.0D, solarElevation);
-        double apparentDayTime = sunBasedDayTime(input, fractionOfYear, fractionOfDay) / 24000.0D;
+        double apparentDayTime = sunBasedDayTimeFromProducts(
+                sineLatitude * sineDeclination,
+                cosineLatitude * cosineDeclination, fractionOfDay) / 24000.0D;
         return new Result(latitude, fractionOfDay, fractionOfYear, sunEquatorial, moonEquatorial,
                 sunDirection, moonDirection, celestialNorth, moonDistance, moonRadius, sunMoonSeparation,
                 illuminated, moonPhase, solarEclipse, physicalSolarEclipse, lunarEclipse,
-                lunarProjection.state(), supermoon, lunarEclipse,
+                lunarState, supermoon, lunarEclipse,
                 solarProjection.state(), solarElevation, moonElevation, apparentDayTime, daylight,
                 solarLongitude, localSiderealAngle);
+    }
+
+    /** Exact moon-distance subset used when prediction geometry needs no other frame fields. */
+    static double moonDistanceAtCalendarTicks(double calendarTicks, double anomalisticDays) {
+        double calendarDays = calendarDays(calendarTicks);
+        double anomalisticProgress = positiveModulo(calendarDays / anomalisticDays, 1.0D);
+        return 1.0D - 0.07D * Math.cos(TAU * anomalisticProgress);
+    }
+
+    /**
+     * Exact solar-only subset consumed by the public daylight query. Every retained operation is in
+     * the same order as {@link #calculate}; lunar geometry, eclipse projections and body assembly
+     * are omitted because {@code DaylightState} cannot observe them.
+     */
+    static DaylightSample daylightSampleAt(double z, double hemisphereScale,
+                                            double calendarTicks, int daysInMonth) {
+        double daysInYear = daysInYear(daysInMonth);
+        double calendarDays = calendarDays(calendarTicks);
+        double fractionOfDay = positiveModulo(calendarTicks, TICKS_IN_DAY) / TICKS_IN_DAY;
+        double fractionOfYear = positiveModulo(calendarDays, daysInYear) / daysInYear;
+        double latitude = latitude(z, hemisphereScale);
+
+        double solarLongitude = TAU * positiveModulo(284.0D / 365.0D + fractionOfYear, 1.0D);
+        CelestialVector rawSun = eclipticToEquatorialFixedTilt(solarLongitude, 0.0D);
+        double declination = AXIAL_TILT * Math.sin(solarLongitude);
+        double sunRightAscension = Math.atan2(rawSun.y(), rawSun.x());
+        double sineDeclination = Math.sin(declination);
+        double cosineDeclination = Math.cos(declination);
+        CelestialVector sunEquatorial = fromRightAscension(sunRightAscension,
+                sineDeclination, cosineDeclination);
+        double localSiderealAngle = sunRightAscension + TAU * (fractionOfDay - 0.5D);
+        double cosineSidereal = Math.cos(localSiderealAngle);
+        double sineSidereal = Math.sin(localSiderealAngle);
+        double sineLatitude = Math.sin(latitude);
+        double cosineLatitude = Math.cos(latitude);
+        CelestialVector sunDirection = equatorialToHorizon(sunEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+
+        double solarElevation = Math.asin(clamp(sunDirection.y(), -1.0D, 1.0D));
+        double daylight = smoothstep(-6.0D * DEG_TO_RAD, 0.0D, solarElevation);
+        double apparentDayTime = sunBasedDayTimeFromProducts(
+                sineLatitude * sineDeclination,
+                cosineLatitude * cosineDeclination, fractionOfDay) / 24000.0D;
+        return new DaylightSample(solarElevation, apparentDayTime, daylight);
+    }
+
+    /** Exact solar-only subset for repeated event scans at one prepared TFE latitude. */
+    static DaylightSample daylightSampleAt(ObserverLatitudeContext observerLatitude,
+                                            double calendarTicks, int daysInMonth) {
+        double daysInYear = daysInYear(daysInMonth);
+        double calendarDays = calendarDays(calendarTicks);
+        double fractionOfDay = positiveModulo(calendarTicks, TICKS_IN_DAY) / TICKS_IN_DAY;
+        double fractionOfYear = positiveModulo(calendarDays, daysInYear) / daysInYear;
+
+        double solarLongitude = TAU * positiveModulo(284.0D / 365.0D + fractionOfYear, 1.0D);
+        CelestialVector rawSun = eclipticToEquatorialFixedTilt(solarLongitude, 0.0D);
+        double declination = AXIAL_TILT * Math.sin(solarLongitude);
+        double sunRightAscension = Math.atan2(rawSun.y(), rawSun.x());
+        double sineDeclination = Math.sin(declination);
+        double cosineDeclination = Math.cos(declination);
+        CelestialVector sunEquatorial = fromRightAscension(sunRightAscension,
+                sineDeclination, cosineDeclination);
+        double localSiderealAngle = sunRightAscension + TAU * (fractionOfDay - 0.5D);
+        double cosineSidereal = Math.cos(localSiderealAngle);
+        double sineSidereal = Math.sin(localSiderealAngle);
+        double sineLatitude = observerLatitude.sine();
+        double cosineLatitude = observerLatitude.cosine();
+        CelestialVector sunDirection = equatorialToHorizon(sunEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+
+        double solarElevation = Math.asin(clamp(sunDirection.y(), -1.0D, 1.0D));
+        double daylight = smoothstep(-6.0D * DEG_TO_RAD, 0.0D, solarElevation);
+        double apparentDayTime = sunBasedDayTimeFromProducts(
+                sineLatitude * sineDeclination,
+                cosineLatitude * cosineDeclination, fractionOfDay) / 24000.0D;
+        return new DaylightSample(solarElevation, apparentDayTime, daylight);
+    }
+
+    /**
+     * Exact physical phase subset. The operation order intentionally mirrors {@link #calculate}
+     * through the raw Sun/Moon horizon directions; regional eclipse display offsets are excluded
+     * because the authoritative illuminated fraction also uses the unmodified lunar orbit.
+     */
+    static double illuminatedFractionAt(double z, double hemisphereScale, double calendarTicks,
+                                        int daysInMonth, double synodicDays, double nodalYears,
+                                        double lunarInclination) {
+        return illuminatedFractionAt(z, hemisphereScale, calendarTicks, daysInMonth,
+                synodicDays, nodalYears, lunarInclination, Math.sin(lunarInclination));
+    }
+
+    static double illuminatedFractionAt(double z, double hemisphereScale, double calendarTicks,
+                                        int daysInMonth, double synodicDays, double nodalYears,
+                                        double lunarInclination,
+                                        double sineLunarInclination) {
+        return illuminatedFractionAt(prepareSolarLatitude(latitude(z, hemisphereScale)),
+                calendarTicks, daysInMonth, synodicDays, nodalYears, lunarInclination,
+                sineLunarInclination);
+    }
+
+    static double illuminatedFractionAt(SolarLatitudeContext observerLatitude,
+                                         double calendarTicks, int daysInMonth,
+                                         double synodicDays, double nodalYears,
+                                         double lunarInclination,
+                                         double sineLunarInclination) {
+        double daysInYear = daysInYear(daysInMonth);
+        double calendarDays = calendarDays(calendarTicks);
+        double fractionOfDay = positiveModulo(calendarTicks, TICKS_IN_DAY) / TICKS_IN_DAY;
+        double fractionOfYear = positiveModulo(calendarDays, daysInYear) / daysInYear;
+
+        double solarLongitude = TAU * positiveModulo(284.0D / 365.0D + fractionOfYear, 1.0D);
+        CelestialVector rawSun = eclipticToEquatorialFixedTilt(solarLongitude, 0.0D);
+        double declination = AXIAL_TILT * Math.sin(solarLongitude);
+        double sunRightAscension = Math.atan2(rawSun.y(), rawSun.x());
+        double sineDeclination = Math.sin(declination);
+        double cosineDeclination = Math.cos(declination);
+        CelestialVector sunEquatorial = fromRightAscension(sunRightAscension,
+                sineDeclination, cosineDeclination);
+        double localSiderealAngle = sunRightAscension + TAU * (fractionOfDay - 0.5D);
+        double cosineSidereal = Math.cos(localSiderealAngle);
+        double sineSidereal = Math.sin(localSiderealAngle);
+        double sineLatitude = observerLatitude.sine();
+        double cosineLatitude = observerLatitude.cosine();
+        CelestialVector sunDirection = equatorialToHorizon(sunEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+
+        double synodicProgress = positiveModulo(calendarDays / synodicDays, 1.0D);
+        double elongation = Math.PI + TAU * synodicProgress;
+        double moonLongitude = solarLongitude + elongation;
+        double ascendingNode = lunarAscendingNode(calendarDays, daysInYear, nodalYears);
+        double moonLatitude = Math.asin(sineLunarInclination
+                * Math.sin(moonLongitude - ascendingNode));
+        CelestialVector moonEquatorial = eclipticToEquatorialFixedTilt(moonLongitude, moonLatitude);
+        CelestialVector rawMoonDirection = equatorialToHorizon(moonEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+        return clamp((1.0D - sunDirection.dot(rawMoonDirection)) * 0.5D, 0.0D, 1.0D);
+    }
+
+    /** Exact lunar-eclipse/supermoon subset used by the bounded prediction scanner. */
+    static LunarPredictionSample lunarPredictionSampleAt(
+            double z, double hemisphereScale, double calendarTicks, int daysInMonth,
+            double synodicDays, double anomalisticDays, double nodalYears,
+            double lunarInclination, double moonScale) {
+        return lunarPredictionSampleAt(z, hemisphereScale, calendarTicks, daysInMonth,
+                synodicDays, anomalisticDays, nodalYears, lunarInclination, moonScale,
+                Math.sin(lunarInclination));
+    }
+
+    static LunarPredictionSample lunarPredictionSampleAt(
+            double z, double hemisphereScale, double calendarTicks, int daysInMonth,
+            double synodicDays, double anomalisticDays, double nodalYears,
+            double lunarInclination, double moonScale, double sineLunarInclination) {
+        return lunarPredictionSampleAt(prepareSolarLatitude(latitude(z, hemisphereScale)),
+                calendarTicks, daysInMonth, synodicDays, anomalisticDays, nodalYears,
+                lunarInclination, moonScale, sineLunarInclination);
+    }
+
+    static LunarPredictionSample lunarPredictionSampleAt(
+            SolarLatitudeContext observerLatitude, double calendarTicks, int daysInMonth,
+            double synodicDays, double anomalisticDays, double nodalYears,
+            double lunarInclination, double moonScale, double sineLunarInclination) {
+        double daysInYear = daysInYear(daysInMonth);
+        double calendarDays = calendarDays(calendarTicks);
+        double fractionOfDay = positiveModulo(calendarTicks, TICKS_IN_DAY) / TICKS_IN_DAY;
+        double fractionOfYear = positiveModulo(calendarDays, daysInYear) / daysInYear;
+
+        double solarLongitude = TAU * positiveModulo(284.0D / 365.0D + fractionOfYear, 1.0D);
+        CelestialVector rawSun = eclipticToEquatorialFixedTilt(solarLongitude, 0.0D);
+        double declination = AXIAL_TILT * Math.sin(solarLongitude);
+        double sunRightAscension = Math.atan2(rawSun.y(), rawSun.x());
+        double sineDeclination = Math.sin(declination);
+        double cosineDeclination = Math.cos(declination);
+        CelestialVector sunEquatorial = fromRightAscension(sunRightAscension,
+                sineDeclination, cosineDeclination);
+        double localSiderealAngle = sunRightAscension + TAU * (fractionOfDay - 0.5D);
+        double cosineSidereal = Math.cos(localSiderealAngle);
+        double sineSidereal = Math.sin(localSiderealAngle);
+        double sineLatitude = observerLatitude.sine();
+        double cosineLatitude = observerLatitude.cosine();
+        CelestialVector sunDirection = equatorialToHorizon(sunEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+
+        double synodicProgress = positiveModulo(calendarDays / synodicDays, 1.0D);
+        double elongation = Math.PI + TAU * synodicProgress;
+        double moonLongitude = solarLongitude + elongation;
+        double ascendingNode = lunarAscendingNode(calendarDays, daysInYear, nodalYears);
+        double moonLatitude = Math.asin(sineLunarInclination
+                * Math.sin(moonLongitude - ascendingNode));
+        CelestialVector moonEquatorial = eclipticToEquatorialFixedTilt(moonLongitude, moonLatitude);
+        CelestialVector rawMoonDirection = equatorialToHorizon(moonEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+
+        double anomalisticProgress = positiveModulo(calendarDays / anomalisticDays, 1.0D);
+        double moonDistance = 1.0D - 0.07D * Math.cos(TAU * anomalisticProgress);
+        CelestialVector celestialNorth = equatorialToHorizon(EQUATORIAL_NORTH, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+        double moonBodyHalfSize = CelestialDiscGeometry.moonBodyHalfSize(moonScale, moonDistance);
+        double lunarPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(moonBodyHalfSize);
+        LunarEclipseRegion.Event lunarEvent = LunarEclipseRegion.eventForPrepared(
+                calendarDays, daysInYear,
+                synodicDays, nodalYears, lunarInclination, sineLunarInclination);
+        LunarEclipseState lunarState = LunarEclipseRegion.projectState(lunarEvent,
+                rawMoonDirection, sunDirection, celestialNorth,
+                lunarPixelHalfTangent, lunarPixelHalfTangent);
+        double supermoon = supermoonAtFullMoon(calendarDays, synodicDays, anomalisticDays);
+        return new LunarPredictionSample(lunarState, supermoon);
+    }
+
+    /**
+     * Exact subset consumed by local event queries. It deliberately follows the full calculation's
+     * operation order while omitting physical-disc diagnostics, global solar-band metadata and
+     * public body-state assembly that no event predicate reads.
+     */
+    static EventSample eventSampleAt(
+            double z, double hemisphereScale, double calendarTicks, int daysInMonth,
+            double synodicDays, double anomalisticDays, double nodalYears,
+            double lunarInclination, double sunScale, double moonScale,
+            double sineLunarInclination) {
+        return eventSampleAt(prepareObserverLatitude(z, hemisphereScale), calendarTicks,
+                daysInMonth, synodicDays, anomalisticDays, nodalYears, lunarInclination,
+                sunScale, moonScale, sineLunarInclination);
+    }
+
+    /** Prepared path for scans whose observer remains on one TFE latitude grid point. */
+    static EventSample eventSampleAt(
+            ObserverLatitudeContext observerLatitude, double calendarTicks, int daysInMonth,
+            double synodicDays, double anomalisticDays, double nodalYears,
+            double lunarInclination, double sunScale, double moonScale,
+            double sineLunarInclination) {
+        double daysInYear = daysInYear(daysInMonth);
+        double calendarDays = calendarDays(calendarTicks);
+        double fractionOfDay = positiveModulo(calendarTicks, TICKS_IN_DAY) / TICKS_IN_DAY;
+        double fractionOfYear = positiveModulo(calendarDays, daysInYear) / daysInYear;
+        double latitude = observerLatitude.latitude();
+
+        double solarLongitude = TAU * positiveModulo(284.0D / 365.0D + fractionOfYear, 1.0D);
+        CelestialVector rawSun = eclipticToEquatorialFixedTilt(solarLongitude, 0.0D);
+        double declination = AXIAL_TILT * Math.sin(solarLongitude);
+        double sunRightAscension = Math.atan2(rawSun.y(), rawSun.x());
+        double sineDeclination = Math.sin(declination);
+        double cosineDeclination = Math.cos(declination);
+        CelestialVector sunEquatorial = fromRightAscension(sunRightAscension,
+                sineDeclination, cosineDeclination);
+        double localSiderealAngle = sunRightAscension + TAU * (fractionOfDay - 0.5D);
+        double cosineSidereal = Math.cos(localSiderealAngle);
+        double sineSidereal = Math.sin(localSiderealAngle);
+        double sineLatitude = observerLatitude.sine();
+        double cosineLatitude = observerLatitude.cosine();
+        CelestialVector sunDirection = equatorialToHorizon(sunEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+
+        double synodicProgress = positiveModulo(calendarDays / synodicDays, 1.0D);
+        double elongation = Math.PI + TAU * synodicProgress;
+        double moonLongitude = solarLongitude + elongation;
+        double ascendingNode = lunarAscendingNode(calendarDays, daysInYear, nodalYears);
+        double moonLatitude = Math.asin(sineLunarInclination
+                * Math.sin(moonLongitude - ascendingNode));
+        CelestialVector moonEquatorial = eclipticToEquatorialFixedTilt(moonLongitude, moonLatitude);
+        CelestialVector rawMoonDirection = equatorialToHorizon(moonEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+
+        double anomalisticProgress = positiveModulo(calendarDays / anomalisticDays, 1.0D);
+        double moonDistance = 1.0D - 0.07D * Math.cos(TAU * anomalisticProgress);
+        double sunMoonSeparation = angle(sunDirection, rawMoonDirection);
+        CelestialVector celestialNorth = equatorialToHorizon(EQUATORIAL_NORTH, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+        double sunPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(
+                CelestialDiscGeometry.sunBodyHalfSize(sunScale));
+        double moonBodyHalfSize = CelestialDiscGeometry.moonBodyHalfSize(moonScale, moonDistance);
+        double moonPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(moonBodyHalfSize,
+                CelestialDiscGeometry.PIXEL_COVER_RADIUS);
+        SolarEclipseRegion.Event solarEvent = SolarEclipseRegion.eventForPrepared(
+                calendarDays, daysInYear,
+                synodicDays, nodalYears, lunarInclination, sineLunarInclination);
+        SolarEclipseRegion.Projection solarProjection = SolarEclipseRegion.projectLocal(solarEvent,
+                calendarDays, latitude, sunDirection, rawMoonDirection, celestialNorth,
+                sunPixelHalfTangent, moonPixelHalfTangent, synodicDays);
+        CelestialVector moonDirection = solarProjection.moonDirection();
+        double solarEclipse = solarProjection.coverage();
+        double lunarPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(moonBodyHalfSize);
+        LunarEclipseRegion.Event lunarEvent = LunarEclipseRegion.eventForPrepared(
+                calendarDays, daysInYear,
+                synodicDays, nodalYears, lunarInclination, sineLunarInclination);
+        LunarEclipseState lunarState = LunarEclipseRegion.projectState(lunarEvent,
+                rawMoonDirection, sunDirection, celestialNorth,
+                lunarPixelHalfTangent, lunarPixelHalfTangent);
+        double lunarEclipse = lunarState.umbraCoverage();
+        double illuminated = clamp((1.0D - sunDirection.dot(rawMoonDirection)) * 0.5D,
+                0.0D, 1.0D);
+        int moonPhase = moonPhaseFromGeometry(synodicProgress, sunMoonSeparation);
+        double supermoon = supermoonAtFullMoon(calendarDays, synodicDays, anomalisticDays);
+        double solarElevation = Math.asin(clamp(sunDirection.y(), -1.0D, 1.0D));
+        double moonElevation = Math.asin(clamp(moonDirection.y(), -1.0D, 1.0D));
+        double apparentDayTime = sunBasedDayTimeFromProducts(
+                sineLatitude * sineDeclination,
+                cosineLatitude * cosineDeclination, fractionOfDay) / 24000.0D;
+        return new EventSample(latitude, fractionOfDay, illuminated, moonPhase,
+                solarEclipse, lunarState, supermoon, lunarEclipse,
+                solarElevation, moonElevation, apparentDayTime);
+    }
+
+    /**
+     * Exact subset read by the six planetarium/current-event rows. The operation order of every
+     * retained field matches {@link #eventSampleAt}; phase-cell, apparent-time and angular-separation
+     * work is omitted because those rows never query it.
+     */
+    static DisplayEventSample displayEventSampleAt(
+            double z, double hemisphereScale, double calendarTicks, int daysInMonth,
+            double synodicDays, double anomalisticDays, double nodalYears,
+            double lunarInclination, double sunScale, double moonScale,
+            double sineLunarInclination) {
+        return displayEventSampleAt(prepareObserverLatitude(z, hemisphereScale), calendarTicks,
+                daysInMonth, synodicDays, anomalisticDays, nodalYears, lunarInclination,
+                sunScale, moonScale, sineLunarInclination);
+    }
+
+    /** Prepared display-only path for bounded scans at one observer latitude. */
+    static DisplayEventSample displayEventSampleAt(
+            ObserverLatitudeContext observerLatitude, double calendarTicks, int daysInMonth,
+            double synodicDays, double anomalisticDays, double nodalYears,
+            double lunarInclination, double sunScale, double moonScale,
+            double sineLunarInclination) {
+        double daysInYear = daysInYear(daysInMonth);
+        double calendarDays = calendarDays(calendarTicks);
+        double fractionOfDay = positiveModulo(calendarTicks, TICKS_IN_DAY) / TICKS_IN_DAY;
+        double fractionOfYear = positiveModulo(calendarDays, daysInYear) / daysInYear;
+        double latitude = observerLatitude.latitude();
+
+        double solarLongitude = TAU * positiveModulo(284.0D / 365.0D + fractionOfYear, 1.0D);
+        CelestialVector rawSun = eclipticToEquatorialFixedTilt(solarLongitude, 0.0D);
+        double declination = AXIAL_TILT * Math.sin(solarLongitude);
+        double sunRightAscension = Math.atan2(rawSun.y(), rawSun.x());
+        double sineDeclination = Math.sin(declination);
+        double cosineDeclination = Math.cos(declination);
+        CelestialVector sunEquatorial = fromRightAscension(sunRightAscension,
+                sineDeclination, cosineDeclination);
+        double localSiderealAngle = sunRightAscension + TAU * (fractionOfDay - 0.5D);
+        double cosineSidereal = Math.cos(localSiderealAngle);
+        double sineSidereal = Math.sin(localSiderealAngle);
+        double sineLatitude = observerLatitude.sine();
+        double cosineLatitude = observerLatitude.cosine();
+        CelestialVector sunDirection = equatorialToHorizon(sunEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+
+        double synodicProgress = positiveModulo(calendarDays / synodicDays, 1.0D);
+        double elongation = Math.PI + TAU * synodicProgress;
+        double moonLongitude = solarLongitude + elongation;
+        double ascendingNode = lunarAscendingNode(calendarDays, daysInYear, nodalYears);
+        double moonLatitude = Math.asin(sineLunarInclination
+                * Math.sin(moonLongitude - ascendingNode));
+        CelestialVector moonEquatorial = eclipticToEquatorialFixedTilt(moonLongitude, moonLatitude);
+        CelestialVector rawMoonDirection = equatorialToHorizon(moonEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+
+        double anomalisticProgress = positiveModulo(calendarDays / anomalisticDays, 1.0D);
+        double moonDistance = 1.0D - 0.07D * Math.cos(TAU * anomalisticProgress);
+        CelestialVector celestialNorth = equatorialToHorizon(EQUATORIAL_NORTH, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+        double sunPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(
+                CelestialDiscGeometry.sunBodyHalfSize(sunScale));
+        double moonBodyHalfSize = CelestialDiscGeometry.moonBodyHalfSize(moonScale, moonDistance);
+        double moonPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(moonBodyHalfSize,
+                CelestialDiscGeometry.PIXEL_COVER_RADIUS);
+        SolarEclipseRegion.Event solarEvent = SolarEclipseRegion.eventForPrepared(
+                calendarDays, daysInYear,
+                synodicDays, nodalYears, lunarInclination, sineLunarInclination);
+        SolarEclipseRegion.Projection solarProjection = SolarEclipseRegion.projectLocal(solarEvent,
+                calendarDays, latitude, sunDirection, rawMoonDirection, celestialNorth,
+                sunPixelHalfTangent, moonPixelHalfTangent, synodicDays);
+        CelestialVector moonDirection = solarProjection.moonDirection();
+        double solarEclipse = solarProjection.coverage();
+        double lunarPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(moonBodyHalfSize);
+        LunarEclipseRegion.Event lunarEvent = LunarEclipseRegion.eventForPrepared(
+                calendarDays, daysInYear,
+                synodicDays, nodalYears, lunarInclination, sineLunarInclination);
+        LunarEclipseRegion.CoverageOutput lunarCoverages = LunarEclipseRegion.projectCoverages(
+                lunarEvent,
+                rawMoonDirection, sunDirection, celestialNorth,
+                lunarPixelHalfTangent, lunarPixelHalfTangent);
+        double lunarUmbraCoverage = lunarCoverages.umbraCoverage();
+        double lunarPenumbraCoverage = lunarCoverages.penumbraCoverage();
+        double illuminated = clamp((1.0D - sunDirection.dot(rawMoonDirection)) * 0.5D,
+                0.0D, 1.0D);
+        double supermoon = supermoonAtFullMoon(calendarDays, synodicDays, anomalisticDays);
+        double solarElevation = Math.asin(clamp(sunDirection.y(), -1.0D, 1.0D));
+        double moonElevation = Math.asin(clamp(moonDirection.y(), -1.0D, 1.0D));
+        return new DisplayEventSample(illuminated, solarEclipse, lunarPenumbraCoverage,
+                supermoon, lunarUmbraCoverage, solarElevation, moonElevation);
+    }
+
+    /**
+     * Exact subset read by the first/last-quarter predicates. Regional solar projection remains
+     * part of this path because it is authoritative for the rendered Moon elevation; lunar-eclipse,
+     * supermoon and apparent-time work is omitted because those predicates cannot observe it.
+     */
+    static QuarterEventSample quarterEventSampleAt(
+            double z, double hemisphereScale, double calendarTicks, int daysInMonth,
+            double synodicDays, double anomalisticDays, double nodalYears, double lunarInclination,
+            double sunScale, double moonScale, double sineLunarInclination) {
+        return quarterEventSampleAt(prepareObserverLatitude(z, hemisphereScale), calendarTicks,
+                daysInMonth, synodicDays, anomalisticDays, nodalYears, lunarInclination,
+                sunScale, moonScale, sineLunarInclination);
+    }
+
+    /** Prepared quarter-phase path for bounded scans at one observer latitude. */
+    static QuarterEventSample quarterEventSampleAt(
+            ObserverLatitudeContext observerLatitude, double calendarTicks, int daysInMonth,
+            double synodicDays, double anomalisticDays, double nodalYears,
+            double lunarInclination,
+            double sunScale, double moonScale, double sineLunarInclination) {
+        double daysInYear = daysInYear(daysInMonth);
+        double calendarDays = calendarDays(calendarTicks);
+        double fractionOfDay = positiveModulo(calendarTicks, TICKS_IN_DAY) / TICKS_IN_DAY;
+        double fractionOfYear = positiveModulo(calendarDays, daysInYear) / daysInYear;
+        double latitude = observerLatitude.latitude();
+
+        double solarLongitude = TAU * positiveModulo(284.0D / 365.0D + fractionOfYear, 1.0D);
+        CelestialVector rawSun = eclipticToEquatorialFixedTilt(solarLongitude, 0.0D);
+        double declination = AXIAL_TILT * Math.sin(solarLongitude);
+        double sunRightAscension = Math.atan2(rawSun.y(), rawSun.x());
+        double sineDeclination = Math.sin(declination);
+        double cosineDeclination = Math.cos(declination);
+        CelestialVector sunEquatorial = fromRightAscension(sunRightAscension,
+                sineDeclination, cosineDeclination);
+        double localSiderealAngle = sunRightAscension + TAU * (fractionOfDay - 0.5D);
+        double cosineSidereal = Math.cos(localSiderealAngle);
+        double sineSidereal = Math.sin(localSiderealAngle);
+        double sineLatitude = observerLatitude.sine();
+        double cosineLatitude = observerLatitude.cosine();
+        CelestialVector sunDirection = equatorialToHorizon(sunEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+
+        double synodicProgress = positiveModulo(calendarDays / synodicDays, 1.0D);
+        double elongation = Math.PI + TAU * synodicProgress;
+        double moonLongitude = solarLongitude + elongation;
+        double ascendingNode = lunarAscendingNode(calendarDays, daysInYear, nodalYears);
+        double moonLatitude = Math.asin(sineLunarInclination
+                * Math.sin(moonLongitude - ascendingNode));
+        CelestialVector moonEquatorial = eclipticToEquatorialFixedTilt(moonLongitude, moonLatitude);
+        CelestialVector rawMoonDirection = equatorialToHorizon(moonEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+
+        double anomalisticProgress = positiveModulo(calendarDays / anomalisticDays, 1.0D);
+        double moonDistance = 1.0D - 0.07D * Math.cos(TAU * anomalisticProgress);
+        double sunMoonSeparation = angle(sunDirection, rawMoonDirection);
+        CelestialVector celestialNorth = equatorialToHorizon(EQUATORIAL_NORTH, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+        double sunPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(
+                CelestialDiscGeometry.sunBodyHalfSize(sunScale));
+        double moonBodyHalfSize = CelestialDiscGeometry.moonBodyHalfSize(moonScale, moonDistance);
+        double moonPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(moonBodyHalfSize,
+                CelestialDiscGeometry.PIXEL_COVER_RADIUS);
+        SolarEclipseRegion.Event solarEvent = SolarEclipseRegion.eventForPrepared(
+                calendarDays, daysInYear,
+                synodicDays, nodalYears, lunarInclination, sineLunarInclination);
+        SolarEclipseRegion.Projection solarProjection = SolarEclipseRegion.projectLocal(solarEvent,
+                calendarDays, latitude, sunDirection, rawMoonDirection, celestialNorth,
+                sunPixelHalfTangent, moonPixelHalfTangent, synodicDays);
+        CelestialVector moonDirection = solarProjection.moonDirection();
+        double illuminated = clamp((1.0D - sunDirection.dot(rawMoonDirection)) * 0.5D,
+                0.0D, 1.0D);
+        int moonPhase = moonPhaseFromGeometry(synodicProgress, sunMoonSeparation);
+        double solarElevation = Math.asin(clamp(sunDirection.y(), -1.0D, 1.0D));
+        double moonElevation = Math.asin(clamp(moonDirection.y(), -1.0D, 1.0D));
+        return new QuarterEventSample(illuminated, moonPhase, solarElevation, moonElevation);
+    }
+
+    /**
+     * Exact final visible-blood-moon subset used by the server chunk cache. The umbra threshold is
+     * tested before unrelated solar-eclipse display work; when active, the same regional Moon
+     * direction and elevation formulas as {@link #displayEventSampleAt} are evaluated.
+     */
+    static double visibleBloodMoonAt(
+            double z, double hemisphereScale, double calendarTicks, int daysInMonth,
+            double synodicDays, double anomalisticDays, double nodalYears,
+            double lunarInclination, double sunScale, double moonScale,
+            double sineLunarInclination) {
+        ObserverLatitudeContext observerLatitude = prepareObserverLatitude(z, hemisphereScale);
+        double daysInYear = daysInYear(daysInMonth);
+        double calendarDays = calendarDays(calendarTicks);
+        double fractionOfDay = positiveModulo(calendarTicks, TICKS_IN_DAY) / TICKS_IN_DAY;
+        double fractionOfYear = positiveModulo(calendarDays, daysInYear) / daysInYear;
+        double latitude = observerLatitude.latitude();
+
+        double solarLongitude = TAU * positiveModulo(284.0D / 365.0D + fractionOfYear, 1.0D);
+        CelestialVector rawSun = eclipticToEquatorialFixedTilt(solarLongitude, 0.0D);
+        double declination = AXIAL_TILT * Math.sin(solarLongitude);
+        double sunRightAscension = Math.atan2(rawSun.y(), rawSun.x());
+        double sineDeclination = Math.sin(declination);
+        double cosineDeclination = Math.cos(declination);
+        CelestialVector sunEquatorial = fromRightAscension(sunRightAscension,
+                sineDeclination, cosineDeclination);
+        double localSiderealAngle = sunRightAscension + TAU * (fractionOfDay - 0.5D);
+        double cosineSidereal = Math.cos(localSiderealAngle);
+        double sineSidereal = Math.sin(localSiderealAngle);
+        double sineLatitude = observerLatitude.sine();
+        double cosineLatitude = observerLatitude.cosine();
+        CelestialVector sunDirection = equatorialToHorizon(sunEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+
+        double synodicProgress = positiveModulo(calendarDays / synodicDays, 1.0D);
+        double elongation = Math.PI + TAU * synodicProgress;
+        double moonLongitude = solarLongitude + elongation;
+        double ascendingNode = lunarAscendingNode(calendarDays, daysInYear, nodalYears);
+        double moonLatitude = Math.asin(sineLunarInclination
+                * Math.sin(moonLongitude - ascendingNode));
+        CelestialVector moonEquatorial = eclipticToEquatorialFixedTilt(moonLongitude, moonLatitude);
+        CelestialVector rawMoonDirection = equatorialToHorizon(moonEquatorial, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+
+        double anomalisticProgress = positiveModulo(calendarDays / anomalisticDays, 1.0D);
+        double moonDistance = 1.0D - 0.07D * Math.cos(TAU * anomalisticProgress);
+        CelestialVector celestialNorth = equatorialToHorizon(EQUATORIAL_NORTH, sineLatitude,
+                cosineLatitude, sineSidereal, cosineSidereal);
+        double moonBodyHalfSize = CelestialDiscGeometry.moonBodyHalfSize(moonScale, moonDistance);
+        double lunarPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(moonBodyHalfSize);
+        LunarEclipseRegion.Event lunarEvent = LunarEclipseRegion.eventForPrepared(
+                calendarDays, daysInYear,
+                synodicDays, nodalYears, lunarInclination, sineLunarInclination);
+        double bloodMoon = LunarEclipseRegion.projectUmbraCoverage(lunarEvent,
+                rawMoonDirection, sunDirection, celestialNorth,
+                lunarPixelHalfTangent, lunarPixelHalfTangent);
+        if (!Double.isFinite(bloodMoon)
+                || bloodMoon <= CelestialGameplayRules.ACTIVE_THRESHOLD) {
+            return 0.0D;
+        }
+
+        double sunPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(
+                CelestialDiscGeometry.sunBodyHalfSize(sunScale));
+        double moonPixelHalfTangent = CelestialDiscGeometry.tangentHalfExtent(moonBodyHalfSize,
+                CelestialDiscGeometry.PIXEL_COVER_RADIUS);
+        SolarEclipseRegion.Event solarEvent = SolarEclipseRegion.eventForPrepared(
+                calendarDays, daysInYear,
+                synodicDays, nodalYears, lunarInclination, sineLunarInclination);
+        SolarEclipseRegion.Projection solarProjection = SolarEclipseRegion.projectLocal(solarEvent,
+                calendarDays, latitude, sunDirection, rawMoonDirection, celestialNorth,
+                sunPixelHalfTangent, moonPixelHalfTangent, synodicDays);
+        CelestialVector moonDirection = solarProjection.moonDirection();
+        double solarElevation = Math.asin(clamp(sunDirection.y(), -1.0D, 1.0D));
+        double moonElevation = Math.asin(clamp(moonDirection.y(), -1.0D, 1.0D));
+        return CelestialGameplayRules.visibleBloodMoon(
+                bloodMoon, moonElevation, solarElevation);
     }
 
     /**
@@ -120,20 +720,23 @@ public final class CelestialMath {
         if (Math.abs(calendarDays - fullMoonDay) > SUPERMOON_FULL_MOON_HALF_WINDOW_DAYS) {
             return 0.0D;
         }
-        double anomalisticProgress = positiveModulo(fullMoonDay / anomalisticDays, 1.0D);
-        double distanceAtFullMoon = 1.0D - 0.07D * Math.cos(TAU * anomalisticProgress);
-        double strength = clamp((1.0D - distanceAtFullMoon) / 0.07D, 0.0D, 1.0D);
-        return strength >= first.wildfires.api.celestial.CelestialState.SUPERMOON_STRENGTH_THRESHOLD
-                ? strength : 0.0D;
+        return SUPERMOON_CACHE.get().get(fullMoonDay, anomalisticDays);
     }
 
-    private static double sunBasedDayTime(Input input, double fractionOfYear, double fractionOfDay) {
-        double currentElevation = calculateSunElevation(input.z, input.hemisphereScale,
-                fractionOfYear, fractionOfDay);
-        double midnightElevation = calculateSunElevation(input.z, input.hemisphereScale,
-                fractionOfYear, 0.0D);
-        double noonElevation = calculateSunElevation(input.z, input.hemisphereScale,
-                fractionOfYear, 0.5D);
+    static double sunBasedDayTime(double latitude, double declination, double fractionOfDay) {
+        return sunBasedDayTimeFromProducts(Math.sin(latitude) * Math.sin(declination),
+                Math.cos(latitude) * Math.cos(declination), fractionOfDay);
+    }
+
+    private static double sunBasedDayTimeFromProducts(double sinLatitudeSinDeclination,
+                                                       double cosLatitudeCosDeclination,
+                                                       double fractionOfDay) {
+        double currentElevation = calculateSunElevation(sinLatitudeSinDeclination,
+                cosLatitudeCosDeclination, fractionOfDay);
+        double midnightElevation = calculateSunElevation(sinLatitudeSinDeclination,
+                cosLatitudeCosDeclination, 0.0D);
+        double noonElevation = calculateSunElevation(sinLatitudeSinDeclination,
+                cosLatitudeCosDeclination, 0.5D);
         return sunBasedDayTimeFromElevations(fractionOfDay, currentElevation,
                 midnightElevation, noonElevation);
     }
@@ -172,13 +775,12 @@ public final class CelestialMath {
                 : 18000.0D - 6000.0D * nightProgress;
     }
 
-    private static double calculateSunElevation(double z, double scale, double fractionOfYear, double fractionOfDay) {
-        double lat = latitude(z, scale);
-        double longitude = TAU * positiveModulo(284.0D / 365.0D + fractionOfYear, 1.0D);
-        double declination = AXIAL_TILT * Math.sin(longitude);
+    private static double calculateSunElevation(double sinLatitudeSinDeclination,
+                                                double cosLatitudeCosDeclination,
+                                                double fractionOfDay) {
         double hourAngle = TAU * (0.5D - fractionOfDay);
-        double cosineZenith = Math.sin(lat) * Math.sin(declination)
-                + Math.cos(lat) * Math.cos(declination) * Math.cos(hourAngle);
+        double cosineZenith = sinLatitudeSinDeclination
+                + cosLatitudeCosDeclination * Math.cos(hourAngle);
         return Math.PI * 0.5D - Math.acos(clamp(cosineZenith, -1.0D, 1.0D));
     }
 
@@ -199,14 +801,91 @@ public final class CelestialMath {
         return Math.asin(clamp(cosineZenith, -1.0D, 1.0D));
     }
 
+    /** Prepared latitude path for scans that retain one observer latitude across many times. */
+    static SolarLatitudeContext prepareSolarLatitude(double latitudeRadians) {
+        if (!Double.isFinite(latitudeRadians)) {
+            return SolarLatitudeContext.INVALID;
+        }
+        return new SolarLatitudeContext(Math.sin(latitudeRadians), Math.cos(latitudeRadians), true);
+    }
+
+    /** Preserves the exact TFE-grid latitude and trigonometric products for a fixed observer. */
+    static ObserverLatitudeContext prepareObserverLatitude(double z, double hemisphereScale) {
+        double latitude = latitude(z, hemisphereScale);
+        double sine = Math.sin(latitude);
+        double cosine = Math.cos(latitude);
+        return new ObserverLatitudeContext(latitude, sine, cosine);
+    }
+
+    /**
+     * Uses exactly the public solar-altitude expression while reusing the latitude trigonometry.
+     * The multiplication and addition order intentionally matches {@link #solarElevationAt}.
+     */
+    static double solarElevationAt(SolarLatitudeContext latitude, double calendarDays,
+                                   double daysInYear) {
+        if (latitude == null || !latitude.valid() || !Double.isFinite(calendarDays)
+                || !Double.isFinite(daysInYear) || daysInYear <= 0.0D) {
+            return Double.NaN;
+        }
+        double fractionOfYear = positiveModulo(calendarDays, daysInYear) / daysInYear;
+        double fractionOfDay = positiveModulo(calendarDays, 1.0D);
+        double longitude = TAU * positiveModulo(284.0D / 365.0D + fractionOfYear, 1.0D);
+        double declination = AXIAL_TILT * Math.sin(longitude);
+        double hourAngle = TAU * (0.5D - fractionOfDay);
+        double cosineZenith = latitude.sine() * Math.sin(declination)
+                + latitude.cosine() * Math.cos(declination) * Math.cos(hourAngle);
+        return Math.asin(clamp(cosineZenith, -1.0D, 1.0D));
+    }
+
+    /** Prepared time path for scans that retain one instant across many observer latitudes. */
+    static SolarTimeContext prepareSolarTime(double calendarDays, double daysInYear) {
+        if (!Double.isFinite(calendarDays) || !Double.isFinite(daysInYear)
+                || daysInYear <= 0.0D) {
+            return SolarTimeContext.INVALID;
+        }
+        double fractionOfYear = positiveModulo(calendarDays, daysInYear) / daysInYear;
+        double fractionOfDay = positiveModulo(calendarDays, 1.0D);
+        double longitude = TAU * positiveModulo(284.0D / 365.0D + fractionOfYear, 1.0D);
+        double declination = AXIAL_TILT * Math.sin(longitude);
+        double hourAngle = TAU * (0.5D - fractionOfDay);
+        return new SolarTimeContext(Math.sin(declination), Math.cos(declination),
+                Math.cos(hourAngle), true);
+    }
+
+    /**
+     * Uses exactly the public solar-altitude expression while reusing the time trigonometry.
+     * The multiplication and addition order intentionally matches {@link #solarElevationAt}.
+     */
+    static double solarElevationAt(double latitudeRadians, SolarTimeContext time) {
+        if (!Double.isFinite(latitudeRadians) || time == null || !time.valid()) {
+            return Double.NaN;
+        }
+        double cosineZenith = Math.sin(latitudeRadians) * time.sineDeclination()
+                + Math.cos(latitudeRadians) * time.cosineDeclination() * time.cosineHourAngle();
+        return Math.asin(clamp(cosineZenith, -1.0D, 1.0D));
+    }
+
     public static CelestialVector eclipticToEquatorial(double longitude, double latitude, double obliquity) {
         double cosLatitude = Math.cos(latitude);
         double x = cosLatitude * Math.cos(longitude);
         double y = cosLatitude * Math.sin(longitude);
         double z = Math.sin(latitude);
-        return new CelestialVector(x,
-                y * Math.cos(obliquity) - z * Math.sin(obliquity),
-                y * Math.sin(obliquity) + z * Math.cos(obliquity)).normalized();
+        double cosObliquity = Math.cos(obliquity);
+        double sinObliquity = Math.sin(obliquity);
+        return normalizedVector(x,
+                y * cosObliquity - z * sinObliquity,
+                y * sinObliquity + z * cosObliquity);
+    }
+
+    /** Fixed-obliquity path used by the authoritative TFC sky without repeating constant trig. */
+    static CelestialVector eclipticToEquatorialFixedTilt(double longitude, double latitude) {
+        double cosLatitude = Math.cos(latitude);
+        double x = cosLatitude * Math.cos(longitude);
+        double y = cosLatitude * Math.sin(longitude);
+        double z = Math.sin(latitude);
+        return normalizedVector(x,
+                y * AXIAL_TILT_COS - z * AXIAL_TILT_SIN,
+                y * AXIAL_TILT_SIN + z * AXIAL_TILT_COS);
     }
 
     public static CelestialVector orbitalPosition(double radius, double orbitalDays, double inclination,
@@ -229,11 +908,15 @@ public final class CelestialMath {
         double angle = sign * TAU * calendarDays / orbitalDays + TAU * phaseTurns;
         double nodeCos = Math.cos(ascendingNode);
         double nodeSin = Math.sin(ascendingNode);
-        CelestialVector node = new CelestialVector(nodeCos, nodeSin, 0.0D);
-        CelestialVector transverse = new CelestialVector(-nodeSin * Math.cos(inclination),
-                nodeCos * Math.cos(inclination), Math.sin(inclination));
-        return node.scale(radius * Math.cos(angle))
-                .add(transverse.scale(radius * Math.sin(angle)));
+        double cosInclination = Math.cos(inclination);
+        double transverseX = -nodeSin * cosInclination;
+        double transverseY = nodeCos * cosInclination;
+        double transverseZ = Math.sin(inclination);
+        double nodeScale = radius * Math.cos(angle);
+        double transverseScale = radius * Math.sin(angle);
+        return new CelestialVector(nodeCos * nodeScale + transverseX * transverseScale,
+                nodeSin * nodeScale + transverseY * transverseScale,
+                0.0D * nodeScale + transverseZ * transverseScale);
     }
 
     /**
@@ -258,6 +941,14 @@ public final class CelestialMath {
                                                             boolean retrograde,
                                                             double calendarDays,
                                                             double phaseTurns) {
+        return satelliteOrbitalPosition(radius, orbitalDays,
+                satelliteOrbitBasis(referencePlaneNormal, relativeInclination, ascendingNode),
+                retrograde, calendarDays, phaseTurns);
+    }
+
+    static SatelliteOrbitBasis satelliteOrbitBasis(CelestialVector referencePlaneNormal,
+                                                    double relativeInclination,
+                                                    double ascendingNode) {
         CelestialVector normal = referencePlaneNormal.normalized();
         if (normal.lengthSquared() < 1.0E-12D) {
             throw new IllegalArgumentException("Orbit reference-plane normal must be non-zero");
@@ -265,10 +956,8 @@ public final class CelestialMath {
         // JPL's node longitudes are measured in J2000-oriented reference frames.  Use the J2000
         // equatorial north pole (expressed in our ecliptic coordinates) to establish the zero-node
         // direction; using ecliptic north here silently rotates every Laplace-plane node.
-        CelestialVector equatorialNorth = new CelestialVector(0.0D, Math.sin(AXIAL_TILT),
-                Math.cos(AXIAL_TILT));
-        CelestialVector reference = Math.abs(normal.dot(equatorialNorth)) < 0.95D
-                ? equatorialNorth
+        CelestialVector reference = Math.abs(normal.dot(EQUATORIAL_NORTH_ECLIPTIC)) < 0.95D
+                ? EQUATORIAL_NORTH_ECLIPTIC
                 : new CelestialVector(1.0D, 0.0D, 0.0D);
         CelestialVector equatorX = cross(reference, normal).normalized();
         CelestialVector equatorY = cross(normal, equatorX).normalized();
@@ -276,19 +965,34 @@ public final class CelestialMath {
                 .add(equatorY.scale(Math.sin(ascendingNode))).normalized();
         CelestialVector tiltedNormal = rotateAroundAxis(normal, node, relativeInclination).normalized();
         CelestialVector transverse = cross(tiltedNormal, node).normalized();
+        return new SatelliteOrbitBasis(node, transverse);
+    }
+
+    static CelestialVector satelliteOrbitalPosition(double radius, double orbitalDays,
+                                                     SatelliteOrbitBasis basis,
+                                                     boolean retrograde,
+                                                     double calendarDays,
+                                                     double phaseTurns) {
         double sign = retrograde ? -1.0D : 1.0D;
         double angle = sign * TAU * calendarDays / orbitalDays + TAU * phaseTurns;
-        return node.scale(radius * Math.cos(angle))
-                .add(transverse.scale(radius * Math.sin(angle)));
+        double nodeScale = radius * Math.cos(angle);
+        double transverseScale = radius * Math.sin(angle);
+        CelestialVector node = basis.node();
+        CelestialVector transverse = basis.transverse();
+        return new CelestialVector(node.x() * nodeScale + transverse.x() * transverseScale,
+                node.y() * nodeScale + transverse.y() * transverseScale,
+                node.z() * nodeScale + transverse.z() * transverseScale);
     }
 
     private static CelestialVector rotateAroundAxis(CelestialVector vector, CelestialVector axis,
                                                      double angle) {
         double cosine = Math.cos(angle);
         double sine = Math.sin(angle);
-        return vector.scale(cosine)
-                .add(cross(axis, vector).scale(sine))
-                .add(axis.scale(axis.dot(vector) * (1.0D - cosine)));
+        CelestialVector crossed = cross(axis, vector);
+        double axialScale = axis.dot(vector) * (1.0D - cosine);
+        return new CelestialVector(vector.x() * cosine + crossed.x() * sine + axis.x() * axialScale,
+                vector.y() * cosine + crossed.y() * sine + axis.y() * axialScale,
+                vector.z() * cosine + crossed.z() * sine + axis.z() * axialScale);
     }
 
     private static CelestialVector cross(CelestialVector first, CelestialVector second) {
@@ -314,25 +1018,88 @@ public final class CelestialMath {
         return calendarDays(calendarTicks) / daysInYear(daysInMonth);
     }
 
-    private static CelestialVector fromRightAscension(double rightAscension, double declination) {
-        double cos = Math.cos(declination);
-        return new CelestialVector(cos * Math.cos(rightAscension), cos * Math.sin(rightAscension),
-                Math.sin(declination));
+    private static CelestialVector fromRightAscension(double rightAscension,
+                                                       double sineDeclination,
+                                                       double cosineDeclination) {
+        return new CelestialVector(cosineDeclination * Math.cos(rightAscension),
+                cosineDeclination * Math.sin(rightAscension), sineDeclination);
     }
 
     public static CelestialVector equatorialToHorizon(CelestialVector equatorial, double latitude,
                                                        double localSiderealAngle) {
-        double meridian = equatorial.x() * Math.cos(localSiderealAngle)
-                + equatorial.y() * Math.sin(localSiderealAngle);
-        double east = -equatorial.x() * Math.sin(localSiderealAngle)
-                + equatorial.y() * Math.cos(localSiderealAngle);
-        double north = -Math.sin(latitude) * meridian + Math.cos(latitude) * equatorial.z();
-        double up = Math.cos(latitude) * meridian + Math.sin(latitude) * equatorial.z();
-        return new CelestialVector(east, up, north).normalized();
+        double cosineSidereal = Math.cos(localSiderealAngle);
+        double sineSidereal = Math.sin(localSiderealAngle);
+        double sineLatitude = Math.sin(latitude);
+        double cosineLatitude = Math.cos(latitude);
+        return equatorialToHorizon(equatorial, sineLatitude, cosineLatitude,
+                sineSidereal, cosineSidereal);
+    }
+
+    static CelestialVector equatorialToHorizon(CelestialVector equatorial,
+                                                double sineLatitude, double cosineLatitude,
+                                                double sineSidereal, double cosineSidereal) {
+        return equatorialToHorizon(equatorial.x(), equatorial.y(), equatorial.z(),
+                sineLatitude, cosineLatitude, sineSidereal, cosineSidereal);
+    }
+
+    /** Scalar input path for callers that do not otherwise expose the intermediate vector. */
+    static CelestialVector equatorialToHorizon(double equatorialX, double equatorialY,
+                                                double equatorialZ, double sineLatitude,
+                                                double cosineLatitude, double sineSidereal,
+                                                double cosineSidereal) {
+        double meridian = equatorialX * cosineSidereal + equatorialY * sineSidereal;
+        double east = -equatorialX * sineSidereal + equatorialY * cosineSidereal;
+        double north = -sineLatitude * meridian + cosineLatitude * equatorialZ;
+        double up = cosineLatitude * meridian + sineLatitude * equatorialZ;
+        return normalizedVector(east, up, north);
+    }
+
+    /** Exact scalar form of {@code new CelestialVector(x, y, z).normalized()}. */
+    private static CelestialVector normalizedVector(double x, double y, double z) {
+        double lengthSquared = x * x + y * y + z * z;
+        double length = Math.sqrt(lengthSquared);
+        if (!(length > 1.0E-12D)) {
+            return CelestialVector.ZERO;
+        }
+        double inverse = 1.0D / length;
+        return new CelestialVector(x * inverse, y * inverse, z * inverse);
     }
 
     public static double angle(CelestialVector first, CelestialVector second) {
-        return Math.acos(clamp(first.normalized().dot(second.normalized()), -1.0D, 1.0D));
+        double firstLengthSquared = first.x() * first.x() + first.y() * first.y()
+                + first.z() * first.z();
+        double firstLength = Math.sqrt(firstLengthSquared);
+        double firstX;
+        double firstY;
+        double firstZ;
+        if (firstLength > 1.0E-12D) {
+            double firstInverse = 1.0D / firstLength;
+            firstX = first.x() * firstInverse;
+            firstY = first.y() * firstInverse;
+            firstZ = first.z() * firstInverse;
+        } else {
+            firstX = 0.0D;
+            firstY = 0.0D;
+            firstZ = 0.0D;
+        }
+        double secondLengthSquared = second.x() * second.x() + second.y() * second.y()
+                + second.z() * second.z();
+        double secondLength = Math.sqrt(secondLengthSquared);
+        double secondX;
+        double secondY;
+        double secondZ;
+        if (secondLength > 1.0E-12D) {
+            double secondInverse = 1.0D / secondLength;
+            secondX = second.x() * secondInverse;
+            secondY = second.y() * secondInverse;
+            secondZ = second.z() * secondInverse;
+        } else {
+            secondX = 0.0D;
+            secondY = 0.0D;
+            secondZ = 0.0D;
+        }
+        return Math.acos(clamp(firstX * secondX + firstY * secondY + firstZ * secondZ,
+                -1.0D, 1.0D));
     }
 
     /**
@@ -408,6 +1175,20 @@ public final class CelestialMath {
         }
     }
 
+    interface EventView {
+        double latitude();
+        double fractionOfDay();
+        double illuminatedFraction();
+        int moonPhase();
+        double solarEclipse();
+        LunarEclipseState lunarEclipseRegion();
+        double supermoon();
+        double bloodMoon();
+        double solarElevation();
+        double moonElevation();
+        double apparentDayTime();
+    }
+
     public record Result(double latitude, double fractionOfDay, double fractionOfYear,
                          CelestialVector sunGeocentric, CelestialVector moonGeocentric,
                          CelestialVector sunDirection, CelestialVector moonDirection,
@@ -417,6 +1198,105 @@ public final class CelestialMath {
                          LunarEclipseState lunarEclipseRegion, double supermoon, double bloodMoon,
                          SolarEclipseState solarEclipseRegion,
                          double solarElevation, double moonElevation, double apparentDayTime,
-                         double daylightFactor, double solarLongitude, double localSiderealAngle) {
+                         double daylightFactor, double solarLongitude, double localSiderealAngle)
+            implements EventView {
+    }
+
+    /** Thread-confined output slot for reusing full-frame horizon trigonometry in body assembly. */
+    static final class HorizonProducts {
+        private double sineLatitude;
+        private double cosineLatitude;
+        private double sineSidereal;
+        private double cosineSidereal;
+
+        private void set(double sineLatitude, double cosineLatitude,
+                         double sineSidereal, double cosineSidereal) {
+            this.sineLatitude = sineLatitude;
+            this.cosineLatitude = cosineLatitude;
+            this.sineSidereal = sineSidereal;
+            this.cosineSidereal = cosineSidereal;
+        }
+
+        double sineLatitude() {
+            return sineLatitude;
+        }
+
+        double cosineLatitude() {
+            return cosineLatitude;
+        }
+
+        double sineSidereal() {
+            return sineSidereal;
+        }
+
+        double cosineSidereal() {
+            return cosineSidereal;
+        }
+    }
+
+    private static final class SupermoonCache {
+        private long fullMoonDayBits;
+        private long anomalisticDaysBits;
+        private double value;
+        private boolean initialized;
+
+        private double get(double fullMoonDay, double anomalisticDays) {
+            long nextFullMoonDayBits = Double.doubleToRawLongBits(fullMoonDay);
+            long nextAnomalisticDaysBits = Double.doubleToRawLongBits(anomalisticDays);
+            if (!initialized || fullMoonDayBits != nextFullMoonDayBits
+                    || anomalisticDaysBits != nextAnomalisticDaysBits) {
+                double anomalisticProgress = positiveModulo(fullMoonDay / anomalisticDays, 1.0D);
+                double distanceAtFullMoon = 1.0D - 0.07D * Math.cos(TAU * anomalisticProgress);
+                double strength = clamp((1.0D - distanceAtFullMoon) / 0.07D, 0.0D, 1.0D);
+                double computed = strength
+                        >= first.wildfires.api.celestial.CelestialState.SUPERMOON_STRENGTH_THRESHOLD
+                        ? strength : 0.0D;
+                fullMoonDayBits = nextFullMoonDayBits;
+                anomalisticDaysBits = nextAnomalisticDaysBits;
+                value = computed;
+                initialized = true;
+            }
+            return value;
+        }
+    }
+
+    record LunarPredictionSample(LunarEclipseState lunarEclipseRegion, double supermoon) {
+    }
+
+    record DaylightSample(double solarElevation, double apparentDayTime,
+                          double daylightFactor) {
+    }
+
+    record EventSample(double latitude, double fractionOfDay, double illuminatedFraction,
+                       int moonPhase, double solarEclipse,
+                       LunarEclipseState lunarEclipseRegion, double supermoon, double bloodMoon,
+                       double solarElevation, double moonElevation, double apparentDayTime)
+            implements EventView {
+    }
+
+    record DisplayEventSample(double illuminatedFraction, double solarEclipse,
+                              double lunarPenumbraCoverage, double supermoon,
+                              double bloodMoon, double solarElevation, double moonElevation) {
+    }
+
+    record QuarterEventSample(double illuminatedFraction, int moonPhase,
+                              double solarElevation, double moonElevation) {
+    }
+
+    record SolarLatitudeContext(double sine, double cosine, boolean valid) {
+        private static final SolarLatitudeContext INVALID =
+                new SolarLatitudeContext(Double.NaN, Double.NaN, false);
+    }
+
+    record ObserverLatitudeContext(double latitude, double sine, double cosine) {
+    }
+
+    record SolarTimeContext(double sineDeclination, double cosineDeclination,
+                            double cosineHourAngle, boolean valid) {
+        private static final SolarTimeContext INVALID =
+                new SolarTimeContext(Double.NaN, Double.NaN, Double.NaN, false);
+    }
+
+    record SatelliteOrbitBasis(CelestialVector node, CelestialVector transverse) {
     }
 }

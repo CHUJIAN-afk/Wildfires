@@ -1,6 +1,7 @@
 package first.wildfires.celestial;
 
 import first.wildfires.api.celestial.CelestialState;
+import first.wildfires.api.celestial.LunarEclipseState;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -27,8 +28,31 @@ public final class EclipsePredictionService {
             CelestialEventType.LUNAR_ECLIPSE,
             CelestialEventType.BLOOD_MOON,
             CelestialEventType.SUPERMOON);
+    private static final int SOLAR_ECLIPSE_BIT = 1 << 0;
+    private static final int NEW_MOON_BIT = 1 << 1;
+    private static final int FULL_MOON_BIT = 1 << 2;
+    private static final int LUNAR_ECLIPSE_BIT = 1 << 3;
+    private static final int BLOOD_MOON_BIT = 1 << 4;
+    private static final int SUPERMOON_BIT = 1 << 5;
+    private static final ThreadLocal<long[]> CURRENT_EVENT_CHANGE_SCRATCH =
+            ThreadLocal.withInitial(() -> new long[DISPLAY_EVENT_TYPES.size()]);
+    private static final ThreadLocal<double[]> SOLAR_LATITUDE_MAXIMUM_SCRATCH =
+            ThreadLocal.withInitial(() -> new double[LATITUDE_SAMPLES + 1]);
+    private static final double[] SOLAR_LATITUDE_RADIANS = createSolarLatitudeSamples();
 
     private EclipsePredictionService() {
+    }
+
+    private static double[] createSolarLatitudeSamples() {
+        double[] latitudes = new double[LATITUDE_SAMPLES + 1];
+        for (int sample = 0; sample <= LATITUDE_SAMPLES; sample++) {
+            latitudes[sample] = -Math.PI * 0.5D + Math.PI * sample / LATITUDE_SAMPLES;
+        }
+        return latitudes;
+    }
+
+    static double solarLatitudeSample(int index) {
+        return SOLAR_LATITUDE_RADIANS[index];
     }
 
     public static Predictions predict(Level level, Vec3 observer) {
@@ -50,6 +74,23 @@ public final class EclipsePredictionService {
                 ? CelestialSettingsCache.current()
                 : CelestialConfig.serverSettings();
         return predictTimeline(Calendars.get(level).getCalendarTicks(),
+                Calendars.get(level).getCalendarDaysInMonth(), TfeHemisphereScale.get(level),
+                observer.x, observer.z, settings, horizonDays);
+    }
+
+    /**
+     * Returns the same anomalous solar/lunar event timeline without scanning ordinary full/new
+     * Moon markers. The complete {@link #predictTimeline(Level, Vec3, double)} contract remains
+     * unchanged for callers that consume {@link Timeline#phases()}.
+     */
+    public static Timeline predictAnomalousTimeline(Level level, Vec3 observer,
+                                                     double horizonDays) {
+        Objects.requireNonNull(level, "level");
+        Objects.requireNonNull(observer, "observer");
+        CelestialRuntimeSettings settings = level.isClientSide()
+                ? CelestialSettingsCache.current()
+                : CelestialConfig.serverSettings();
+        return predictAnomalousTimeline(Calendars.get(level).getCalendarTicks(),
                 Calendars.get(level).getCalendarDaysInMonth(), TfeHemisphereScale.get(level),
                 observer.x, observer.z, settings, horizonDays);
     }
@@ -78,24 +119,38 @@ public final class EclipsePredictionService {
         }
         Objects.requireNonNull(settings, "settings");
         long now = (long) Math.floor(calendarTicks);
-        double synodicDays = settings.resolvedSynodicDays(daysInMonth);
-        double anomalisticDays = settings.resolvedAnomalisticDays(daysInMonth);
-        boolean[] initial = displayEventStates(calculate(observerZ, hemisphereScale, now,
-                daysInMonth, synodicDays, anomalisticDays, settings), now);
-        long[] firstChanges = new long[DISPLAY_EVENT_TYPES.size()];
+        CelestialRuntimeSettings.PreparedPeriods prepared = settings.preparedPeriods(daysInMonth);
+        double synodicDays = prepared.synodicDays();
+        double anomalisticDays = prepared.anomalisticDays();
+        double sineLunarInclination = prepared.sineLunarInclination();
+        CelestialMath.ObserverLatitudeContext observerLatitude =
+                CelestialMath.prepareObserverLatitude(observerZ, hemisphereScale);
+        int initial = displayEventMask(displayEventSample(observerLatitude, now,
+                daysInMonth, synodicDays, anomalisticDays, settings,
+                sineLunarInclination), now);
+        long[] firstChanges = CURRENT_EVENT_CHANGE_SCRATCH.get();
         java.util.Arrays.fill(firstChanges, Long.MAX_VALUE);
+        int unresolvedMask = (1 << DISPLAY_EVENT_TYPES.size()) - 1;
         long horizon = saturatingAdd(now, CURRENT_EVENT_SCAN_HORIZON_TICKS);
         long previous = now;
         for (long sample = saturatingAdd(now, CURRENT_EVENT_SCAN_STEP_TICKS);
              sample <= horizon; sample = saturatingAdd(sample, CURRENT_EVENT_SCAN_STEP_TICKS)) {
-            boolean[] states = displayEventStates(calculate(observerZ, hemisphereScale, sample,
-                    daysInMonth, synodicDays, anomalisticDays, settings), sample);
-            for (int index = 0; index < initial.length; index++) {
-                if (firstChanges[index] == Long.MAX_VALUE && states[index] != initial[index]) {
-                    firstChanges[index] = refineDisplayEventChange(index, initial[index], previous,
-                            sample, observerZ, hemisphereScale, daysInMonth, synodicDays,
-                            anomalisticDays, settings);
-                }
+            int states = displayEventMask(displayEventSample(observerLatitude, sample,
+                    daysInMonth, synodicDays, anomalisticDays, settings,
+                    sineLunarInclination), sample);
+            int changedMask = (states ^ initial) & unresolvedMask;
+            while (changedMask != 0) {
+                int index = Integer.numberOfTrailingZeros(changedMask);
+                int bit = 1 << index;
+                boolean initialState = (initial & bit) != 0;
+                firstChanges[index] = refineDisplayEventChange(index, initialState, previous,
+                        sample, observerLatitude, daysInMonth, synodicDays,
+                        anomalisticDays, settings, sineLunarInclination);
+                unresolvedMask &= ~bit;
+                changedMask &= changedMask - 1;
+            }
+            if (unresolvedMask == 0) {
+                break;
             }
             if (sample == horizon || sample > horizon - CURRENT_EVENT_SCAN_STEP_TICKS) {
                 break;
@@ -103,55 +158,127 @@ public final class EclipsePredictionService {
             previous = sample;
         }
 
-        List<CurrentEvent> active = new ArrayList<>();
+        CurrentEvent[] active = initial == 0
+                ? null : new CurrentEvent[Integer.bitCount(initial)];
+        int activeIndex = 0;
         long nextChange = horizon;
-        for (int index = 0; index < initial.length; index++) {
+        for (int index = 0; index < DISPLAY_EVENT_TYPES.size(); index++) {
             if (firstChanges[index] != Long.MAX_VALUE) {
                 nextChange = Math.min(nextChange, firstChanges[index]);
             }
-            if (initial[index]) {
+            if ((initial & 1 << index) != 0) {
                 long end = firstChanges[index] != Long.MAX_VALUE
                         ? firstChanges[index] : horizon;
-                active.add(new CurrentEvent(DISPLAY_EVENT_TYPES.get(index), end));
+                active[activeIndex++] = new CurrentEvent(DISPLAY_EVENT_TYPES.get(index), end);
             }
         }
-        return new CurrentEvents(active, nextChange);
+        return new CurrentEvents(active == null ? List.of() : List.of(active), nextChange);
     }
 
-    private static CelestialMath.Result calculate(double observerZ, double hemisphereScale,
-                                                  long calendarTicks, int daysInMonth,
-                                                  double synodicDays, double anomalisticDays,
-                                                  CelestialRuntimeSettings settings) {
-        return CelestialMath.calculate(new CelestialMath.Input(observerZ, hemisphereScale,
-                calendarTicks, daysInMonth, synodicDays, anomalisticDays, settings.nodalYears(),
-                settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale()));
+    private static CelestialMath.DisplayEventSample displayEventSample(
+            CelestialMath.ObserverLatitudeContext observerLatitude, long calendarTicks,
+            int daysInMonth,
+            double synodicDays, double anomalisticDays, CelestialRuntimeSettings settings,
+            double sineLunarInclination) {
+        return CelestialMath.displayEventSampleAt(observerLatitude, calendarTicks,
+                daysInMonth,
+                synodicDays, anomalisticDays, settings.nodalYears(),
+                settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale(),
+                sineLunarInclination);
     }
 
-    private static boolean[] displayEventStates(CelestialMath.Result result, long calendarTicks) {
-        boolean bloodMoon = CelestialEventType.BLOOD_MOON.matches(result, calendarTicks, null);
-        boolean lunarEclipse = CelestialEventType.LUNAR_ECLIPSE.matches(result, calendarTicks, null);
-        boolean[] states = new boolean[DISPLAY_EVENT_TYPES.size()];
-        for (int index = 0; index < DISPLAY_EVENT_TYPES.size(); index++) {
-            CelestialEventType type = DISPLAY_EVENT_TYPES.get(index);
-            states[index] = switch (type) {
-                case LUNAR_ECLIPSE -> lunarEclipse && !bloodMoon;
-                case BLOOD_MOON -> bloodMoon;
-                default -> type.matches(result, calendarTicks, null);
-            };
+    static int displayEventMask(CelestialMath.Result result, long calendarTicks) {
+        return displayEventMask(result.illuminatedFraction(), result.solarEclipse(),
+                result.lunarEclipseRegion().penumbraCoverage(), result.supermoon(),
+                result.bloodMoon(),
+                result.solarElevation(), result.moonElevation());
+    }
+
+    static int displayEventMask(CelestialMath.EventSample result, long calendarTicks) {
+        return displayEventMask(result.illuminatedFraction(), result.solarEclipse(),
+                result.lunarEclipseRegion().penumbraCoverage(), result.supermoon(),
+                result.bloodMoon(),
+                result.solarElevation(), result.moonElevation());
+    }
+
+    static int displayEventMask(CelestialMath.DisplayEventSample result, long calendarTicks) {
+        return displayEventMask(result.illuminatedFraction(), result.solarEclipse(),
+                result.lunarPenumbraCoverage(), result.supermoon(), result.bloodMoon(),
+                result.solarElevation(), result.moonElevation());
+    }
+
+    private static int displayEventMask(double illuminatedFraction, double solarEclipse,
+                                        double lunarPenumbraCoverage,
+                                        double supermoon, double bloodMoonCoverage,
+                                        double solarElevation, double moonElevation) {
+        boolean localLunarNight = Double.isFinite(moonElevation) && moonElevation > 0.0D
+                && Double.isFinite(solarElevation) && solarElevation <= 0.0D;
+        boolean bloodMoon = bloodMoonCoverage > CelestialGameplayRules.ACTIVE_THRESHOLD
+                && localLunarNight;
+        boolean lunarEclipse = lunarPenumbraCoverage > 0.0D && localLunarNight;
+        int mask = 0;
+        if (Double.isFinite(solarEclipse) && solarEclipse > 0.0D
+                && Double.isFinite(solarElevation) && solarElevation > 0.0D) {
+            mask |= SOLAR_ECLIPSE_BIT;
         }
-        return states;
+        if (illuminatedFraction <= 0.005D
+                && moonElevation > 0.0D && solarElevation > 0.0D) {
+            mask |= NEW_MOON_BIT;
+        }
+        if (illuminatedFraction >= 0.995D && localLunarNight) {
+            mask |= FULL_MOON_BIT;
+        }
+        if (lunarEclipse && !bloodMoon) {
+            mask |= LUNAR_ECLIPSE_BIT;
+        }
+        if (bloodMoon) {
+            mask |= BLOOD_MOON_BIT;
+        }
+        if (supermoon >= CelestialState.SUPERMOON_STRENGTH_THRESHOLD
+                && localLunarNight) {
+            mask |= SUPERMOON_BIT;
+        }
+        return mask;
+    }
+
+    /** Scalar form used when a refinement scan is following exactly one known display row. */
+    static boolean displayEventState(int eventIndex, CelestialMath.DisplayEventSample result) {
+        double solarElevation = result.solarElevation();
+        double moonElevation = result.moonElevation();
+        boolean localLunarNight = Double.isFinite(moonElevation) && moonElevation > 0.0D
+                && Double.isFinite(solarElevation) && solarElevation <= 0.0D;
+        return switch (eventIndex) {
+            case 0 -> Double.isFinite(result.solarEclipse())
+                    && result.solarEclipse() > 0.0D
+                    && Double.isFinite(solarElevation) && solarElevation > 0.0D;
+            case 1 -> result.illuminatedFraction() <= 0.005D
+                    && moonElevation > 0.0D && solarElevation > 0.0D;
+            case 2 -> result.illuminatedFraction() >= 0.995D && localLunarNight;
+            case 3 -> result.lunarPenumbraCoverage() > 0.0D && localLunarNight
+                    && !(result.bloodMoon() > CelestialGameplayRules.ACTIVE_THRESHOLD
+                    && localLunarNight);
+            case 4 -> result.bloodMoon() > CelestialGameplayRules.ACTIVE_THRESHOLD
+                    && localLunarNight;
+            case 5 -> result.supermoon() >= CelestialState.SUPERMOON_STRENGTH_THRESHOLD
+                    && localLunarNight;
+            default -> throw new IllegalArgumentException("Unknown display-event index "
+                    + eventIndex);
+        };
     }
 
     private static long refineDisplayEventChange(int eventIndex, boolean initial,
                                                  long low, long high,
-                                                 double observerZ, double hemisphereScale,
-                                                 int daysInMonth, double synodicDays,
-                                                 double anomalisticDays,
-                                                 CelestialRuntimeSettings settings) {
+                                                 CelestialMath.ObserverLatitudeContext observerLatitude,
+                                                  int daysInMonth, double synodicDays,
+                                                  double anomalisticDays,
+                                                  CelestialRuntimeSettings settings,
+                                                  double sineLunarInclination) {
         while (high - low > 1L) {
             long middle = low + (high - low) / 2L;
-            boolean state = displayEventStates(calculate(observerZ, hemisphereScale, middle,
-                    daysInMonth, synodicDays, anomalisticDays, settings), middle)[eventIndex];
+            boolean state = displayEventState(eventIndex,
+                    displayEventSample(observerLatitude, middle,
+                    daysInMonth, synodicDays, anomalisticDays, settings,
+                    sineLunarInclination));
             if (state == initial) {
                 low = middle;
             } else {
@@ -185,13 +312,18 @@ public final class EclipsePredictionService {
                                       double observerZ, CelestialRuntimeSettings settings) {
         double nowDay = CelestialMath.calendarDays(calendarTicks);
         double daysInYear = CelestialMath.daysInYear(daysInMonth);
-        double synodicDays = settings.resolvedSynodicDays(daysInMonth);
-        double anomalisticDays = settings.resolvedAnomalisticDays(daysInMonth);
+        CelestialRuntimeSettings.PreparedPeriods prepared = settings.preparedPeriods(daysInMonth);
+        double synodicDays = prepared.synodicDays();
+        double anomalisticDays = prepared.anomalisticDays();
         double observerLatitude = CelestialMath.latitude(observerZ, hemisphereScale);
+        CelestialMath.SolarLatitudeContext observerLatitudeContext =
+                CelestialMath.prepareSolarLatitude(observerLatitude);
+        double sineLunarInclination = prepared.sineLunarInclination();
         SolarPrediction solar = nextSolar(nowDay, daysInMonth, daysInYear, hemisphereScale,
-                observerLatitude, synodicDays, anomalisticDays, settings);
-        LunarPrediction lunar = nextLunar(nowDay, daysInMonth, hemisphereScale, observerZ, synodicDays,
-                anomalisticDays, settings);
+                observerLatitude, synodicDays, anomalisticDays, settings,
+                sineLunarInclination);
+        LunarPrediction lunar = nextLunar(nowDay, daysInMonth, observerLatitudeContext,
+                synodicDays, anomalisticDays, settings, sineLunarInclination);
         return new Predictions(solar, lunar);
     }
 
@@ -199,24 +331,46 @@ public final class EclipsePredictionService {
                                            double hemisphereScale, double observerX,
                                            double observerZ, CelestialRuntimeSettings settings,
                                            double horizonDays) {
+        return predictTimeline(calendarTicks, daysInMonth, hemisphereScale, observerX,
+                observerZ, settings, horizonDays, true);
+    }
+
+    public static Timeline predictAnomalousTimeline(double calendarTicks, int daysInMonth,
+                                                     double hemisphereScale, double observerX,
+                                                     double observerZ,
+                                                     CelestialRuntimeSettings settings,
+                                                     double horizonDays) {
+        return predictTimeline(calendarTicks, daysInMonth, hemisphereScale, observerX,
+                observerZ, settings, horizonDays, false);
+    }
+
+    private static Timeline predictTimeline(double calendarTicks, int daysInMonth,
+                                            double hemisphereScale, double observerX,
+                                            double observerZ, CelestialRuntimeSettings settings,
+                                            double horizonDays, boolean includeOrdinaryPhases) {
         if (!Double.isFinite(horizonDays) || horizonDays <= 0.0D) {
             throw new IllegalArgumentException("Prediction horizon must be finite and positive");
         }
         double nowDay = CelestialMath.calendarDays(calendarTicks);
         double endDay = nowDay + horizonDays;
         double daysInYear = CelestialMath.daysInYear(daysInMonth);
-        double synodicDays = settings.resolvedSynodicDays(daysInMonth);
-        double anomalisticDays = settings.resolvedAnomalisticDays(daysInMonth);
+        CelestialRuntimeSettings.PreparedPeriods prepared = settings.preparedPeriods(daysInMonth);
+        double synodicDays = prepared.synodicDays();
+        double anomalisticDays = prepared.anomalisticDays();
         double observerLatitude = CelestialMath.latitude(observerZ, hemisphereScale);
+        CelestialMath.SolarLatitudeContext observerLatitudeContext =
+                CelestialMath.prepareSolarLatitude(observerLatitude);
+        double sineLunarInclination = prepared.sineLunarInclination();
         List<SolarPrediction> solar = new ArrayList<>();
         List<LunarPrediction> lunar = new ArrayList<>();
-        List<LunarPhasePrediction> phases = new ArrayList<>();
+        List<LunarPhasePrediction> phases = includeOrdinaryPhases
+                ? new ArrayList<>() : List.of();
 
         long firstSolar = (long) Math.floor(nowDay / synodicDays - 0.5D) - 1L;
         long lastSolar = (long) Math.ceil(endDay / synodicDays + 0.5D) + 1L;
         for (long index = firstSolar; index <= lastSolar; index++) {
-            SolarPrediction candidate = solarAt(index, daysInMonth, daysInYear, hemisphereScale,
-                    observerLatitude, synodicDays, anomalisticDays, settings);
+            SolarPrediction candidate = solarAt(index, daysInYear, observerLatitude,
+                    synodicDays, anomalisticDays, settings, sineLunarInclination);
             if (candidate.present() && candidate.endCalendarTicks() + 1.0E-9D >= calendarTicks
                     && candidate.startCalendarTicks() <= endDay * CelestialMath.TICKS_IN_DAY + 1.0E-9D) {
                 solar.add(candidate);
@@ -226,22 +380,28 @@ public final class EclipsePredictionService {
         long firstLunar = (long) Math.floor(nowDay / synodicDays) - 1L;
         long lastLunar = (long) Math.ceil(endDay / synodicDays) + 1L;
         for (long index = firstLunar; index <= lastLunar; index++) {
-            LunarPrediction candidate = lunarAt(index, daysInMonth, hemisphereScale, observerZ,
-                    synodicDays, anomalisticDays, settings);
+            LunarPrediction candidate = lunarAt(index, daysInMonth, observerLatitudeContext,
+                    synodicDays, anomalisticDays, settings, sineLunarInclination);
             if (candidate.present() && candidate.endCalendarTicks() + 1.0E-9D >= calendarTicks
                     && candidate.startCalendarTicks() <= endDay * CelestialMath.TICKS_IN_DAY + 1.0E-9D) {
                 lunar.add(candidate);
             }
-            addVisiblePhase(phases, phaseAt(index, LunarPhaseKind.FULL_MOON, daysInMonth,
-                    hemisphereScale, observerZ, synodicDays, anomalisticDays, settings),
-                    calendarTicks, endDay);
-            addVisiblePhase(phases, phaseAt(index, LunarPhaseKind.NEW_MOON, daysInMonth,
-                    hemisphereScale, observerZ, synodicDays, anomalisticDays, settings),
-                    calendarTicks, endDay);
+            if (includeOrdinaryPhases) {
+                addVisiblePhase(phases, phaseAt(index, LunarPhaseKind.FULL_MOON, daysInMonth,
+                        observerLatitudeContext, synodicDays, settings,
+                        sineLunarInclination),
+                        calendarTicks, endDay);
+                addVisiblePhase(phases, phaseAt(index, LunarPhaseKind.NEW_MOON, daysInMonth,
+                        observerLatitudeContext, synodicDays, settings,
+                        sineLunarInclination),
+                        calendarTicks, endDay);
+            }
         }
         solar.sort(Comparator.comparingDouble(SolarPrediction::greatestCalendarTicks));
         lunar.sort(Comparator.comparingDouble(LunarPrediction::greatestCalendarTicks));
-        phases.sort(Comparator.comparingDouble(LunarPhasePrediction::calendarTicks));
+        if (includeOrdinaryPhases) {
+            phases.sort(Comparator.comparingDouble(LunarPhasePrediction::calendarTicks));
+        }
         return new Timeline(calendarTicks, endDay * CelestialMath.TICKS_IN_DAY,
                 displayLongitude(observerX, hemisphereScale), observerLatitude, solar, lunar,
                 phases);
@@ -259,11 +419,12 @@ public final class EclipsePredictionService {
     private static SolarPrediction nextSolar(double nowDay, int daysInMonth, double daysInYear,
                                              double hemisphereScale, double observerLatitude,
                                              double synodicDays, double anomalisticDays,
-                                             CelestialRuntimeSettings settings) {
+                                             CelestialRuntimeSettings settings,
+                                             double sineLunarInclination) {
         long firstIndex = (long) Math.floor(nowDay / synodicDays - 0.5D);
         for (long index = firstIndex; index < firstIndex + SEARCH_CONJUNCTIONS; index++) {
-            SolarPrediction candidate = solarAt(index, daysInMonth, daysInYear, hemisphereScale,
-                    observerLatitude, synodicDays, anomalisticDays, settings);
+            SolarPrediction candidate = solarAt(index, daysInYear, observerLatitude,
+                    synodicDays, anomalisticDays, settings, sineLunarInclination);
             if (candidate.present() && candidate.endCalendarTicks() + 1.0E-9D >= nowDay
                     * CelestialMath.TICKS_IN_DAY) {
                 return candidate;
@@ -272,24 +433,24 @@ public final class EclipsePredictionService {
         return SolarPrediction.NONE;
     }
 
-    private static SolarPrediction solarAt(long index, int daysInMonth, double daysInYear,
-                                           double hemisphereScale, double observerLatitude,
+    private static SolarPrediction solarAt(long index, double daysInYear,
+                                           double observerLatitude,
                                            double synodicDays, double anomalisticDays,
-                                           CelestialRuntimeSettings settings) {
+                                           CelestialRuntimeSettings settings,
+                                           double sineLunarInclination) {
         SolarEclipseRegion.Event event = SolarEclipseRegion.eventAt(index, daysInYear,
-                synodicDays, settings.nodalYears(), settings.lunarInclinationRadians());
+                synodicDays, settings.nodalYears(), settings.lunarInclinationRadians(),
+                sineLunarInclination);
         if (!event.intersectsWorld()) {
             return SolarPrediction.NONE;
         }
-        double centerZ = zForLatitude(event.greatestLatitude(), hemisphereScale);
-        CelestialMath.Result center = CelestialMath.calculate(new CelestialMath.Input(centerZ,
-                hemisphereScale, event.conjunctionDay() * CelestialMath.TICKS_IN_DAY, daysInMonth,
-                synodicDays, anomalisticDays, settings.nodalYears(),
-                settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale()));
+        double centerCalendarTicks = event.conjunctionDay() * CelestialMath.TICKS_IN_DAY;
+        double moonDistance = CelestialMath.moonDistanceAtCalendarTicks(centerCalendarTicks,
+                anomalisticDays);
         double sunHalf = CelestialDiscGeometry.tangentHalfExtent(
                 CelestialDiscGeometry.sunBodyHalfSize(settings.sunScale()));
         double moonHalf = CelestialDiscGeometry.tangentHalfExtent(
-                CelestialDiscGeometry.moonBodyHalfSize(settings.moonScale(), center.moonDistance()),
+                CelestialDiscGeometry.moonBodyHalfSize(settings.moonScale(), moonDistance),
                 CelestialDiscGeometry.PIXEL_COVER_RADIUS);
         SolarWindow window = scanSolarWindow(event, sunHalf, moonHalf, synodicDays, daysInYear);
         if (!window.present()) {
@@ -301,13 +462,15 @@ public final class EclipsePredictionService {
         BandAccumulator penumbra = new BandAccumulator();
         BandAccumulator umbra = new BandAccumulator();
         double strongest = window.maximumCoverage();
+        double[] latitudeMaximums = SOLAR_LATITUDE_MAXIMUM_SCRATCH.get();
+        SolarEclipseRegion.maximumCoverageAtLatitudeSamples(event, sunHalf, moonHalf,
+                synodicDays, SOLAR_LATITUDE_RADIANS, latitudeMaximums);
         for (int sample = 0; sample <= LATITUDE_SAMPLES; sample++) {
-            double latitude = -Math.PI * 0.5D + Math.PI * sample / LATITUDE_SAMPLES;
+            double latitude = SOLAR_LATITUDE_RADIANS[sample];
             // These are global latitude bands. X has no eclipse authority, so every
             // latitude represents all longitudes; whether the current observer's
             // meridian is in daylight must not erase a globally real contact.
-            double maximum = SolarEclipseRegion.maximumCoverageAtLatitude(event, latitude,
-                    sunHalf, moonHalf, synodicDays);
+            double maximum = latitudeMaximums[sample];
             strongest = Math.max(strongest, maximum);
             partial.accept(latitude, maximum > 0.0D);
             penumbra.accept(latitude, maximum >= 0.5D);
@@ -370,10 +533,12 @@ public final class EclipsePredictionService {
         double contact = sunHalf + moonHalf;
         double halfDuration = Math.atan(contact) * synodicDays / CelestialMath.TAU;
         double maximum = 0.0D;
+        CelestialMath.SolarLatitudeContext solarLatitude =
+                CelestialMath.prepareSolarLatitude(latitudeRadians);
         for (int sample = 0; sample <= 128; sample++) {
             double day = event.conjunctionDay()
                     + (sample / 128.0D * 2.0D - 1.0D) * halfDuration;
-            if (CelestialMath.solarElevationAt(latitudeRadians, day, daysInYear) > 0.0D) {
+            if (CelestialMath.solarElevationAt(solarLatitude, day, daysInYear) > 0.0D) {
                 maximum = Math.max(maximum, SolarEclipseRegion.coverageAt(event, day,
                         latitudeRadians, sunHalf, moonHalf, synodicDays));
             }
@@ -476,27 +641,35 @@ public final class EclipsePredictionService {
     private static double maximumVisibleSolarCoverageAtTime(SolarEclipseRegion.Event event,
                                                              double calendarDays,
                                                              double sunHalf, double moonHalf,
-                                                             double synodicDays,
-                                                             double daysInYear) {
+                                                              double synodicDays,
+                                                              double daysInYear) {
         double maximum = 0.0D;
+        SolarEclipseRegion.PreparedCoverage prepared =
+                SolarEclipseRegion.prepareCoverageAtTime(event, calendarDays,
+                        sunHalf, moonHalf, synodicDays);
+        if (prepared == null) {
+            return maximum;
+        }
+        CelestialMath.SolarTimeContext solarTime =
+                CelestialMath.prepareSolarTime(calendarDays, daysInYear);
         for (int sample = 0; sample <= LATITUDE_SAMPLES; sample++) {
-            double latitude = -Math.PI * 0.5D + Math.PI * sample / LATITUDE_SAMPLES;
-            if (CelestialMath.solarElevationAt(latitude, calendarDays, daysInYear) > 0.0D) {
-                maximum = Math.max(maximum, SolarEclipseRegion.coverageAt(event, calendarDays,
-                        latitude, sunHalf, moonHalf, synodicDays));
+            double latitude = SOLAR_LATITUDE_RADIANS[sample];
+            if (CelestialMath.solarElevationAt(latitude, solarTime) > 0.0D) {
+                maximum = Math.max(maximum, prepared.coverageAtPrepared(latitude));
             }
         }
         return maximum;
     }
 
-    private static LunarPrediction nextLunar(double nowDay, int daysInMonth, double hemisphereScale,
-                                             double observerZ,
+    private static LunarPrediction nextLunar(double nowDay, int daysInMonth,
+                                             CelestialMath.SolarLatitudeContext observerLatitude,
                                              double synodicDays, double anomalisticDays,
-                                             CelestialRuntimeSettings settings) {
+                                             CelestialRuntimeSettings settings,
+                                             double sineLunarInclination) {
         long firstIndex = (long) Math.floor(nowDay / synodicDays);
         for (long index = firstIndex; index < firstIndex + SEARCH_CONJUNCTIONS; index++) {
-            LunarPrediction candidate = lunarAt(index, daysInMonth, hemisphereScale, observerZ,
-                    synodicDays, anomalisticDays, settings);
+            LunarPrediction candidate = lunarAt(index, daysInMonth, observerLatitude,
+                    synodicDays, anomalisticDays, settings, sineLunarInclination);
             if (candidate.present() && candidate.eclipse()
                     && candidate.endCalendarTicks() + 1.0E-9D >= nowDay
                     * CelestialMath.TICKS_IN_DAY) {
@@ -506,10 +679,11 @@ public final class EclipsePredictionService {
         return LunarPrediction.NONE;
     }
 
-    private static LunarPrediction lunarAt(long index, int daysInMonth, double hemisphereScale,
-                                           double observerZ,
+    private static LunarPrediction lunarAt(long index, int daysInMonth,
+                                           CelestialMath.SolarLatitudeContext observerLatitude,
                                            double synodicDays, double anomalisticDays,
-                                           CelestialRuntimeSettings settings) {
+                                           CelestialRuntimeSettings settings,
+                                           double sineLunarInclination) {
         double fullMoonDay = index * synodicDays;
         double scanHalfDays = Math.min(0.75D, synodicDays * 0.08D);
         double maximumUmbra = 0.0D;
@@ -523,18 +697,20 @@ public final class EclipsePredictionService {
         double lastEclipseContact = Double.NaN;
         double firstSupermoonContact = Double.NaN;
         double lastSupermoonContact = Double.NaN;
-        CelestialMath.Result maximumUmbraResult = null;
-        CelestialMath.Result maximumPenumbraResult = null;
+        LunarEclipseState maximumUmbraState = null;
+        LunarEclipseState maximumPenumbraState = null;
         for (int sample = 0; sample <= LUNAR_TIME_SAMPLES; sample++) {
             double day = fullMoonDay - scanHalfDays
                     + 2.0D * scanHalfDays * sample / LUNAR_TIME_SAMPLES;
-            CelestialMath.Result result = CelestialMath.calculate(new CelestialMath.Input(observerZ,
-                    hemisphereScale, day * CelestialMath.TICKS_IN_DAY, daysInMonth,
-                    synodicDays, anomalisticDays, settings.nodalYears(),
-                    settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale()));
-            double penumbraCoverage = result.lunarEclipseRegion().penumbraCoverage();
+            CelestialMath.LunarPredictionSample sampleState =
+                    CelestialMath.lunarPredictionSampleAt(observerLatitude,
+                    day * CelestialMath.TICKS_IN_DAY, daysInMonth, synodicDays,
+                    anomalisticDays, settings.nodalYears(), settings.lunarInclinationRadians(),
+                    settings.moonScale(), sineLunarInclination);
+            LunarEclipseState eclipseState = sampleState.lunarEclipseRegion();
+            double penumbraCoverage = eclipseState.penumbraCoverage();
             boolean eclipseContact = penumbraCoverage > 0.0D;
-            boolean supermoonContact = result.supermoon()
+            boolean supermoonContact = sampleState.supermoon()
                     >= CelestialState.SUPERMOON_STRENGTH_THRESHOLD;
             if (eclipseContact) {
                 if (!Double.isFinite(firstEclipseContact)) {
@@ -548,18 +724,18 @@ public final class EclipsePredictionService {
                 }
                 lastSupermoonContact = day;
             }
-            if (eclipseContact && result.lunarEclipse() > maximumUmbra) {
-                maximumUmbra = result.lunarEclipse();
+            if (eclipseContact && eclipseState.umbraCoverage() > maximumUmbra) {
+                maximumUmbra = eclipseState.umbraCoverage();
                 maximumUmbraDay = day;
-                maximumUmbraResult = result;
+                maximumUmbraState = eclipseState;
             }
             if (eclipseContact && penumbraCoverage > maximumPenumbra) {
                 maximumPenumbra = penumbraCoverage;
                 maximumPenumbraDay = day;
-                maximumPenumbraResult = result;
+                maximumPenumbraState = eclipseState;
             }
             if (supermoonContact) {
-                maximumSupermoon = Math.max(maximumSupermoon, result.supermoon());
+                maximumSupermoon = Math.max(maximumSupermoon, sampleState.supermoon());
                 double fullMoonDistance = Math.abs(day - fullMoonDay);
                 if (fullMoonDistance < bestFullMoonDistance) {
                     bestFullMoonDistance = fullMoonDistance;
@@ -567,7 +743,7 @@ public final class EclipsePredictionService {
                 }
             }
         }
-        boolean eclipse = maximumPenumbra > 0.0D && maximumPenumbraResult != null;
+        boolean eclipse = maximumPenumbra > 0.0D && maximumPenumbraState != null;
         boolean supermoon = maximumSupermoon >= CelestialState.SUPERMOON_STRENGTH_THRESHOLD;
         double firstContact = eclipse ? firstEclipseContact : firstSupermoonContact;
         double lastContact = eclipse ? lastEclipseContact : lastSupermoonContact;
@@ -577,18 +753,19 @@ public final class EclipsePredictionService {
         }
         double scanStep = 2.0D * scanHalfDays / LUNAR_TIME_SAMPLES;
         firstContact = refineLunarPredictionContact(firstContact - scanStep, firstContact, true, eclipse,
-                daysInMonth, hemisphereScale, observerZ, synodicDays, anomalisticDays, settings);
+                daysInMonth, observerLatitude, synodicDays, anomalisticDays, settings,
+                sineLunarInclination);
         lastContact = refineLunarPredictionContact(lastContact, lastContact + scanStep, false, eclipse,
-                daysInMonth, hemisphereScale, observerZ, synodicDays, anomalisticDays, settings);
-        CelestialMath.Result greatestEclipseResult = maximumUmbraResult != null
-                ? maximumUmbraResult : maximumPenumbraResult;
-        double greatestEclipseDay = maximumUmbraResult != null
+                daysInMonth, observerLatitude, synodicDays, anomalisticDays, settings,
+                sineLunarInclination);
+        LunarEclipseState greatestEclipseState = maximumUmbraState != null
+                ? maximumUmbraState : maximumPenumbraState;
+        double greatestEclipseDay = maximumUmbraState != null
                 ? maximumUmbraDay : maximumPenumbraDay;
         CelestialDiscGeometry.AlignedSquare shadow = CelestialDiscGeometry.AlignedSquare.NONE;
         if (eclipse) {
-            var projection = greatestEclipseResult.lunarEclipseRegion();
-            shadow = new CelestialDiscGeometry.AlignedSquare(projection.shadowCenterX(),
-                    projection.shadowCenterY(), projection.shadowRadius(), true);
+            shadow = new CelestialDiscGeometry.AlignedSquare(greatestEclipseState.shadowCenterX(),
+                    greatestEclipseState.shadowCenterY(), greatestEclipseState.shadowRadius(), true);
         }
         LunarEclipseKind kind = lunarKind(maximumUmbra, maximumPenumbra);
         double greatestDay = eclipse ? greatestEclipseDay : supermoonDay;
@@ -602,18 +779,22 @@ public final class EclipsePredictionService {
 
     private static double refineLunarPredictionContact(double low, double high, boolean entering,
                                                        boolean eclipse,
-                                                       int daysInMonth, double hemisphereScale,
-                                                       double observerZ, double synodicDays,
+                                                       int daysInMonth,
+                                                       CelestialMath.SolarLatitudeContext observerLatitude,
+                                                       double synodicDays,
                                                        double anomalisticDays,
-                                                       CelestialRuntimeSettings settings) {
+                                                       CelestialRuntimeSettings settings,
+                                                       double sineLunarInclination) {
         for (int iteration = 0; iteration < SOLAR_REFINEMENT_ITERATIONS; iteration++) {
             double middle = (low + high) * 0.5D;
-            CelestialMath.Result result = CelestialMath.calculate(new CelestialMath.Input(observerZ,
-                    hemisphereScale, middle * CelestialMath.TICKS_IN_DAY, daysInMonth,
-                    synodicDays, anomalisticDays, settings.nodalYears(),
-                    settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale()));
-            boolean active = eclipse ? result.lunarEclipseRegion().penumbraCoverage() > 0.0D
-                    : result.supermoon() >= CelestialState.SUPERMOON_STRENGTH_THRESHOLD;
+            CelestialMath.LunarPredictionSample sample =
+                    CelestialMath.lunarPredictionSampleAt(observerLatitude,
+                    middle * CelestialMath.TICKS_IN_DAY, daysInMonth, synodicDays,
+                    anomalisticDays, settings.nodalYears(), settings.lunarInclinationRadians(),
+                    settings.moonScale(), sineLunarInclination);
+            boolean active = eclipse
+                    ? sample.lunarEclipseRegion().penumbraCoverage() > 0.0D
+                    : sample.supermoon() >= CelestialState.SUPERMOON_STRENGTH_THRESHOLD;
             if (entering == active) {
                 high = middle;
             } else {
@@ -635,10 +816,11 @@ public final class EclipsePredictionService {
     }
 
     private static LunarPhasePrediction phaseAt(long index, LunarPhaseKind kind,
-                                                int daysInMonth, double hemisphereScale,
-                                                double observerZ, double synodicDays,
-                                                double anomalisticDays,
-                                                CelestialRuntimeSettings settings) {
+                                                 int daysInMonth,
+                                                 CelestialMath.SolarLatitudeContext observerLatitude,
+                                                 double synodicDays,
+                                                 CelestialRuntimeSettings settings,
+                                                 double sineLunarInclination) {
         double centerDay = (index + (kind == LunarPhaseKind.NEW_MOON ? 0.5D : 0.0D))
                 * synodicDays;
         double halfWindow = Math.min(CelestialMath.SUPERMOON_FULL_MOON_HALF_WINDOW_DAYS,
@@ -650,11 +832,10 @@ public final class EclipsePredictionService {
         for (int sample = 0; sample <= LUNAR_TIME_SAMPLES; sample++) {
             double day = centerDay - halfWindow
                     + 2.0D * halfWindow * sample / LUNAR_TIME_SAMPLES;
-            CelestialMath.Result result = CelestialMath.calculate(new CelestialMath.Input(observerZ,
-                    hemisphereScale, day * CelestialMath.TICKS_IN_DAY, daysInMonth,
-                    synodicDays, anomalisticDays, settings.nodalYears(),
-                    settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale()));
-            double illumination = result.illuminatedFraction();
+            double illumination = CelestialMath.illuminatedFractionAt(observerLatitude,
+                    day * CelestialMath.TICKS_IN_DAY, daysInMonth,
+                    synodicDays, settings.nodalYears(), settings.lunarInclinationRadians(),
+                    sineLunarInclination);
             boolean phaseReached = kind == LunarPhaseKind.FULL_MOON
                     ? illumination >= 0.995D : illumination <= 0.005D;
             if (!phaseReached) {

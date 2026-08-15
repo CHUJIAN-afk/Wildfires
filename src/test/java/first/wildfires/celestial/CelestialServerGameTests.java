@@ -5,6 +5,7 @@ import first.wildfires.api.celestial.CelestialApi;
 import first.wildfires.api.celestial.CelestialState;
 import first.wildfires.space.celestial.CelestialRegistryRuntime;
 import first.wildfires.space.celestial.CelestialRegistrySnapshot;
+import first.wildfires.space.celestial.CelestialSurfaceBindingResolver;
 import first.wildfires.space.celestial.ExistingCelestialEphemeris;
 import first.wildfires.space.celestial.ObservationContextResolver;
 import first.wildfires.space.SpaceDimensions;
@@ -20,6 +21,7 @@ import first.wildfires.space.content.StationCoreBlockEntity;
 import first.wildfires.space.content.StationCoreService;
 import first.wildfires.space.capsule.ReusableReturnCapsuleEntity;
 import first.wildfires.space.capsule.ReturnCapsuleFuelTank;
+import first.wildfires.space.content.StationIdTapeItem;
 import first.wildfires.space.station.SpaceSavedData;
 import first.wildfires.space.station.StationRecord;
 import first.wildfires.space.station.StationService;
@@ -314,8 +316,82 @@ public final class CelestialServerGameTests {
         assertTrue(snapshot.generation() > initialGeneration,
                 "celestial registry generation did not advance after /reload completed");
         verifyOnlyEarthBindsOverworld(snapshot);
+        ResourceLocation earth = ResourceLocation.fromNamespaceAndPath("wildfires", "earth");
+        CelestialRegistrySnapshot transientlyPoisoned = CelestialRegistrySnapshot.reload(
+                CelestialRegistrySnapshot.empty(), 1L,
+                snapshot.validation().definitions(), java.util.Set.of(), resource -> true);
+        assertTrue(!transientlyPoisoned.validation().get(earth).orElseThrow().landingAvailable(),
+                "regression fixture did not reproduce the transient missing-dimension snapshot");
+        var recoveredSurface = CelestialSurfaceBindingResolver.resolve(
+                level.getServer(), transientlyPoisoned, earth).orElse(null);
+        assertTrue(recoveredSurface != null
+                        && recoveredSurface.level() == level.getServer().overworld()
+                        && recoveredSurface.dimension().equals(Level.OVERWORLD.location()),
+                "live overworld did not override a transient reload-time dimension diagnostic");
+        verifyCommandCreatedStationTapeBindsInOverworld(helper, level);
         prepareTemplate(level);
         helper.succeed();
+    }
+
+    private static void verifyCommandCreatedStationTapeBindsInOverworld(GameTestHelper helper,
+                                                                         ServerLevel level) {
+        var server = level.getServer();
+        UUID owner = UUID.fromString("a4fc259e-ccdb-45e0-b6dd-2c88e12e3db2");
+        var player = FakePlayerFactory.get(server.overworld(),
+                new GameProfile(owner, "wildfires-command-station-owner"));
+        server.overworld().addNewPlayer(player);
+        String name = "Command Surface Binding Station";
+        int created = server.getCommands().performPrefixedCommand(
+                player.createCommandSourceStack().withPermission(4),
+                "wildfires space station create " + name);
+        StationRecord station = SpaceSavedData.get(server).stations().values().stream()
+                .filter(candidate -> candidate.owner().equals(owner) && candidate.name().equals(name))
+                .findFirst().orElse(null);
+        assertTrue(created > 0 && station != null
+                        && station.currentBody().equals(ResourceLocation.fromNamespaceAndPath(
+                        "wildfires", "earth")),
+                "production station create command did not persist an Earth station");
+        int before = countStationTapes(player);
+        int issued = server.getCommands().performPrefixedCommand(
+                player.createCommandSourceStack().withPermission(4),
+                "wildfires space station tape " + station.stationId());
+        ItemStack tape = player.getInventory().items.stream()
+                .filter(stack -> StationIdTapeItem.stationId(stack)
+                        .filter(station.stationId()::equals).isPresent())
+                .findFirst().orElse(ItemStack.EMPTY);
+        assertTrue(issued > 0 && !tape.isEmpty() && countStationTapes(player) == before + 1,
+                "production station tape command did not issue the command-created station tape");
+        BlockPos base = helper.absolutePos(new BlockPos(1, 2, 1));
+        ReusableReturnCapsuleEntity capsule = new ReusableReturnCapsuleEntity(server.overworld(),
+                base.getX() + 0.5D, base.getY(), base.getZ() + 0.5D, owner);
+        assertTrue(server.overworld().addFreshEntity(capsule),
+                "command-created station tape test capsule did not spawn");
+        player.setItemInHand(InteractionHand.MAIN_HAND, tape);
+        InteractionResult applied = first.wildfires.space.capsule.ReturnCapsuleService.applyStationTape(
+                player, capsule, InteractionHand.MAIN_HAND, tape);
+        assertTrue(applied.consumesAction()
+                        && capsule.stationId().filter(station.stationId()::equals).isPresent()
+                        && capsule.capsuleState()
+                        == first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_CLOSING,
+                "command-created station tape was rejected by an overworld reusable capsule");
+        capsule.initializeFuelForTesting(1_000);
+        assertTrue(player.startRiding(capsule, true),
+                "command-created station capsule could not be boarded for its real input edge");
+        assertTrue(first.wildfires.space.capsule.ReturnCapsuleService
+                        .handlePrimaryActionInput(player, capsule, false).isEmpty()
+                        && first.wildfires.space.capsule.ReturnCapsuleService
+                        .handlePrimaryActionInput(player, capsule, true)
+                        .filter(first.wildfires.space.capsule.ReturnCapsuleService.ActionResult.STARTED::equals)
+                        .isPresent()
+                        && capsule.capsuleState()
+                        == first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_LAUNCHING
+                        && capsule.transitionTicket().isPresent(),
+                "real release/press input edge did not launch toward the command-created station");
+        assertTrue(first.wildfires.space.capsule.ReturnCapsuleService
+                        .recoverTransaction(capsule).successful(),
+                "command-created station input test could not roll back its prepared launch");
+        capsule.discard();
+        server.overworld().removePlayerImmediately(player, Entity.RemovalReason.DISCARDED);
     }
 
     @GameTest(template = "celestial_empty", batch = "space_station_persistence", timeoutTicks = 200)
@@ -536,17 +612,17 @@ public final class CelestialServerGameTests {
                         && core.stationId().filter(stationId::equals).isPresent(),
                 "station core was not bound to its authoritative station");
         assertTrue(StationCoreService.isComplete(orbit, corePos)
-                        && StationCoreService.structureOffsets().size() == 17,
-                "station core is not the exact 1+17 three-by-three-by-two structure");
+                        && StationCoreService.structureOffsets().size() == 49,
+                "station core is not the exact 1+49 five-by-five-by-two structure");
         for (BlockPos offset : StationCoreService.structureOffsets()) {
             assertTrue(orbit.getBlockState(corePos.offset(offset))
                             .is(SpaceContentRegister.STATION_STRUCTURE.get()),
                     "station core proxy missing at " + offset);
         }
-        assertTrue(orbit.getBlockState(corePos.east(2)).isAir()
-                        && orbit.getBlockState(corePos.west(2)).isAir()
-                        && orbit.getBlockState(corePos.north(2)).isAir()
-                        && orbit.getBlockState(corePos.south(2)).isAir(),
+        assertTrue(orbit.getBlockState(corePos.east(3)).isAir()
+                        && orbit.getBlockState(corePos.west(3)).isAir()
+                        && orbit.getBlockState(corePos.north(3)).isAir()
+                        && orbit.getBlockState(corePos.south(3)).isAir(),
                 "initial station contains blocks outside its sole core structure");
 
         var coreBlock = SpaceContentRegister.STATION_CORE.get();
@@ -554,8 +630,7 @@ public final class CelestialServerGameTests {
         var corePlayer = FakePlayerFactory.get(orbit,
                 new GameProfile(UUID.fromString("9013bd94-9244-4dad-9ed7-08ecf03029c8"),
                         "wildfires-core-breaker"));
-        assertTrue(coreState.getDestroySpeed(orbit, corePos) < 0.0F
-                        && coreBlock.getDestroyProgress(coreState, corePlayer, orbit, corePos) == 0.0F,
+        assertTrue(coreBlock.getDestroyProgress(coreState, corePlayer, orbit, corePos) == 0.0F,
                 "station core exposed finite mining progress");
         assertTrue(!coreBlock.onDestroyedByPlayer(coreState, orbit, corePos, corePlayer,
                         false, Fluids.EMPTY.defaultFluidState())
@@ -573,6 +648,44 @@ public final class CelestialServerGameTests {
                         corePos.getX() + 0.5D, corePos.getY() + 0.5D,
                         corePos.getZ() + 0.5D, 4.0F, false, Explosion.BlockInteraction.DESTROY)),
                 "station core was destroyed or configured to drop from an explosion");
+
+        // The same block item creates removable NTM-style secondary ports, while the initial
+        // station core above remains immutable. Placement must leave both the 5x5x2 shell and the
+        // capsule volume below it clear.
+        var ownerPlayer = FakePlayerFactory.get(orbit,
+                new GameProfile(owner, "wildfires-secondary-dock-owner"));
+        ownerPlayer.getAbilities().instabuild = true;
+        BlockPos secondaryCore = corePos.east(8);
+        BlockPos constructionAnchor = secondaryCore.below(5);
+        orbit.setBlockAndUpdate(constructionAnchor, Blocks.STONE.defaultBlockState());
+        ItemStack secondaryItem = new ItemStack(SpaceContentRegister.STATION_CORE_ITEM.get());
+        ownerPlayer.setItemInHand(InteractionHand.MAIN_HAND, secondaryItem);
+        InteractionResult placedSecondary = secondaryItem.getItem().useOn(new UseOnContext(
+                orbit, ownerPlayer, InteractionHand.MAIN_HAND, secondaryItem,
+                new BlockHitResult(Vec3.atCenterOf(constructionAnchor).add(0.0D, 0.5D, 0.0D),
+                        Direction.UP, constructionAnchor, false)));
+        assertTrue(placedSecondary.consumesAction()
+                        && StationCoreService.isComplete(orbit, secondaryCore)
+                        && orbit.getBlockEntity(secondaryCore) instanceof StationCoreBlockEntity secondary
+                        && !secondary.primary()
+                        && data.station(stationId).orElseThrow().docks().values().stream()
+                        .anyMatch(dock -> dock.position().equals(secondaryCore)),
+                "secondary station core did not place as a registered 5x5x2 docking point");
+        StationCoreBlockEntity secondary = (StationCoreBlockEntity) orbit.getBlockEntity(secondaryCore);
+        UUID reservedCapsule = UUID.fromString("fcf188ef-a8f7-49b1-b19c-69d084359411");
+        assertTrue(secondary.reserveDock(reservedCapsule)
+                        && secondary.reservedCapsuleId().filter(reservedCapsule::equals).isPresent()
+                        && secondary.dockedCapsuleId().isEmpty()
+                        && !StationCoreService.removeSecondary(orbit, secondaryCore, owner, false)
+                        && StationCoreService.isComplete(orbit, secondaryCore),
+                "occupied secondary docking point could be dismantled");
+        assertTrue(secondary.releaseDockLock(reservedCapsule)
+                        && orbit.getBlockState(secondaryCore).onDestroyedByPlayer(
+                        orbit, secondaryCore, ownerPlayer, false, Fluids.EMPTY.defaultFluidState())
+                        && orbit.getBlockState(secondaryCore).isAir()
+                        && data.station(stationId).orElseThrow().docks().values().stream()
+                        .noneMatch(dock -> dock.position().equals(secondaryCore)),
+                "empty secondary docking point was not atomically dismantled and unregistered");
 
         orbit.setBlockAndUpdate(corePos, Blocks.AIR.defaultBlockState());
         ReusableReturnCapsuleEntity capsule = new ReusableReturnCapsuleEntity(orbit,
@@ -623,6 +736,15 @@ public final class CelestialServerGameTests {
                 "return capsule entity NBT did not preserve fuel or owner");
 
         helper.runAfterDelay(45, () -> {
+            assertTrue(orbit.getBlockState(corePos).isAir(),
+                    "station proxies were polled and rebuilt by a periodic tick scan");
+            for (BlockPos offset : StationCoreService.structureOffsets()) {
+                assertTrue(orbit.getBlockState(corePos.offset(offset))
+                                .is(SpaceContentRegister.STATION_STRUCTURE.get()),
+                        "isolated station proxy was polled and cleared at " + offset);
+            }
+            assertTrue(StationCoreService.ensureCore(server, station),
+                    "explicit station recovery boundary did not rebuild the core");
             assertTrue(orbit.getBlockState(corePos).is(SpaceContentRegister.STATION_CORE.get())
                             && orbit.getBlockEntity(corePos) instanceof StationCoreBlockEntity core
                             && core.stationId().filter(stationId::equals).isPresent(),
@@ -694,6 +816,8 @@ public final class CelestialServerGameTests {
                 "manufactured capsule did not deploy one owner-bound entity and consume the item");
         ReusableReturnCapsuleEntity deployedCapsule = capsules.get(0);
         deployedCapsule.initializeFuelForTesting(2_000);
+        UUID internalTapeStation = UUID.fromString("5f134f91-9341-4958-b865-3ad65d9c3d85");
+        deployedCapsule.setNavigationTape(StationIdTapeItem.createMigrated(internalTapeStation));
         assertTrue(deployedCapsule.hurt(surface.damageSources().playerAttack(player), 1.0F)
                         && deployedCapsule.isRemoved(),
                 "stable unoccupied return capsule could not be broken for recovery");
@@ -702,6 +826,15 @@ public final class CelestialServerGameTests {
                         SpaceContentRegister.REUSABLE_RETURN_CAPSULE_ITEM.get()));
         assertTrue(recoveredDrops.size() == 1, "capsule recovery did not create exactly one item");
         ItemStack recoveredStack = recoveredDrops.get(0).getItem().copy();
+        List<ItemEntity> recoveredTapes = surface.getEntitiesOfClass(ItemEntity.class,
+                deploymentArea, drop -> drop.getItem().is(SpaceContentRegister.STATION_ID_TAPE.get()));
+        assertTrue(recoveredTapes.size() == 1
+                        && StationIdTapeItem.stationId(recoveredTapes.get(0).getItem())
+                        .filter(internalTapeStation::equals).isPresent()
+                        && (recoveredStack.getTag() == null || !recoveredStack.getTag()
+                        .contains("wildfires_capsule_navigation_tape")),
+                "broken capsule did not drop its internal station tape as a separate NTM drive item");
+        recoveredTapes.get(0).discard();
         recoveredDrops.get(0).discard();
         player.setItemInHand(InteractionHand.MAIN_HAND, recoveredStack);
         InteractionResult redeployed = recoveredStack.getItem().useOn(new UseOnContext(
@@ -731,7 +864,7 @@ public final class CelestialServerGameTests {
         helper.succeed();
     }
 
-    @GameTest(template = "celestial_empty", batch = "space_capsule_round_trip", timeoutTicks = 900)
+    @GameTest(template = "celestial_empty", batch = "space_capsule_round_trip", timeoutTicks = 6400)
     public static void reusableCapsuleCompletesAuthoritativeRoundTrip(GameTestHelper helper) {
         var server = helper.getLevel().getServer();
         ServerLevel surface = server.overworld();
@@ -764,6 +897,31 @@ public final class CelestialServerGameTests {
         surface.setBlockAndUpdate(landingBase.below(), Blocks.STONE.defaultBlockState());
         var player = FakePlayerFactory.get(surface, new GameProfile(owner, "wildfires-capsule-pilot"));
         surface.addNewPlayer(player);
+        UUID unknownStation = UUID.fromString("506dcd97-a8bc-4710-b5b4-7ec3f3d4ff19");
+        int beforeTapeCount = countStationTapes(player);
+        String tapePrefix = "wildfires space station tape ";
+        var parsedTapeCommand = server.getCommands().getDispatcher().parse(
+                tapePrefix, player.createCommandSourceStack().withPermission(4));
+        var tapeSuggestions = server.getCommands().getDispatcher()
+                .getCompletionSuggestions(parsedTapeCommand, tapePrefix.length()).join();
+        assertTrue(tapeSuggestions.getList().stream()
+                        .anyMatch(suggestion -> suggestion.getText().equals(stationId.toString())),
+                "station tape command did not suggest the existing station UUID");
+        int rejectedTapeCommand = server.getCommands().performPrefixedCommand(
+                player.createCommandSourceStack().withPermission(4),
+                "wildfires space station tape " + unknownStation);
+        assertTrue(rejectedTapeCommand == 0 && countStationTapes(player) == beforeTapeCount,
+                "unknown station command issued a forged tape");
+        int issuedTapeCommand = server.getCommands().performPrefixedCommand(
+                player.createCommandSourceStack().withPermission(4),
+                "wildfires space station tape " + stationId);
+        ItemStack issuedTape = player.getInventory().items.stream()
+                .filter(stack -> StationIdTapeItem.stationId(stack).filter(stationId::equals).isPresent())
+                .findFirst().orElse(ItemStack.EMPTY);
+        assertTrue(issuedTapeCommand > 0 && !issuedTape.isEmpty()
+                        && countStationTapes(player) == beforeTapeCount + 1,
+                "station tape command did not issue exactly one canonical tape");
+        player.getInventory().removeItem(issuedTape);
         ItemStack manufactured = manufactureReusableCapsule(surface);
         player.setItemInHand(InteractionHand.MAIN_HAND, manufactured);
         BlockPos deploymentSupport = landingBase.below();
@@ -789,7 +947,32 @@ public final class CelestialServerGameTests {
         assertTrue(programmed.consumesAction()
                         && first.wildfires.space.content.StationIdTapeItem.stationId(stationTape)
                         .filter(stationId::equals).isPresent(),
-                "station core did not program an authoritative station-ID tape");
+                "station core root did not program the station-ID tape");
+        BlockPos missingProxy = corePos.offset(StationCoreService.structureOffsets().get(0));
+        BlockPos remainingProxy = StationCoreService.topCenter(corePos);
+        orbit.setBlockAndUpdate(missingProxy, Blocks.AIR.defaultBlockState());
+        ItemStack incompleteTape = new ItemStack(SpaceContentRegister.STATION_ID_TAPE.get());
+        tapePlayer.setItemInHand(InteractionHand.MAIN_HAND, incompleteTape);
+        InteractionResult incomplete = orbit.getBlockState(remainingProxy).use(orbit, tapePlayer,
+                InteractionHand.MAIN_HAND, new BlockHitResult(Vec3.atCenterOf(remainingProxy),
+                Direction.UP, remainingProxy, false));
+        assertTrue(incomplete == InteractionResult.FAIL
+                        && first.wildfires.space.content.StationIdTapeItem.stationId(incompleteTape).isEmpty(),
+                "incomplete station core structure still programmed a station-ID tape");
+        orbit.setBlockAndUpdate(missingProxy, SpaceContentRegister.STATION_STRUCTURE.get()
+                .defaultBlockState());
+        BlockPos isolatedProxy = corePos.east(4);
+        orbit.setBlockAndUpdate(isolatedProxy, SpaceContentRegister.STATION_STRUCTURE.get()
+                .defaultBlockState());
+        ItemStack rejectedTape = new ItemStack(SpaceContentRegister.STATION_ID_TAPE.get());
+        tapePlayer.setItemInHand(InteractionHand.MAIN_HAND, rejectedTape);
+        InteractionResult rejected = orbit.getBlockState(isolatedProxy).use(orbit, tapePlayer,
+                InteractionHand.MAIN_HAND, new BlockHitResult(Vec3.atCenterOf(isolatedProxy),
+                Direction.UP, isolatedProxy, false));
+        assertTrue(rejected == InteractionResult.FAIL
+                        && first.wildfires.space.content.StationIdTapeItem.stationId(rejectedTape).isEmpty(),
+                "isolated station structure proxy guessed a nearby core");
+        orbit.setBlockAndUpdate(isolatedProxy, Blocks.AIR.defaultBlockState());
         player.setItemInHand(InteractionHand.OFF_HAND, stationTape.copy());
         capsule.interact(player, InteractionHand.OFF_HAND);
         assertTrue(capsule.stationId().filter(stationId::equals).isPresent(),
@@ -808,19 +991,178 @@ public final class CelestialServerGameTests {
                 "water-bucket interaction was not an atomic 1000 mB fill");
         assertTrue(player.startRiding(capsule, true), "test pilot could not board the capsule");
         double launchY = capsule.getY();
+        UUID staleDockLock = UUID.fromString("677fe7cd-7da8-4346-a54d-2ffcb44a6bb0");
+        assertTrue(orbit.getBlockEntity(corePos)
+                        instanceof first.wildfires.space.content.StationCoreBlockEntity core
+                        && clearFixtureDockClaim(core)
+                        && core.reserveDock(staleDockLock),
+                "round-trip fixture could not reproduce an orphaned persisted dock lock");
+        BlockPos launchMissingProxy = corePos.offset(StationCoreService.structureOffsets().get(2));
+        orbit.setBlockAndUpdate(launchMissingProxy, Blocks.AIR.defaultBlockState());
         assertTrue(first.wildfires.space.capsule.ReturnCapsuleService
-                        .requestPrimaryAction(player, capsule).successful(),
-                "surface launch request was rejected");
+                        .requestPrimaryAction(player, capsule)
+                        == first.wildfires.space.capsule.ReturnCapsuleService.ActionResult.NO_DOCK
+                        && capsule.fuelMb() == 4_000
+                        && capsule.fuelTank().reservation().isEmpty()
+                        && capsule.transitionTicket().isEmpty()
+                        && capsule.capsuleState()
+                        == first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_CLOSING,
+                "launch without a complete free docking point mutated fuel or flight state");
+        orbit.setBlockAndUpdate(launchMissingProxy, SpaceContentRegister.STATION_STRUCTURE.get()
+                .defaultBlockState());
+        var launchResult = first.wildfires.space.capsule.ReturnCapsuleService
+                .requestPrimaryAction(player, capsule);
+        assertTrue(launchResult.successful(),
+                "surface launch request was rejected: " + launchResult + "; state="
+                        + capsule.capsuleState() + "; armed=" + capsule.primaryActionArmed()
+                        + "; pressed=" + capsule.primaryActionPressed());
 
-        helper.runAfterDelay(50, () -> {
+        helper.runAfterDelay(95, () -> {
             Entity stillSurface = surface.getEntity(capsuleId);
             assertTrue(stillSurface instanceof ReusableReturnCapsuleEntity rising
                             && rising.capsuleState() == first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_LAUNCHING
-                            && rising.getY() > launchY + 20.0D && rising.getY() < launchY + 70.0D,
+                            && rising.getY() > launchY + 220.0D && rising.getY() < launchY + 270.0D,
                     "surface launch did not follow its continuous ascent trajectory");
         });
         helper.runAfterDelay(240, () -> awaitCapsuleDocking(helper, surface, orbit, data,
-                stationId, capsuleId, player, landingBase, orbitChunk, 0));
+                stationId, capsuleId, player, landingBase, orbitChunk, new NtmCapsuleMotionAudit(), 0));
+    }
+
+    @GameTest(template = "celestial_empty", batch = "space_capsule_docked_deployment", timeoutTicks = 240)
+    public static void reusableCapsuleDeploysOnceBelowCompleteCore(GameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        ServerLevel orbit = server.getLevel(SpaceDimensions.ORBIT);
+        assertTrue(orbit != null, "orbit level missing for docked capsule deployment");
+        SpaceSavedData data = SpaceSavedData.get(server);
+        UUID stationId = UUID.fromString("bc66271a-7ab5-477d-8b0a-3ea87618f369");
+        UUID owner = UUID.fromString("28fc4571-f544-409c-bea0-02c6706f63c2");
+        if (data.station(stationId).isEmpty()) {
+            assertTrue(StationService.create(data, stationId, "Docked Deployment Station", owner,
+                    ResourceLocation.fromNamespaceAndPath("wildfires", "earth"),
+                    CelestialRegistryRuntime.current(), server.overworld().getGameTime()).successful(),
+                    "docked deployment station could not be created");
+        }
+        StationRecord station = data.station(stationId).orElseThrow();
+        for (UUID stale : List.copyOf(station.ownedReturnCapsules())) {
+            Entity entity = orbit.getEntity(stale);
+            if (entity != null) entity.discard();
+            StationService.setReturnCapsule(data, stationId, stale, false,
+                    server.overworld().getGameTime());
+        }
+        station = data.station(stationId).orElseThrow();
+        assertTrue(StationCoreService.ensureCore(server, station), "complete docking core unavailable");
+        first.wildfires.space.capsule.ReturnCapsuleService.reconcileDockLocks(server, station);
+        BlockPos core = station.primaryDock().position();
+        var player = FakePlayerFactory.get(orbit,
+                new GameProfile(owner, "wildfires-docked-capsule-installer"));
+        orbit.addNewPlayer(player);
+        ItemStack capsuleItem = new ItemStack(SpaceContentRegister.REUSABLE_RETURN_CAPSULE_ITEM.get());
+        player.setItemInHand(InteractionHand.MAIN_HAND, capsuleItem);
+        BlockPos proxy = core.offset(StationCoreService.structureOffsets().get(0));
+        BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(proxy), Direction.DOWN, proxy, false);
+        InteractionResult deployed = capsuleItem.getItem().useOn(new UseOnContext(
+                orbit, player, InteractionHand.MAIN_HAND, capsuleItem, hit));
+        Vec3 dock = first.wildfires.space.capsule.ReturnCapsuleService.stationDockedPosition(core);
+        List<ReusableReturnCapsuleEntity> capsules = orbit.getEntitiesOfClass(
+                ReusableReturnCapsuleEntity.class,
+                first.wildfires.space.capsule.ReturnCapsuleService.capsuleBoundsAt(dock).inflate(0.1D));
+        assertTrue(deployed.consumesAction() && player.getMainHandItem().isEmpty()
+                        && capsules.size() == 1
+                        && capsules.get(0).capsuleState()
+                        == first.wildfires.space.capsule.ReturnCapsuleState.STATION_DOCKED
+                        && capsules.get(0).stationId().filter(stationId::equals).isPresent()
+                        && capsules.get(0).position().distanceTo(dock) < 0.01D
+                        && data.station(stationId).orElseThrow().ownedReturnCapsules()
+                        .contains(capsules.get(0).getUUID()),
+                "capsule item did not atomically deploy into the bottom docking port");
+        ReusableReturnCapsuleEntity docked = capsules.get(0);
+        docked.setNavigationTape(ItemStack.EMPTY);
+        ItemStack commandTape = StationIdTapeItem.createProgrammed(
+                data.station(stationId).orElseThrow());
+        player.setItemInHand(InteractionHand.OFF_HAND, commandTape);
+        BlockPos topCenter = StationCoreService.topCenter(core);
+        BlockHitResult topHit = new BlockHitResult(Vec3.atCenterOf(topCenter).add(0.0D, 0.5D, 0.0D),
+                Direction.UP, topCenter, false);
+        InteractionResult installedTape = orbit.getBlockState(topCenter).use(
+                orbit, player, InteractionHand.OFF_HAND, topHit);
+        assertTrue(installedTape.consumesAction()
+                        && docked.stationId().filter(stationId::equals).isPresent()
+                        && player.getOffhandItem().isEmpty(),
+                "top-centre core proxy rejected the first correct station-ID tape");
+        IFluidHandler coreFluids = orbit.getBlockEntity(core)
+                .getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.FLUID_HANDLER)
+                .orElseThrow(() -> new AssertionError("station core exposed no Forge fluid input"));
+        assertTrue(StationCoreService.fluidPortOffsets().size() == 12,
+                "station core does not expose exactly twelve NTM fluid interfaces");
+        for (BlockPos offset : StationCoreService.fluidPortOffsets()) {
+            BlockPos portPosition = core.offset(offset);
+            assertTrue(orbit.getBlockEntity(portPosition)
+                            instanceof first.wildfires.space.content.StationFluidPortBlockEntity port
+                            && core.equals(port.corePosition()),
+                    "station fluid interface is missing its constant-time core owner at " + portPosition);
+            IFluidHandler portFluids = orbit.getBlockEntity(portPosition)
+                    .getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.FLUID_HANDLER)
+                    .orElseThrow(() -> new AssertionError("station interface exposed no Forge fluid input"));
+            assertTrue(portFluids.fill(new FluidStack(Fluids.WATER, 1),
+                            IFluidHandler.FluidAction.SIMULATE) == 1
+                            && portFluids.fill(new FluidStack(Fluids.LAVA, 1),
+                            IFluidHandler.FluidAction.SIMULATE) == 0
+                            && portFluids.drain(1, IFluidHandler.FluidAction.EXECUTE).isEmpty(),
+                    "station interface did not remain water-input-only at " + portPosition);
+        }
+        IFluidHandler firstPort = orbit.getBlockEntity(core.offset(
+                        StationCoreService.fluidPortOffsets().get(0)))
+                .getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.FLUID_HANDLER)
+                .orElseThrow(() -> new AssertionError("first station interface has no fluid handler"));
+        assertTrue(coreFluids.fill(new FluidStack(Fluids.LAVA, 1_000),
+                        IFluidHandler.FluidAction.EXECUTE) == 0
+                        && firstPort.fill(new FluidStack(Fluids.WATER, 1_000),
+                        IFluidHandler.FluidAction.EXECUTE) == 1_000
+                        && docked.fuelMb() == 1_000,
+                "one of the twelve station interfaces did not forward Forge water into its physically docked capsule");
+        ItemStack duplicate = new ItemStack(SpaceContentRegister.REUSABLE_RETURN_CAPSULE_ITEM.get());
+        player.setItemInHand(InteractionHand.MAIN_HAND, duplicate);
+        InteractionResult duplicateResult = duplicate.getItem().useOn(new UseOnContext(
+                orbit, player, InteractionHand.MAIN_HAND, duplicate, hit));
+        assertTrue(duplicateResult == InteractionResult.FAIL && duplicate.getCount() == 1
+                        && orbit.getEntitiesOfClass(ReusableReturnCapsuleEntity.class,
+                        first.wildfires.space.capsule.ReturnCapsuleService.capsuleBoundsAt(dock)
+                                .inflate(0.1D)).size() == 1,
+                "occupied docking port consumed or duplicated a second capsule");
+        player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+        InteractionResult boarded = orbit.getBlockState(topCenter).use(
+                orbit, player, InteractionHand.MAIN_HAND, topHit);
+        assertTrue(boarded.consumesAction() && player.getVehicle() == docked,
+                "empty-hand top-centre interaction did not board the docked capsule");
+        Vec3 expectedDismount = first.wildfires.space.capsule.ReturnCapsuleService
+                .stationDismountPosition(core);
+        assertTrue(docked.getDismountLocationForPassenger(player).distanceToSqr(expectedDismount)
+                        < 1.0E-8D
+                        && Math.abs(expectedDismount.y - (core.getY() + 2.0D)) < 1.0E-8D,
+                "station dismount was not placed on the exposed top-centre surface");
+        BlockPos missingProxy = core.offset(StationCoreService.structureOffsets().get(1));
+        assertTrue(orbit.setBlock(missingProxy, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(),
+                net.minecraft.world.level.block.Block.UPDATE_ALL), "test could not remove one core proxy");
+        assertTrue(first.wildfires.space.capsule.ReturnCapsuleService.requestPrimaryAction(player, docked)
+                        == first.wildfires.space.capsule.ReturnCapsuleService.ActionResult.NO_CORE,
+                "return capsule departed from an incomplete station core");
+        assertTrue(docked.capsuleState()
+                        == first.wildfires.space.capsule.ReturnCapsuleState.STATION_DOCKED
+                        && docked.fuelMb() == 1000 && docked.transitionTicket().isEmpty(),
+                "rejected incomplete-core departure mutated capsule state or fuel");
+        assertTrue(StationCoreService.ensureCore(server, data.station(stationId).orElseThrow()),
+                "test could not restore complete docking core");
+        player.stopRiding();
+        capsules.get(0).discard();
+        StationService.setReturnCapsule(data, stationId, capsules.get(0).getUUID(), false,
+                server.overworld().getGameTime());
+        helper.succeed();
+    }
+
+    private static int countStationTapes(ServerPlayer player) {
+        return player.getInventory().items.stream()
+                .filter(stack -> stack.is(SpaceContentRegister.STATION_ID_TAPE.get()))
+                .mapToInt(ItemStack::getCount).sum();
     }
 
     private static ItemStack manufactureReusableCapsule(ServerLevel level) {
@@ -874,17 +1216,33 @@ public final class CelestialServerGameTests {
             assertTrue(created.successful(), "recovery station could not be created");
         }
         StationRecord station = data.station(stationId).orElseThrow();
+        // This GameTest world is intentionally persistent across local runs. Earlier versions
+        // discarded fixture entities without removing their station ownership, eventually filling
+        // MAX_RETURN_CAPSULES and making an otherwise valid recovery transaction fail before it
+        // was exercised. Clear only this test station's fixture ownership and re-read its revision.
+        for (UUID staleCapsule : List.copyOf(station.ownedReturnCapsules())) {
+            var removed = StationService.setReturnCapsule(data, stationId, staleCapsule, false,
+                    server.overworld().getGameTime());
+            assertTrue(removed.successful(),
+                    "stale recovery fixture ownership could not be cleared: "
+                            + removed.status() + " " + removed.message());
+        }
+        station = data.station(stationId).orElseThrow();
         BlockPos corePos = station.primaryDock().position();
         ChunkPos orbitChunk = new ChunkPos(corePos);
         orbit.setChunkForced(orbitChunk.x, orbitChunk.z, true);
         orbit.getChunkAt(corePos);
         assertTrue(StationCoreService.ensureCore(server, station),
                 "recovery station core is unavailable");
+        first.wildfires.space.capsule.ReturnCapsuleService.reconcileDockLocks(server, station);
 
         BlockPos landing = helper.absolutePos(new BlockPos(1, 2, 1));
         ReusableReturnCapsuleEntity sourceCapsule = new ReusableReturnCapsuleEntity(surface,
                 landing.getX() + 0.5D, landing.getY(), landing.getZ() + 0.5D, owner);
         assertTrue(surface.addFreshEntity(sourceCapsule), "source recovery capsule did not spawn");
+        assertTrue(StationService.setReturnCapsule(data, stationId, sourceCapsule.getUUID(), true,
+                server.overworld().getGameTime()).successful(),
+                "source recovery capsule ownership could not be restored");
         sourceCapsule.initializeFuelForTesting(ReturnCapsuleFuelTank.CAPACITY_MB);
         sourceCapsule.bindStation(stationId);
         sourceCapsule.setHomeSurface(Level.OVERWORLD.location(), landing);
@@ -916,6 +1274,9 @@ public final class CelestialServerGameTests {
         ReusableReturnCapsuleEntity targetCapsule = new ReusableReturnCapsuleEntity(orbit,
                 corePos.getX() + 4.5D, corePos.getY() + 1.0D, corePos.getZ() + 0.5D, owner);
         assertTrue(orbit.addFreshEntity(targetCapsule), "target recovery capsule did not spawn");
+        assertTrue(StationService.setReturnCapsule(data, stationId, targetCapsule.getUUID(), true,
+                server.overworld().getGameTime()).successful(),
+                "target recovery capsule ownership could not be restored");
         targetCapsule.initializeFuelForTesting(ReturnCapsuleFuelTank.CAPACITY_MB);
         targetCapsule.bindStation(stationId);
         targetCapsule.setHomeSurface(Level.OVERWORLD.location(), landing);
@@ -954,26 +1315,121 @@ public final class CelestialServerGameTests {
                         && targetCapsule.fuelTank().reservation().isEmpty(),
                 "replayed destination recovery consumed a second bucket");
 
+        assertTrue(StationService.setReturnCapsule(data, stationId, sourceCapsule.getUUID(), false,
+                        server.overworld().getGameTime()).successful()
+                        && StationService.setReturnCapsule(data, stationId, targetCapsule.getUUID(), false,
+                        server.overworld().getGameTime()).successful(),
+                "recovery fixtures could not release station ownership");
         sourceCapsule.discard();
         targetCapsule.discard();
         orbit.setChunkForced(orbitChunk.x, orbitChunk.z, false);
         helper.succeed();
     }
 
+    @GameTest(template = "celestial_empty", batch = "space_capsule_passenger_fuse", timeoutTicks = 240)
+    public static void reusableCapsuleNeverTeleportsASeparatedPassengerBack(GameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        ServerLevel surface = server.overworld();
+        ServerLevel orbit = server.getLevel(SpaceDimensions.ORBIT);
+        assertTrue(orbit != null, "orbit level missing for passenger-fuse test");
+        SpaceSavedData data = SpaceSavedData.get(server);
+        UUID stationId = UUID.fromString("586bd01c-20d4-4986-97b6-f53e7a01fab8");
+        UUID pilotId = UUID.fromString("a3068960-c5b1-4b91-882a-cfc17d32e556");
+        if (data.station(stationId).isEmpty()) {
+            assertTrue(StationService.create(data, stationId, "Passenger Fuse Station", pilotId,
+                    ResourceLocation.fromNamespaceAndPath("wildfires", "earth"),
+                    CelestialRegistryRuntime.current(), server.overworld().getGameTime()).successful(),
+                    "passenger-fuse station could not be created");
+        }
+        StationRecord station = data.station(stationId).orElseThrow();
+        BlockPos core = station.primaryDock().position();
+        orbit.getChunkAt(core);
+        assertTrue(StationCoreService.ensureCore(server, station),
+                "passenger-fuse station core is unavailable");
+        var separatedPilot = FakePlayerFactory.get(orbit,
+                new GameProfile(pilotId, "wildfires-separated-capsule-pilot"));
+        orbit.addNewPlayer(separatedPilot);
+        separatedPilot.moveTo(core.getX() + 8.5D, core.getY(), core.getZ() + 0.5D, 0.0F, 0.0F);
+        Vec3 pilotPosition = separatedPilot.position();
+
+        BlockPos landing = helper.absolutePos(new BlockPos(1, 2, 1));
+        ReusableReturnCapsuleEntity capsule = new ReusableReturnCapsuleEntity(surface,
+                landing.getX() + 0.5D, landing.getY(), landing.getZ() + 0.5D, pilotId);
+        assertTrue(surface.addFreshEntity(capsule), "passenger-fuse capsule did not spawn");
+        capsule.initializeFuelForTesting(ReturnCapsuleFuelTank.CAPACITY_MB);
+        capsule.bindStation(stationId);
+        capsule.setHomeSurface(Level.OVERWORLD.location(), landing);
+        UUID ticketId = UUID.fromString("3faf692a-791d-4144-a760-431b045f20a1");
+        assertTrue(capsule.reserveFuelTrip(ticketId), "passenger-fuse fuel was not reserved");
+        capsule.setTransitionTicket(new first.wildfires.space.capsule.ReturnCapsuleTransitionTicket(
+                ticketId, stationId,
+                first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Direction.TO_STATION,
+                ResourceLocation.fromNamespaceAndPath("wildfires", "earth"),
+                Level.OVERWORLD.location(), landing, SpaceDimensions.ORBIT.location(), core,
+                pilotId, capsule.revision(), server.overworld().getGameTime(),
+                first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Stage.PREPARED));
+        capsule.setCapsuleState(first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_LAUNCHING);
+
+        first.wildfires.space.capsule.ReturnCapsuleService.tick(capsule);
+        long fusedRevision = capsule.revision();
+        first.wildfires.space.capsule.ReturnCapsuleService.tick(capsule);
+        first.wildfires.space.capsule.ReturnCapsuleService.tick(capsule);
+        assertTrue(capsule.capsuleState()
+                        == first.wildfires.space.capsule.ReturnCapsuleState.RECOVERY_REQUIRED
+                        && capsule.transitionTicket().filter(ticket -> ticket.stage()
+                        == first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Stage.RECOVERY).isPresent()
+                        && capsule.revision() == fusedRevision
+                        && capsule.fuelMb() == ReturnCapsuleFuelTank.CAPACITY_MB
+                        && capsule.fuelTank().reservation().filter(ticketId::equals).isPresent(),
+                "separated-passenger transaction did not enter one terminal recovery fuse");
+        assertTrue(separatedPilot.serverLevel() == orbit && separatedPilot.getVehicle() == null
+                        && separatedPilot.position().distanceToSqr(pilotPosition) < 0.0001D,
+                "recovery searched another dimension and teleported/remounted the separated pilot");
+        capsule.discard();
+        orbit.removePlayerImmediately(separatedPilot, Entity.RemovalReason.DISCARDED);
+        helper.succeed();
+    }
+
     private static void awaitCapsuleDocking(GameTestHelper helper, ServerLevel surface,
                                             ServerLevel orbit, SpaceSavedData data, UUID stationId,
                                             UUID capsuleId, ServerPlayer player, BlockPos landingBase,
-                                            ChunkPos orbitChunk, int attempts) {
+                                            ChunkPos orbitChunk, NtmCapsuleMotionAudit motionAudit,
+                                            int attempts) {
+        armWaitingSourceTransfer(surface, capsuleId, player,
+                first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Direction.TO_STATION);
         Entity arrivedEntity = orbit.getEntity(capsuleId);
+        if (arrivedEntity instanceof ReusableReturnCapsuleEntity observed) {
+            motionAudit.observeApproach(observed);
+        }
+        if (arrivedEntity instanceof ReusableReturnCapsuleEntity transfer
+                && transfer.transitionTicket().filter(ticket -> ticket.stage()
+                == first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Stage.REMOUNT_PENDING)
+                .isPresent() && player.getVehicle() == transfer) {
+            var ticket = transfer.transitionTicket().orElseThrow();
+            first.wildfires.space.capsule.ReturnCapsuleService.confirmClientTracking(
+                    player, ticket.ticketId(), transfer.getUUID());
+            assertTrue(transfer.transitionTicket().filter(current -> current.stage()
+                            == first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Stage.TRACKING_CONFIRMED)
+                            .isPresent() && transfer.getDeltaMovement().lengthSqr() == 0.0D,
+                    "tracking ACK alone released the destination flight before client-ready proof");
+            first.wildfires.space.capsule.ReturnCapsuleService.confirmClientReady(
+                    player, ticket.ticketId(), transfer.getUUID());
+        }
         if (!(arrivedEntity instanceof ReusableReturnCapsuleEntity arrived)
                 || arrived.capsuleState() != first.wildfires.space.capsule.ReturnCapsuleState.STATION_DOCKED) {
-            if (attempts < 160) {
+            // This budget covers NTM's altitude-driven surface launch, the client-ready barrier
+            // and the 20-tick wait plus 0.4-block/tick inherited-motion final approach.
+            if (attempts < 2200) {
                 helper.runAfterDelay(1, () -> awaitCapsuleDocking(helper, surface, orbit, data,
-                        stationId, capsuleId, player, landingBase, orbitChunk, attempts + 1));
+                        stationId, capsuleId, player, landingBase, orbitChunk, motionAudit,
+                        attempts + 1));
                 return;
             }
             assertTrue(arrivedEntity instanceof ReusableReturnCapsuleEntity,
-                    "capsule UUID was not preserved into orbit; entity=" + entityIdentity(arrivedEntity));
+                    "capsule UUID was not preserved into orbit; orbitEntity=" + entityIdentity(arrivedEntity)
+                            + "; surfaceEntity=" + entityIdentity(surface.getEntity(capsuleId))
+                            + "; pilotLevel=" + player.serverLevel().dimension().location()
+                            + "; pilotVehicle=" + entityIdentity(player.getVehicle()));
             ReusableReturnCapsuleEntity arrived = (ReusableReturnCapsuleEntity) arrivedEntity;
             throw new AssertionError(capsuleProgress("orbit", arrived, orbit,
                     first.wildfires.space.capsule.ReturnCapsuleState.STATION_DOCKED));
@@ -996,28 +1452,99 @@ public final class CelestialServerGameTests {
                 "orbit capsule firstPassenger=" + entityIdentity(arrived.getFirstPassenger())
                         + ", expected pilot=" + entityIdentity(player)
                         + "; pilotVehicle=" + entityIdentity(player.getVehicle()));
+        motionAudit.assertApproachObserved();
         StationRecord dockedStation = data.station(stationId).orElseThrow();
+        Vec3 expectedDock = first.wildfires.space.capsule.ReturnCapsuleService
+                .stationDockedPosition(dockedStation.primaryDock().position());
+        assertTrue(arrived.position().distanceTo(expectedDock) < 0.01D
+                        && Math.abs(arrived.getBoundingBox().maxY
+                        - (dockedStation.primaryDock().position().getY() + 1.5D)) < 0.001D,
+                "return capsule did not use NTM's coreY + 1.5 - entityHeight docking anchor");
         assertTrue(dockedStation.ownedReturnCapsules().contains(capsuleId)
                         && first.wildfires.space.capsule.ReturnCapsuleService.allDocked(
                         orbit.getServer(), dockedStation),
                 "docked capsule did not satisfy station departure interlock");
-        assertTrue(first.wildfires.space.capsule.ReturnCapsuleService
-                        .requestPrimaryAction(player, arrived).successful(),
-                "station undock request was rejected");
-        helper.runAfterDelay(180, () -> awaitCapsuleLanding(helper, surface, orbit, data,
-                stationId, capsuleId, player, landingBase, orbitChunk, 0));
+        var dockCore = orbit.getBlockEntity(dockedStation.primaryDock().position());
+        assertTrue(dockCore instanceof first.wildfires.space.content.StationCoreBlockEntity core
+                        && core.dockedCapsuleId().filter(capsuleId::equals).isPresent()
+                        && arrived.dockLocked(),
+                "NTM-style core/entity bidirectional dock lock was not committed");
+        helper.runAfterDelay(2, () -> {
+            Entity stableEntity = orbit.getEntity(capsuleId);
+            assertTrue(stableEntity instanceof ReusableReturnCapsuleEntity stable
+                            && stable.transitionTicket().isEmpty()
+                            && first.wildfires.space.capsule.ReturnCapsuleService
+                            .requestPrimaryAction(player, stable)
+                            == first.wildfires.space.capsule.ReturnCapsuleService.ActionResult.BUSY
+                            && stable.fuelMb() == 3_000
+                            && stable.fuelTank().reservation().isEmpty()
+                            && stable.capsuleState()
+                            == first.wildfires.space.capsule.ReturnCapsuleState.STATION_DOCKED,
+                    "arrival press replay automatically started the reverse trip");
+            ReusableReturnCapsuleEntity stable = (ReusableReturnCapsuleEntity) stableEntity;
+            first.wildfires.space.capsule.ReturnCapsuleService.releasePrimaryAction(player, stable);
+            helper.runAfterDelay(2, () -> {
+                Entity armedEntity = orbit.getEntity(capsuleId);
+                assertTrue(armedEntity instanceof ReusableReturnCapsuleEntity,
+                        "docked return capsule disappeared before the requested station undock");
+                ReusableReturnCapsuleEntity armed = (ReusableReturnCapsuleEntity) armedEntity;
+                assertTrue(first.wildfires.space.capsule.ReturnCapsuleService
+                                .requestPrimaryAction(player, armed).successful(),
+                        "release/fresh spacebar press did not start the requested station undock");
+                double beforeUndockY = armed.getY();
+                first.wildfires.space.capsule.ReturnCapsuleService.tick(armed);
+                assertTrue(armed.capsuleState()
+                                == first.wildfires.space.capsule.ReturnCapsuleState.STATION_UNDOCKING
+                                && armed.phaseTicks() == 1
+                                && Math.abs(armed.getY() - (beforeUndockY - 0.4D)) < 1.0E-9D
+                                && Math.abs(armed.flightVelocity() + 0.1D) < 1.0E-6D,
+                        "one authoritative undock tick did not apply NTM -0.1 velocity times motionMult 4");
+                helper.runAfterDelay(20, () -> {
+                    Entity departingEntity = orbit.getEntity(capsuleId);
+                    assertTrue(departingEntity instanceof ReusableReturnCapsuleEntity departing
+                                    && departing.getY() < expectedDock.y,
+                            "station undocking did not move downward from the bottom port");
+                });
+                helper.runAfterDelay(800, () -> awaitCapsuleLanding(helper, surface, orbit, data,
+                        stationId, capsuleId, player, landingBase, orbitChunk, motionAudit, 0));
+            });
+        });
     }
 
     private static void awaitCapsuleLanding(GameTestHelper helper, ServerLevel surface,
                                             ServerLevel orbit, SpaceSavedData data, UUID stationId,
                                             UUID capsuleId, ServerPlayer player, BlockPos landingBase,
-                                            ChunkPos orbitChunk, int attempts) {
+                                            ChunkPos orbitChunk, NtmCapsuleMotionAudit motionAudit,
+                                            int attempts) {
+        armWaitingSourceTransfer(orbit, capsuleId, player,
+                first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Direction.TO_SURFACE);
         Entity landedEntity = surface.getEntity(capsuleId);
+        if (landedEntity instanceof ReusableReturnCapsuleEntity transfer
+                && transfer.transitionTicket().filter(ticket -> ticket.stage()
+                == first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Stage.REMOUNT_PENDING)
+                .isPresent() && player.getVehicle() == transfer) {
+            var ticket = transfer.transitionTicket().orElseThrow();
+            first.wildfires.space.capsule.ReturnCapsuleService.confirmClientTracking(
+                    player, ticket.ticketId(), transfer.getUUID());
+            assertTrue(transfer.transitionTicket().filter(current -> current.stage()
+                            == first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Stage.TRACKING_CONFIRMED)
+                            .isPresent() && transfer.getDeltaMovement().lengthSqr() == 0.0D,
+                    "tracking ACK alone released reentry before client-ready proof");
+            first.wildfires.space.capsule.ReturnCapsuleService.confirmClientReady(
+                    player, ticket.ticketId(), transfer.getUUID());
+        }
+        if (landedEntity instanceof ReusableReturnCapsuleEntity observed) {
+            motionAudit.observeLanding(observed, surface, landingBase);
+        }
         if (!(landedEntity instanceof ReusableReturnCapsuleEntity landed)
-                || landed.capsuleState() != first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_LANDED) {
-            if (attempts < 180) {
+                || landed.capsuleState()
+                != first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_LANDED) {
+            // The reusable-pod law preserves NTM's velocity curve and fourfold inherited motion:
+            // -1 block/tick aloft, then a long proportional flare with a -0.005 minimum sink rate.
+            if (attempts < 1700) {
                 helper.runAfterDelay(1, () -> awaitCapsuleLanding(helper, surface, orbit, data,
-                        stationId, capsuleId, player, landingBase, orbitChunk, attempts + 1));
+                        stationId, capsuleId, player, landingBase, orbitChunk, motionAudit,
+                        attempts + 1));
                 return;
             }
             assertTrue(landedEntity instanceof ReusableReturnCapsuleEntity,
@@ -1044,18 +1571,178 @@ public final class CelestialServerGameTests {
                 "surface capsule firstPassenger=" + entityIdentity(landed.getFirstPassenger())
                         + ", expected pilot=" + entityIdentity(player)
                         + "; pilotVehicle=" + entityIdentity(player.getVehicle()));
+        motionAudit.assertLandingObserved();
         assertTrue(landed.position().distanceTo(new net.minecraft.world.phys.Vec3(
                         landingBase.getX() + 0.5D, landingBase.getY(), landingBase.getZ() + 0.5D)) < 0.01D,
                 "return capsule did not land on its persisted surface endpoint");
         assertTrue(!first.wildfires.space.capsule.ReturnCapsuleService.allDocked(
                         surface.getServer(), data.station(stationId).orElseThrow()),
                 "surface capsule incorrectly passed the station departure interlock");
-        StationService.setReturnCapsule(data, stationId, capsuleId, false,
-                surface.getServer().overworld().getGameTime());
-        landed.discard();
-        surface.removePlayerImmediately(player, Entity.RemovalReason.DISCARDED);
-        orbit.setChunkForced(orbitChunk.x, orbitChunk.z, false);
-        helper.succeed();
+        helper.runAfterDelay(2, () -> {
+            Entity stableEntity = surface.getEntity(capsuleId);
+            assertTrue(stableEntity instanceof ReusableReturnCapsuleEntity,
+                    "surface capsule disappeared before the post-landing input audit");
+            ReusableReturnCapsuleEntity stable = (ReusableReturnCapsuleEntity) stableEntity;
+            assertTrue(stable.transitionTicket().isEmpty()
+                            && first.wildfires.space.capsule.ReturnCapsuleService
+                            .requestPrimaryAction(player, stable)
+                            == first.wildfires.space.capsule.ReturnCapsuleService.ActionResult.BUSY
+                            && stable.fuelMb() == 2_000
+                            && stable.fuelTank().reservation().isEmpty()
+                            && stable.capsuleState()
+                            == first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_LANDED,
+                    "landing press replay skipped NTM LANDED/open-door state or started another ascent");
+            first.wildfires.space.capsule.ReturnCapsuleService.releasePrimaryAction(player, stable);
+            assertTrue(first.wildfires.space.capsule.ReturnCapsuleService
+                            .requestPrimaryAction(player, stable).successful()
+                            && stable.capsuleState()
+                            == first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_CLOSING
+                            && stable.transitionTicket().isEmpty()
+                            && stable.fuelMb() == 2_000,
+                    "fresh input did not reactivate the internal tape as a door-close-only edge");
+            helper.runAfterDelay(2, () -> {
+                StationService.setReturnCapsule(data, stationId, capsuleId, false,
+                        surface.getServer().overworld().getGameTime());
+                stableEntity.discard();
+                surface.removePlayerImmediately(player, Entity.RemovalReason.DISCARDED);
+                orbit.setChunkForced(orbitChunk.x, orbitChunk.z, false);
+                helper.succeed();
+            });
+        });
+    }
+
+    /** Locks the real server entity to one upstream NTM movement integration per game tick. */
+    private static final class NtmCapsuleMotionAudit {
+        private first.wildfires.space.capsule.ReturnCapsuleState previousApproachState;
+        private double previousApproachY;
+        private int previousApproachTicks = -1;
+        private int approachMovingSteps;
+        private int approachWaitingSteps;
+        private first.wildfires.space.capsule.ReturnCapsuleState previousLandingState;
+        private double previousLandingY;
+        private int previousLandingTicks = -1;
+        private int landingSteps;
+
+        void observeApproach(ReusableReturnCapsuleEntity capsule) {
+            var state = capsule.capsuleState();
+            int ticks = capsule.phaseTicks();
+            if (state == first.wildfires.space.capsule.ReturnCapsuleState.STATION_APPROACH
+                    && previousApproachState == state && ticks == previousApproachTicks + 1) {
+                double delta = capsule.getY() - previousApproachY;
+                if (ticks <= 20) {
+                    assertTrue(Math.abs(delta) < 1.0E-9D,
+                            "NTM's 20-tick docking-port wait moved the capsule by " + delta);
+                    approachWaitingSteps++;
+                } else {
+                    assertTrue(Math.abs(delta - 0.4D) < 1.0E-9D
+                                    && Math.abs(capsule.flightVelocity() - 0.1D) < 1.0E-6D,
+                            "one server approach tick moved " + delta
+                                    + " blocks instead of NTM +0.1 velocity times motionMult 4");
+                    approachMovingSteps++;
+                }
+            }
+            previousApproachState = state;
+            previousApproachY = capsule.getY();
+            previousApproachTicks = ticks;
+        }
+
+        void observeLanding(ReusableReturnCapsuleEntity capsule, ServerLevel surface,
+                            BlockPos landingBase) {
+            var state = capsule.capsuleState();
+            int ticks = capsule.phaseTicks();
+            boolean moving = state == first.wildfires.space.capsule.ReturnCapsuleState.REENTRY
+                    || state == first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_LANDING;
+            boolean previousMoving = previousLandingState
+                    == first.wildfires.space.capsule.ReturnCapsuleState.REENTRY
+                    || previousLandingState
+                    == first.wildfires.space.capsule.ReturnCapsuleState.SURFACE_LANDING;
+            if (moving && previousMoving && state == previousLandingState
+                    && ticks == previousLandingTicks + 1) {
+                int targetHeight = surface.getHeight(
+                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                        landingBase.getX(), landingBase.getZ());
+                double expected = net.minecraft.util.Mth.clamp(
+                        (targetHeight - previousLandingY) * 0.01D, -1.0D, -0.005D);
+                double delta = capsule.getY() - previousLandingY;
+                assertTrue(Math.abs(delta - expected
+                                * first.wildfires.space.capsule.ReturnCapsuleService.NTM_MOTION_MULTIPLIER) < 1.0E-8D
+                                && Math.abs(capsule.flightVelocity() - expected) < 1.0E-6D,
+                        "one server landing tick moved " + delta + " with velocity "
+                                + capsule.flightVelocity() + ", expected velocity " + expected
+                                + " times inherited motion multiplier");
+                landingSteps++;
+            }
+            previousLandingState = state;
+            previousLandingY = capsule.getY();
+            previousLandingTicks = ticks;
+        }
+
+        void assertApproachObserved() {
+            assertTrue(approachWaitingSteps > 0 && approachMovingSteps > 40,
+                    "round-trip test did not observe enough NTM docking wait/movement ticks: wait="
+                            + approachWaitingSteps + ", moving=" + approachMovingSteps);
+        }
+
+        void assertLandingObserved() {
+            assertTrue(landingSteps > 100,
+                    "round-trip test did not observe enough NTM terrain-distance landing ticks: "
+                            + landingSteps);
+        }
+    }
+
+    private static void armWaitingSourceTransfer(
+            ServerLevel source, UUID capsuleId, ServerPlayer player,
+            first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Direction direction) {
+        Entity sourceEntity = source.getEntity(capsuleId);
+        if (!(sourceEntity instanceof ReusableReturnCapsuleEntity capsule)) return;
+        var ticket = capsule.transitionTicket().orElse(null);
+        if (ticket == null
+                || ticket.stage() != first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Stage.PREPARED
+                || ticket.direction() != direction) return;
+        boolean atBoundary = direction
+                == first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Direction.TO_STATION
+                ? capsule.capsuleState()
+                == first.wildfires.space.capsule.ReturnCapsuleState.ASCENT_TRANSITION
+                : capsule.capsuleState() == first.wildfires.space.capsule.ReturnCapsuleState.DEORBIT;
+        if (!atBoundary) return;
+
+        Vec3 beforePosition = capsule.position();
+        int beforeFuel = capsule.fuelMb();
+        UUID wrongTicket = UUID.fromString("a4a32781-e0e0-4e40-a8b0-f79e18bd8120");
+        UUID wrongCapsule = UUID.fromString("d503a672-04cc-4d2c-882a-e13b78ac1190");
+        first.wildfires.space.capsule.ReturnCapsuleService.confirmClientArmed(
+                player, wrongTicket, capsuleId);
+        first.wildfires.space.capsule.ReturnCapsuleService.confirmClientArmed(
+                player, ticket.ticketId(), wrongCapsule);
+        first.wildfires.space.capsule.ReturnCapsuleService.confirmClientTracking(
+                player, ticket.ticketId(), capsuleId);
+        assertTrue(capsule.transitionTicket().filter(current -> current.stage()
+                        == first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Stage.PREPARED)
+                        .isPresent()
+                        && player.serverLevel() == source && player.getVehicle() == capsule
+                        && capsule.position().distanceToSqr(beforePosition) < 0.0001D
+                        && capsule.fuelMb() == beforeFuel
+                        && capsule.fuelTank().reservation().filter(ticket.ticketId()::equals).isPresent(),
+                "wrong/early source ACK changed dimension, mount, position, fuel or ticket stage");
+
+        first.wildfires.space.capsule.ReturnCapsuleService.confirmClientArmed(
+                player, ticket.ticketId(), capsuleId);
+        first.wildfires.space.capsule.ReturnCapsuleService.confirmClientArmed(
+                player, ticket.ticketId(), capsuleId);
+        assertTrue(capsule.transitionTicket().filter(current -> current.stage()
+                        == first.wildfires.space.capsule.ReturnCapsuleTransitionTicket.Stage.CLIENT_ARMED)
+                        .isPresent()
+                        && player.serverLevel() == source && player.getVehicle() == capsule
+                        && capsule.position().distanceToSqr(beforePosition) < 0.0001D
+                        && capsule.fuelMb() == beforeFuel
+                        && capsule.fuelTank().reservation().filter(ticket.ticketId()::equals).isPresent(),
+                "valid/idempotent source ACK transferred or mutated the source transaction early");
+    }
+
+    /** Keeps repeated GameTest runs isolated after an earlier process stopped mid-round-trip. */
+    private static boolean clearFixtureDockClaim(
+            first.wildfires.space.content.StationCoreBlockEntity core) {
+        return core.claimedCapsuleId().map(core::releaseDockLock).orElse(true);
     }
 
     private static String capsuleProgress(String label, ReusableReturnCapsuleEntity capsule,

@@ -49,6 +49,18 @@ public record ReturnCapsuleTransitionTicket(
                 expectedCapsuleRevision, createdGameTime, stage);
     }
 
+    /** NTM rewrites its navigation drive when another rocket occupies the descent column. */
+    public ReturnCapsuleTransitionTicket withSurfacePosition(BlockPos surfacePosition) {
+        Objects.requireNonNull(surfacePosition, "surfacePosition");
+        return direction == Direction.TO_STATION
+                ? new ReturnCapsuleTransitionTicket(ticketId, stationId, direction, bodyId,
+                sourceDimension, surfacePosition, targetDimension, targetPosition, passengerId,
+                expectedCapsuleRevision, createdGameTime, stage)
+                : new ReturnCapsuleTransitionTicket(ticketId, stationId, direction, bodyId,
+                sourceDimension, sourcePosition, targetDimension, surfacePosition, passengerId,
+                expectedCapsuleRevision, createdGameTime, stage);
+    }
+
     public ResourceLocation surfaceDimension() {
         return direction == Direction.TO_STATION ? sourceDimension : targetDimension;
     }
@@ -156,7 +168,10 @@ public record ReturnCapsuleTransitionTicket(
     }
 
     public enum Stage {
-        PREPARED("prepared"), TRANSFERRED("transferred"), COMMITTED("committed"),
+        PREPARED("prepared"), CLIENT_ARMED("client_armed"),
+        PLAYER_TRANSFERRED("player_transferred"),
+        VEHICLE_TRANSFERRED("vehicle_transferred"), REMOUNT_PENDING("remount_pending"),
+        TRACKING_CONFIRMED("tracking_confirmed"), TRANSFERRED("transferred"), COMMITTED("committed"),
         ROLLED_BACK("rolled_back"), RECOVERY("recovery");
         private final String id;
         Stage(String id) { this.id = id; }

@@ -71,6 +71,26 @@ public final class StationIdTapeItem extends Item {
         return Optional.of(tag.getUUID(STATION_ID));
     }
 
+    /** Creates one canonical programmed tape for commands and other trusted server-side entry points. */
+    public static ItemStack createProgrammed(StationRecord station) {
+        ItemStack stack = new ItemStack(SpaceContentRegister.STATION_ID_TAPE.get());
+        write(stack, station);
+        return stack;
+    }
+
+    /**
+     * Migration-only writer for capsules saved before the navigation tape became a real internal
+     * slot. Runtime programming must still resolve a live {@link StationRecord}.
+     */
+    public static ItemStack createMigrated(UUID stationId) {
+        ItemStack stack = new ItemStack(SpaceContentRegister.STATION_ID_TAPE.get());
+        CompoundTag tag = stack.getOrCreateTag();
+        tag.putInt(DATA_VERSION, CURRENT_VERSION);
+        tag.putUUID(STATION_ID, stationId);
+        tag.putString(STATION_NAME, stationId.toString());
+        return stack;
+    }
+
     private static void write(ItemStack stack, StationRecord station) {
         CompoundTag tag = stack.getOrCreateTag();
         tag.putInt(DATA_VERSION, CURRENT_VERSION);

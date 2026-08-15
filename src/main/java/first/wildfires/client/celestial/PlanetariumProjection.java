@@ -8,8 +8,6 @@ import first.wildfires.celestial.CelestialEventType;
 import first.wildfires.celestial.EclipsePredictionService.SolarPrediction;
 import first.wildfires.celestial.EclipsePredictionService.Timeline;
 import first.wildfires.celestial.EclipsePredictionService.LunarPrediction;
-import first.wildfires.celestial.EclipsePredictionService.LunarPhaseKind;
-import first.wildfires.celestial.EclipsePredictionService.LunarPhasePrediction;
 import first.wildfires.celestial.SolarEclipseRegion;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,20 +15,54 @@ import java.util.List;
 /** Horizon polar projection and eclipse helpers used by the in-game planetarium screen. */
 final class PlanetariumProjection {
 
-    static final int TIMELINE_ICON_SIZE = 8;
+    private static final int CURRENT_SOLAR_ECLIPSE_BIT = 1 << 0;
+    private static final int CURRENT_NEW_MOON_BIT = 1 << 1;
+    private static final int CURRENT_FULL_MOON_BIT = 1 << 2;
+    private static final int CURRENT_LUNAR_ECLIPSE_BIT = 1 << 3;
+    private static final int CURRENT_BLOOD_MOON_BIT = 1 << 4;
+    private static final int CURRENT_SUPERMOON_BIT = 1 << 5;
+
+    static final int TIMELINE_ICON_SIZE = 4;
     static final int TIMELINE_DISC_SOURCE_SIZE = 8;
     static final int TIMELINE_DISC_SOURCE_U = 12;
     static final int TIMELINE_DISC_SOURCE_V = 12;
     static final int TIMELINE_NEW_MOON_SOURCE_V = 44;
-    static final int TIMELINE_POINTER_LENGTH = 16;
+    static final int TIMELINE_POINTER_LENGTH = 5;
     static final int TIMELINE_POINTER_WIDTH = 1;
     static final int TIMELINE_POINTER_COLOR = 0xFF2D8FB8;
-    static final int TIMELINE_TRACK_GAP = 2;
-    static final int TIMELINE_LABEL_Y = 97;
-    static final int POINTER_TEXTURE_SIZE = 128;
-    static final int MAP_SELECTION_CURSOR_RADIUS = 6;
-    static final int MAP_SELECTION_HOVER_RADIUS = 7;
-    static final int MAP_PLAYER_CURSOR_RADIUS = 3;
+    static final int TIMELINE_SELECTED_COLOR = 0xFF62E7FF;
+    static final int TIMELINE_TRACK_GAP = 1;
+    static final int TIMELINE_LABEL_Y = 37;
+    static final int TIMELINE_LABEL_COLOR = 0xFFFFFF55;
+    static final int INFO_TITLE_COLOR = 0xFFFFFFFF;
+    static final int INFO_PRIMARY_COLOR = 0xFFE6F4FF;
+    static final int INFO_ACCENT_COLOR = 0xFF62E7FF;
+    static final int INFO_SECONDARY_COLOR = 0xFFB8C7E8;
+    static final int INFO_SOLAR_COLOR = 0xFFFF8FA8;
+    static final int INFO_LUNAR_COLOR = 0xFFE2B5FF;
+    static final int INFO_SUPERMOON_COLOR = 0xFF8FC7FF;
+    static final int INFO_BOX_WIDTH = 140;
+    static final int INFO_BOX_HEIGHT = 180;
+    static final int INFO_LINE_HEIGHT = 9;
+    static final int INFO_GROUP_GAP = 1;
+    static final int CLOCK_TEXTURE_X = 148;
+    static final int CLOCK_TEXTURE_Y = 39;
+    static final int CLOCK_TEXTURE_WIDTH = 96;
+    static final int CLOCK_TEXTURE_HEIGHT = 86;
+    static final int POINTER_TEXTURE_WIDTH = 96;
+    static final int POINTER_TEXTURE_HEIGHT = 86;
+    static final double CLOCK_CENTER_SOURCE_X = 47.5D;
+    static final double CLOCK_CENTER_SOURCE_Y = 42.0D;
+    static final double CLOCK_RADIUS_X = 38.0D;
+    static final double CLOCK_RADIUS_Y = 30.0D;
+    static final double POINTER_PIVOT_X = 47.5D;
+    static final double POINTER_PIVOT_Y = 44.0D;
+    static final double POINTER_SHADOW_PIVOT_X = 47.5D;
+    static final double POINTER_SHADOW_PIVOT_Y = 46.0D;
+    static final double POINTER_SHADOW_OFFSET_Y = 1.0D;
+    static final int MAP_SELECTION_CURSOR_RADIUS = 2;
+    static final int MAP_SELECTION_HOVER_RADIUS = 3;
+    static final int MAP_PLAYER_CURSOR_RADIUS = 1;
     static final int MAP_SELECTION_COLOR = 0xFFFFD85A;
     static final int MAP_PLAYER_CURSOR_COLOR = 0xFF62E7FF;
     static final String TIMELINE_SUN_TEXTURE = "minecraft:textures/environment/sun.png";
@@ -38,6 +70,90 @@ final class PlanetariumProjection {
             "minecraft:textures/environment/moon_phases.png";
 
     private PlanetariumProjection() {
+    }
+
+    /** Returns a fresh authored layout for every newly opened planetarium screen. */
+    static FloatingComponentLayout initialFloatingComponentLayout() {
+        return new FloatingComponentLayout(0.0D, 0.0D, 0.0D, 0.0D);
+    }
+
+    /** Exact logical-pixel rectangle shared by timeline rendering, selection and hit testing. */
+    static PixelRect timelineIconBounds(int centerX, int centerY) {
+        int left = centerX - TIMELINE_ICON_SIZE / 2;
+        int top = centerY - TIMELINE_ICON_SIZE / 2;
+        return new PixelRect(left, top, left + TIMELINE_ICON_SIZE,
+                top + TIMELINE_ICON_SIZE);
+    }
+
+    static int timelineGroupCenter(List<Integer> upperLefts, List<Integer> lowerLefts,
+                                   int markerSize) {
+        List<Integer> row = upperLefts != null && !upperLefts.isEmpty()
+                ? upperLefts : lowerLefts;
+        if (row == null || row.isEmpty() || markerSize <= 0) {
+            throw new IllegalArgumentException("Timeline group needs at least one marker");
+        }
+        int firstCenterTwice = row.get(0) * 2 + markerSize;
+        int lastCenterTwice = row.get(row.size() - 1) * 2 + markerSize;
+        return Math.floorDiv(firstCenterTwice + lastCenterTwice, 4);
+    }
+
+    static InputLayer topInputLayer(boolean eventMarker, boolean timelineBody,
+                                    boolean clockBody, boolean mapBody) {
+        if (eventMarker) {
+            return InputLayer.EVENT_MARKER;
+        }
+        if (timelineBody) {
+            return InputLayer.TIMELINE;
+        }
+        if (clockBody) {
+            return InputLayer.CLOCK;
+        }
+        return mapBody ? InputLayer.MAP : InputLayer.NONE;
+    }
+
+    /** Maps a unit-clock fraction onto the actual elliptical dial used by the pixel asset. */
+    static Point ellipsePoint(double fraction, double centerX, double centerY,
+                              double radiusX, double radiusY) {
+        if (!Double.isFinite(fraction) || !Double.isFinite(centerX)
+                || !Double.isFinite(centerY) || !Double.isFinite(radiusX)
+                || !Double.isFinite(radiusY) || radiusX <= 0.0D || radiusY <= 0.0D) {
+            return Point.HIDDEN;
+        }
+        double angle = fraction * CelestialMath.TAU - Math.PI * 0.5D;
+        return new Point(centerX + Math.cos(angle) * radiusX,
+                centerY + Math.sin(angle) * radiusY, true);
+    }
+
+    /** Applies the same anisotropic ellipse mapping to every vertex of the pointer texture. */
+    static Point ellipsePointerVertex(double sourceX, double sourceY, double fraction,
+                                      double centerX, double centerY) {
+        return ellipsePointerVertex(sourceX, sourceY, fraction, centerX, centerY,
+                POINTER_PIVOT_X, POINTER_PIVOT_Y, 0.0D);
+    }
+
+    /** Normalizes the authored two-pixel shadow offset, then places it one logical pixel lower. */
+    static Point ellipsePointerShadowVertex(double sourceX, double sourceY, double fraction,
+                                            double centerX, double centerY) {
+        return ellipsePointerVertex(sourceX, sourceY, fraction, centerX, centerY,
+                POINTER_SHADOW_PIVOT_X, POINTER_SHADOW_PIVOT_Y, POINTER_SHADOW_OFFSET_Y);
+    }
+
+    private static Point ellipsePointerVertex(double sourceX, double sourceY, double fraction,
+                                               double centerX, double centerY,
+                                               double pivotX, double pivotY,
+                                               double screenOffsetY) {
+        if (!Double.isFinite(sourceX) || !Double.isFinite(sourceY)) {
+            return Point.HIDDEN;
+        }
+        double localX = sourceX - pivotX;
+        double localY = sourceY - pivotY;
+        double angle = fraction * CelestialMath.TAU - Math.PI * 0.5D;
+        double cosine = Math.cos(angle);
+        double sine = Math.sin(angle);
+        double rotatedX = cosine * localX - sine * localY;
+        double rotatedY = sine * localX + cosine * localY;
+        return new Point(centerX + rotatedX,
+                centerY + rotatedY * CLOCK_RADIUS_Y / CLOCK_RADIUS_X + screenOffsetY, true);
     }
 
     static Point project(CelestialVector direction, double centerX, double centerY, double radius) {
@@ -124,6 +240,7 @@ final class PlanetariumProjection {
         return clamp((calendarTicks - timeline.startCalendarTicks()) / span, 0.0D, 1.0D);
     }
 
+
     static SolarPrediction selectSolar(Timeline timeline, long conjunctionIndex) {
         if (timeline == null) {
             return SolarPrediction.NONE;
@@ -140,17 +257,6 @@ final class PlanetariumProjection {
         return timeline.lunar().stream()
                 .filter(candidate -> candidate.fullMoonIndex() == fullMoonIndex)
                 .findFirst().orElse(LunarPrediction.NONE);
-    }
-
-    static LunarPhasePrediction selectPhase(Timeline timeline, long phaseIndex,
-                                             LunarPhaseKind kind) {
-        if (timeline == null || kind == null) {
-            return LunarPhasePrediction.NONE;
-        }
-        return timeline.phases().stream()
-                .filter(candidate -> candidate.phaseIndex() == phaseIndex
-                        && candidate.kind() == kind)
-                .findFirst().orElse(LunarPhasePrediction.NONE);
     }
 
     static double maximumGlobalSolarCoverage(SolarPrediction prediction, double latitudeRadians) {
@@ -225,25 +331,55 @@ final class PlanetariumProjection {
 
     /** Maps the public API snapshot to UI rows; blood moon replaces the lunar-eclipse row. */
     static List<CelestialEventType> currentEventTypes(CelestialEventState events) {
+        return currentEventTypes(currentEventMask(events));
+    }
+
+    /** Allocation-free snapshot used by the screen's mandatory per-tick public-API check. */
+    static int currentEventMask(CelestialEventState events) {
         if (events == null) {
+            return 0;
+        }
+        int mask = 0;
+        if (events.solarEclipseVisible()) {
+            mask |= CURRENT_SOLAR_ECLIPSE_BIT;
+        }
+        if (events.newMoon()) {
+            mask |= CURRENT_NEW_MOON_BIT;
+        }
+        if (events.fullMoon()) {
+            mask |= CURRENT_FULL_MOON_BIT;
+        }
+        if (events.bloodMoonVisible()) {
+            mask |= CURRENT_BLOOD_MOON_BIT;
+        } else if (events.lunarEclipseVisible()) {
+            mask |= CURRENT_LUNAR_ECLIPSE_BIT;
+        }
+        if (events.supermoonVisible()) {
+            mask |= CURRENT_SUPERMOON_BIT;
+        }
+        return mask;
+    }
+
+    static List<CelestialEventType> currentEventTypes(int mask) {
+        if (mask == 0) {
             return List.of();
         }
         List<CelestialEventType> active = new ArrayList<>(5);
-        if (events.solarEclipseVisible()) {
+        if ((mask & CURRENT_SOLAR_ECLIPSE_BIT) != 0) {
             active.add(CelestialEventType.SOLAR_ECLIPSE);
         }
-        if (events.newMoon()) {
+        if ((mask & CURRENT_NEW_MOON_BIT) != 0) {
             active.add(CelestialEventType.NEW_MOON);
         }
-        if (events.fullMoon()) {
+        if ((mask & CURRENT_FULL_MOON_BIT) != 0) {
             active.add(CelestialEventType.FULL_MOON);
         }
-        if (events.bloodMoonVisible()) {
+        if ((mask & CURRENT_BLOOD_MOON_BIT) != 0) {
             active.add(CelestialEventType.BLOOD_MOON);
-        } else if (events.lunarEclipseVisible()) {
+        } else if ((mask & CURRENT_LUNAR_ECLIPSE_BIT) != 0) {
             active.add(CelestialEventType.LUNAR_ECLIPSE);
         }
-        if (events.supermoonVisible()) {
+        if ((mask & CURRENT_SUPERMOON_BIT) != 0) {
             active.add(CelestialEventType.SUPERMOON);
         }
         return List.copyOf(active);
@@ -292,9 +428,9 @@ final class PlanetariumProjection {
 
     /**
      * Packs exceptional-event TFC-day groups while keeping one shared pointer for every such day.
-     * Icons within each upper/lower row are centered around that pointer; neighboring day groups
-     * are shifted as little as possible to keep their widest rows from overlapping. Ordinary full
-     * and new Moon phase markers do not enter these groups; they use {@link #timelineAxisMarker}.
+     * The pointer remains at the real timeline coordinate. Icons for one day are centered around
+     * it. The caller deliberately excludes ordinary full/new Moon predictions, so the complete
+     * 400-day exceptional-event axis remains sparse enough for one finite brass-slot lane.
      */
     static List<TimelineDayLayout> timelineDayLayouts(List<TimelineDaySeed> seeds,
                                                        int markerSize, int markerGap,
@@ -306,12 +442,10 @@ final class PlanetariumProjection {
             throw new IllegalArgumentException("Invalid timeline day-group bounds");
         }
         int count = seeds.size();
-        int[] halfExtents = new int[count];
-        int[] offsets = new int[count];
-        double minimumBase = Double.NEGATIVE_INFINITY;
-        double maximumBase = Double.POSITIVE_INFINITY;
         long previousDay = Long.MIN_VALUE;
         int previousCenter = Integer.MIN_VALUE;
+        int[] widths = new int[count];
+        int[] lefts = new int[count];
         for (int index = 0; index < count; index++) {
             TimelineDaySeed seed = seeds.get(index);
             if (seed == null || seed.upperCount() < 0 || seed.lowerCount() < 0
@@ -323,61 +457,50 @@ final class PlanetariumProjection {
             }
             int width = Math.max(rowWidth(seed.upperCount(), markerSize, markerGap),
                     rowWidth(seed.lowerCount(), markerSize, markerGap));
-            halfExtents[index] = width / 2;
-            if (index > 0) {
-                offsets[index] = offsets[index - 1] + halfExtents[index - 1]
-                        + markerGap + halfExtents[index];
+            int halfExtent = width / 2;
+            if (width > maximumRight - minimumLeft) {
+                throw new IllegalArgumentException("Timeline day group is wider than its bounds");
             }
-            minimumBase = Math.max(minimumBase,
-                    minimumLeft + halfExtents[index] - offsets[index]);
-            maximumBase = Math.min(maximumBase,
-                    maximumRight - halfExtents[index] - offsets[index]);
+            int pointerX = (int) Math.round(clamp(seed.desiredCenter(),
+                    minimumLeft + halfExtent, maximumRight - halfExtent));
+            int left = pointerX - halfExtent;
+            if (index > 0) {
+                left = Math.max(left, lefts[index - 1] + widths[index - 1] + markerGap);
+            }
+            widths[index] = width;
+            lefts[index] = left;
             previousDay = seed.day();
             previousCenter = seed.desiredCenter();
         }
-        if (minimumBase > maximumBase) {
-            throw new IllegalArgumentException("Timeline is too narrow for distinct day groups");
-        }
 
-        List<IsotonicBlock> blocks = new ArrayList<>();
-        for (int index = 0; index < count; index++) {
-            blocks.add(new IsotonicBlock(index, index,
-                    seeds.get(index).desiredCenter() - offsets[index], 1));
-            while (blocks.size() >= 2) {
-                IsotonicBlock right = blocks.get(blocks.size() - 1);
-                IsotonicBlock left = blocks.get(blocks.size() - 2);
-                if (left.mean() <= right.mean()) {
-                    break;
-                }
-                blocks.remove(blocks.size() - 1);
-                blocks.set(blocks.size() - 1, left.merge(right));
+        if (lefts[count - 1] + widths[count - 1] > maximumRight) {
+            lefts[count - 1] = maximumRight - widths[count - 1];
+            for (int index = count - 2; index >= 0; index--) {
+                lefts[index] = Math.min(lefts[index],
+                        lefts[index + 1] - markerGap - widths[index]);
             }
-        }
-        double[] fitted = new double[count];
-        for (IsotonicBlock block : blocks) {
-            for (int index = block.firstIndex(); index <= block.lastIndex(); index++) {
-                fitted[index] = block.mean();
+            if (lefts[0] < minimumLeft) {
+                lefts[0] = minimumLeft;
+                for (int index = 1; index < count; index++) {
+                    lefts[index] = Math.max(lefts[index],
+                            lefts[index - 1] + widths[index - 1] + markerGap);
+                }
             }
         }
 
         List<TimelineDayLayout> layouts = new ArrayList<>(count);
         for (int index = 0; index < count; index++) {
             TimelineDaySeed seed = seeds.get(index);
-            double base = clamp(fitted[index], minimumBase, maximumBase);
-            int pointerX = (int) Math.round(base + offsets[index]);
-            layouts.add(new TimelineDayLayout(seed.day(), pointerX,
-                    rowLefts(pointerX, seed.upperCount(), markerSize, markerGap),
-                    rowLefts(pointerX, seed.lowerCount(), markerSize, markerGap)));
+            int layoutCenter = lefts[index] + widths[index] / 2;
+            List<Integer> upperLefts = rowLefts(layoutCenter, seed.upperCount(),
+                    markerSize, markerGap);
+            List<Integer> lowerLefts = rowLefts(layoutCenter, seed.lowerCount(),
+                    markerSize, markerGap);
+            int pointerX = timelineGroupCenter(upperLefts, lowerLefts, markerSize);
+            layouts.add(new TimelineDayLayout(seed.day(), pointerX, 0,
+                    upperLefts, lowerLefts));
         }
         return List.copyOf(layouts);
-    }
-
-    /** Centers an ordinary phase marker directly on the timeline axis without a pointer. */
-    static TimelineAxisMarker timelineAxisMarker(int centerX, int axisY, int markerSize) {
-        if (markerSize <= 0) {
-            throw new IllegalArgumentException("Timeline axis marker size must be positive");
-        }
-        return new TimelineAxisMarker(centerX - markerSize / 2, axisY - markerSize / 2);
     }
 
     private static int rowWidth(int count, int markerSize, int markerGap) {
@@ -405,9 +528,31 @@ final class PlanetariumProjection {
         static final Point HIDDEN = new Point(0.0D, 0.0D, false);
     }
 
+    record PixelRect(int left, int top, int right, int bottom) {
+        int width() {
+            return right - left;
+        }
+
+        int height() {
+            return bottom - top;
+        }
+
+        boolean contains(double x, double y) {
+            return x >= left && x < right && y >= top && y < bottom;
+        }
+    }
+
     enum TimelineLunarMarkerKind {
         ECLIPSE,
         SUPERMOON
+    }
+
+    enum InputLayer {
+        EVENT_MARKER,
+        TIMELINE,
+        CLOCK,
+        MAP,
+        NONE
     }
 
     record TimelineLunarMarker(LunarPrediction prediction, TimelineLunarMarkerKind kind) {}
@@ -416,10 +561,11 @@ final class PlanetariumProjection {
 
     record TimelineDaySeed(long day, int desiredCenter, int upperCount, int lowerCount) {}
 
-    record TimelineDayLayout(long day, int pointerX, List<Integer> upperLefts,
+    record TimelineDayLayout(long day, int pointerX, int lane, List<Integer> upperLefts,
                              List<Integer> lowerLefts) {}
 
-    record TimelineAxisMarker(int left, int top) {}
+    record FloatingComponentLayout(double timelineOffsetX, double timelineOffsetY,
+                                   double clockOffsetX, double clockOffsetY) {}
 
     record MapSelection(double longitudeRadians, double latitudeRadians, boolean present) {
         static final MapSelection NONE = new MapSelection(0.0D, 0.0D, false);
@@ -456,14 +602,45 @@ final class PlanetariumProjection {
         }
     }
 
-    private record IsotonicBlock(int firstIndex, int lastIndex, double total, int weight) {
-        double mean() {
-            return total / weight;
+    /** Non-persistent screen-space drag lifecycle for one floating planetarium component. */
+    record ComponentDragState(boolean dragging, double pressX, double pressY,
+                              double originOffsetX, double originOffsetY) {
+        static final ComponentDragState NONE = new ComponentDragState(false,
+                0.0D, 0.0D, 0.0D, 0.0D);
+
+        ComponentDragState begin(double mouseX, double mouseY,
+                                 double componentX, double componentY,
+                                 double componentWidth, double componentHeight,
+                                 double offsetX, double offsetY) {
+            boolean inside = Double.isFinite(mouseX) && Double.isFinite(mouseY)
+                    && Double.isFinite(componentX) && Double.isFinite(componentY)
+                    && componentWidth > 0.0D && componentHeight > 0.0D
+                    && mouseX >= componentX && mouseX <= componentX + componentWidth
+                    && mouseY >= componentY && mouseY <= componentY + componentHeight;
+            return inside ? new ComponentDragState(true, mouseX, mouseY, offsetX, offsetY) : NONE;
         }
 
-        IsotonicBlock merge(IsotonicBlock other) {
-            return new IsotonicBlock(firstIndex, other.lastIndex, total + other.total,
-                    weight + other.weight);
+        Point drag(double mouseX, double mouseY, double scale,
+                   double baseScreenX, double baseScreenY,
+                   double componentWidth, double componentHeight,
+                   int viewportWidth, int viewportHeight) {
+            if (!dragging || !Double.isFinite(mouseX) || !Double.isFinite(mouseY)
+                    || !Double.isFinite(scale) || !(scale > 0.0D)) {
+                return Point.HIDDEN;
+            }
+            double wantedOffsetX = originOffsetX + (mouseX - pressX) / scale;
+            double wantedOffsetY = originOffsetY + (mouseY - pressY) / scale;
+            double minimumOffsetX = -baseScreenX / scale;
+            double minimumOffsetY = -baseScreenY / scale;
+            double maximumOffsetX = (viewportWidth - componentWidth - baseScreenX) / scale;
+            double maximumOffsetY = (viewportHeight - componentHeight - baseScreenY) / scale;
+            return new Point(clamp(wantedOffsetX, minimumOffsetX, maximumOffsetX),
+                    clamp(wantedOffsetY, minimumOffsetY, maximumOffsetY), true);
+        }
+
+        ComponentDragState release() {
+            return NONE;
         }
     }
+
 }

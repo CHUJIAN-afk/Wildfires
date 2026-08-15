@@ -14,15 +14,15 @@ import first.wildfires.space.capsule.ReturnCapsuleService;
 
 import java.util.function.Supplier;
 
-public record PlayerInputPacket() implements ICustomPacketPayload {
+public record PlayerInputPacket(boolean pressed) implements ICustomPacketPayload {
 
     public PlayerInputPacket(FriendlyByteBuf buffer) {
-        this();
+        this(buffer.readBoolean());
     }
 
     @Override
     public void encode(FriendlyByteBuf buffer) {
-
+        buffer.writeBoolean(pressed);
     }
 
     @Override
@@ -33,13 +33,14 @@ public record PlayerInputPacket() implements ICustomPacketPayload {
                 Entity vehicle = player.getVehicle();
                 if (vehicle != null) {
                     if (vehicle instanceof ReusableReturnCapsuleEntity capsule) {
-                        ReturnCapsuleService.ActionResult result =
-                                ReturnCapsuleService.requestPrimaryAction(player, capsule);
-                        if (!result.successful()) {
-                            player.displayClientMessage(Component.translatable(result.translationKey()), true);
-                        }
+                        ReturnCapsuleService.handlePrimaryActionInput(player, capsule, pressed)
+                                .filter(result -> !result.successful())
+                                .ifPresent(result -> player.displayClientMessage(
+                                        Component.translatable(result.translationKey()), true));
                         return;
                     }
+                    ReturnCapsuleService.recordPrimaryActionInput(player, pressed);
+                    if (!pressed) return;
                     ResourceLocation location = ForgeRegistries.ENTITY_TYPES.getKey(vehicle.getType());
                     if (location != null) {
                         String string = location.toString();
@@ -50,6 +51,8 @@ public record PlayerInputPacket() implements ICustomPacketPayload {
                             }
                         }
                     }
+                } else {
+                    ReturnCapsuleService.recordPrimaryActionInput(player, pressed);
                 }
             }
         });

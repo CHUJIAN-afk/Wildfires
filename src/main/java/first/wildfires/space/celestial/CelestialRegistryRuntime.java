@@ -6,12 +6,15 @@ import net.minecraft.core.Registry;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.AddReloadListenerEvent;
 import net.minecraftforge.event.server.ServerStoppedEvent;
+import net.minecraftforge.server.ServerLifecycleHooks;
 import org.slf4j.Logger;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -59,8 +62,7 @@ public final class CelestialRegistryRuntime {
         Registry<CelestialDefinition> registry = CelestialDefinitionRegistry.get(registryAccess);
         Map<ResourceLocation, CelestialDefinition> definitions = new LinkedHashMap<>();
         registry.entrySet().forEach(entry -> definitions.put(entry.getKey().location(), entry.getValue()));
-        Set<ResourceLocation> existingDimensions = Set.copyOf(
-                registryAccess.registryOrThrow(Registries.DIMENSION).keySet());
+        Set<ResourceLocation> existingDimensions = existingDimensions(registryAccess);
 
         CelestialRegistrySnapshot snapshot;
         synchronized (LOCK) {
@@ -87,6 +89,19 @@ public final class CelestialRegistryRuntime {
         LOGGER.info("Loaded {} Wildfires celestial definitions as generation {} ({} removed)",
                 snapshot.validation().definitions().size(), snapshot.generation(),
                 snapshot.removedDefinitions().size());
+    }
+
+    private static Set<ResourceLocation> existingDimensions(RegistryAccess registryAccess) {
+        Set<ResourceLocation> dimensions = new LinkedHashSet<>(
+                registryAccess.registryOrThrow(Registries.DIMENSION).keySet());
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        if (server != null) {
+            // Forge's integrated-server /reload can present an empty dynamic dimension registry
+            // here while the real ServerLevels remain alive. Preserve the live server as the
+            // authority so Earth does not lose minecraft:overworld until the next restart.
+            server.getAllLevels().forEach(level -> dimensions.add(level.dimension().location()));
+        }
+        return Set.copyOf(dimensions);
     }
 
     private static void onServerStopped(ServerStoppedEvent event) {

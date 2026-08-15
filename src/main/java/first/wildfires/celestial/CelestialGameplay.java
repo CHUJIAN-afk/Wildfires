@@ -35,41 +35,47 @@ public final class CelestialGameplay {
             cache.intensities.clear();
         }
         long chunkKey = ChunkPos.asLong(position.getX() >> 4, position.getZ() >> 4);
-        if (cache.intensities.containsKey(chunkKey)) {
-            return cache.intensities.get(chunkKey);
+        double cached = cache.intensities.get(chunkKey);
+        if (cached != LevelCache.MISSING_INTENSITY) {
+            return cached;
         }
-        ChunkPos chunk = new ChunkPos(chunkKey);
-        Vec3 observer = new Vec3(chunk.getMiddleBlockX(), position.getY(), chunk.getMiddleBlockZ());
-        double intensity = calculateVisibleBloodMoon(level, observer, cache.overworldFrame);
+        double intensity;
+        if (cache.overworldFrame != null) {
+            double observerZ = (ChunkPos.getZ(chunkKey) << 4) + 8.0D;
+            intensity = cache.overworldFrame.visibleBloodMoonAt(observerZ);
+        } else {
+            double observerX = (ChunkPos.getX(chunkKey) << 4) + 8.0D;
+            double observerZ = (ChunkPos.getZ(chunkKey) << 4) + 8.0D;
+            Vec3 observer = new Vec3(observerX, position.getY(), observerZ);
+            intensity = calculateVisibleBloodMoon(level, observer);
+        }
         cache.intensities.put(chunkKey, intensity);
         return intensity;
     }
 
-    private static double calculateVisibleBloodMoon(ServerLevel level, Vec3 observer,
-                                                     OverworldCelestialProvider.FrameContext overworldFrame) {
-        if (overworldFrame != null) {
-            CelestialMath.Result result = overworldFrame.frameAt(observer.z).result();
-            return CelestialGameplayRules.visibleBloodMoon(result.bloodMoon(), result.moonElevation(),
-                    result.solarElevation());
-        }
+    private static double calculateVisibleBloodMoon(ServerLevel level, Vec3 observer) {
         CelestialState state = CelestialApi.state(level, observer, 0.0F).orElse(null);
         return state == null || !state.visibleBloodMoon() ? 0.0D : state.bloodMoon();
     }
 
     public static boolean allowsSurfaceMonster(EntityType<?> type) {
-        var configured = CelestialConfig.bloodMoonSurfaceMonsterIds();
-        if (configured.isEmpty()) {
+        CelestialConfig.SurfaceMonsterIdFilter filter = CelestialConfig.surfaceMonsterIdFilter();
+        if (filter.unrestricted()) {
             return true;
         }
         ResourceLocation id = BuiltInRegistries.ENTITY_TYPE.getKey(type);
-        String text = id.toString();
-        return configured.stream().anyMatch(text::equals);
+        return filter.allows(id);
     }
 
     private static final class LevelCache {
+        private static final double MISSING_INTENSITY = -1.0D;
         private long calendarTick = Long.MIN_VALUE;
         private CelestialRuntimeSettings settings;
         private OverworldCelestialProvider.FrameContext overworldFrame;
         private final Long2DoubleOpenHashMap intensities = new Long2DoubleOpenHashMap();
+
+        private LevelCache() {
+            intensities.defaultReturnValue(MISSING_INTENSITY);
+        }
     }
 }

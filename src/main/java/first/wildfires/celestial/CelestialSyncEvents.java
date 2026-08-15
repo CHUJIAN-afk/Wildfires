@@ -38,8 +38,9 @@ public final class CelestialSyncEvents {
 
     private static void sync(net.minecraft.world.entity.player.Player player) {
         if (player instanceof ServerPlayer serverPlayer) {
-            new CelestialSettingsSyncPacket(CelestialConfig.serverSettings().withOrbitalPhases(
-                    CelestialEphemerisSavedData.get(serverPlayer.server).phases())).sendTo(serverPlayer);
+            CelestialRuntimeSettings settings = CelestialEphemerisSavedData.get(serverPlayer.server)
+                    .settings(CelestialConfig.serverSettings());
+            new CelestialSettingsSyncPacket(settings).sendTo(serverPlayer);
         }
     }
 }

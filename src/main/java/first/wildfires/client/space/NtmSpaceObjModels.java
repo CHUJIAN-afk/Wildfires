@@ -20,32 +20,47 @@ final class NtmSpaceObjModels {
     private static final ObjModel.ModelSettings CORE_SETTINGS = new ObjModel.ModelSettings(
             Wildfires.rl("models/third_party/ntm_space/docking_port.obj"), false, true, true,
             true, "wildfires:models/third_party/ntm_space/docking_port.mtl");
-    private static CompositeRenderable capsule;
-    private static CompositeRenderable stationCore;
+    private static volatile CompositeRenderable capsule;
+    private static volatile CompositeRenderable stationCore;
 
     private NtmSpaceObjModels() {
     }
 
-    static synchronized CompositeRenderable capsule() {
-        if (capsule == null) {
-            capsule = ObjLoader.INSTANCE.loadModel(CAPSULE_SETTINGS).bakeRenderable(
-                    StandaloneGeometryBakingContext.create(
-                            Wildfires.rl("ntm_reusable_return_capsule")));
+    static CompositeRenderable capsule() {
+        CompositeRenderable current = capsule;
+        if (current == null) {
+            synchronized (NtmSpaceObjModels.class) {
+                current = capsule;
+                if (current == null) {
+                    current = ObjLoader.INSTANCE.loadModel(CAPSULE_SETTINGS).bakeRenderable(
+                            StandaloneGeometryBakingContext.create(
+                                    Wildfires.rl("ntm_reusable_return_capsule")));
+                    capsule = current;
+                }
+            }
         }
-        return capsule;
+        return current;
     }
 
-    static synchronized CompositeRenderable stationCore() {
-        if (stationCore == null) {
-            stationCore = ObjLoader.INSTANCE.loadModel(CORE_SETTINGS).bakeRenderable(
-                    StandaloneGeometryBakingContext.create(Wildfires.rl("ntm_station_core")));
+    static CompositeRenderable stationCore() {
+        CompositeRenderable current = stationCore;
+        if (current == null) {
+            synchronized (NtmSpaceObjModels.class) {
+                current = stationCore;
+                if (current == null) {
+                    current = ObjLoader.INSTANCE.loadModel(CORE_SETTINGS).bakeRenderable(
+                            StandaloneGeometryBakingContext.create(Wildfires.rl("ntm_station_core")));
+                    stationCore = current;
+                }
+            }
         }
-        return stationCore;
+        return current;
     }
 
     /** OBJ and MTL data belong to the active resource-manager generation. */
     static synchronized void reset() {
         capsule = null;
         stationCore = null;
+        NtmObjFastRenderer.clear();
     }
 }

@@ -16,6 +16,7 @@ import first.wildfires.celestial.CelestialBodies;
 import first.wildfires.celestial.CelestialConfig;
 import first.wildfires.celestial.CelestialDiscGeometry;
 import first.wildfires.celestial.CelestialMath;
+import first.wildfires.client.space.NtmAscentAtmosphereVisuals;
 import java.util.List;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
@@ -38,6 +39,7 @@ public final class CelestialRenderer {
             "textures/environment/sun.png");
     private static final ResourceLocation MOON = ResourceLocation.fromNamespaceAndPath("minecraft",
             "textures/environment/moon_phases.png");
+    private static final CelestialBodies[] ORDERED_BODIES = CelestialBodies.values();
     private static VertexBuffer skyBuffer;
     private static VertexBuffer darkBuffer;
     private static VertexBuffer vanillaStars;
@@ -51,24 +53,29 @@ public final class CelestialRenderer {
                 || camera.getFluidInCamera() == FogType.LAVA || blockedByEffect(camera)) {
             return;
         }
-        CelestialState state = CelestialClientStateCache.state(level, camera.getPosition(), partialTick).orElse(null);
+        CelestialState state = CelestialClientStateCache.stateOrNull(
+                level, camera.getPosition(), partialTick);
         if (state == null) {
             return;
         }
         ensureBuffers();
         double visualDayTime = CelestialClientTime.visualApparentDayTime(
                 state.daylight().apparentDayTime(), state.solarEclipse());
-        Vec3 skyColor = level.getSkyColor(camera.getPosition(), partialTick);
+        CelestialVisualRules.VisibilityProducts visibility =
+                CelestialVisualRules.prepareVisibility(visualDayTime, state.weatherVisibility());
+        float ascentAtmosphere = NtmAscentAtmosphereVisuals.factor(level, camera);
+        Vec3 skyColor = NtmAscentAtmosphereVisuals.fadeSky(
+                level, camera, level.getSkyColor(camera.getPosition(), partialTick));
         RenderSystem.depthMask(false);
         RenderSystem.disableCull();
         try {
             renderSkyBase(skyColor, poseStack, projectionMatrix);
             renderHorizon(level, partialTick, poseStack, projectionMatrix);
-            renderTwilight(level, state, partialTick, poseStack);
-            renderStars(state, visualDayTime, poseStack, projectionMatrix, setupFog);
-            renderSun(skyColor, state, visualDayTime, poseStack);
-            renderPlanets(state, visualDayTime, poseStack);
-            renderMoon(skyColor, state, visualDayTime, poseStack);
+            renderTwilight(level, state, partialTick, ascentAtmosphere, poseStack);
+            renderStars(state, visibility, poseStack, projectionMatrix, setupFog);
+            renderSun(skyColor, state, visibility, poseStack);
+            renderPlanets(state, visibility, poseStack);
+            renderMoon(skyColor, state, visualDayTime, visibility, poseStack);
             RainbowRenderer.render(level, state, partialTick, poseStack);
             AuroraRenderer.render(level, state, partialTick, poseStack);
         } finally {
@@ -110,9 +117,9 @@ public final class CelestialRenderer {
     }
 
     private static void renderTwilight(ClientLevel level, CelestialState state, float partialTick,
-                                       PoseStack poseStack) {
+                                       float atmosphere, PoseStack poseStack) {
         double alpha = CelestialVisualRules.twilightAlpha(state.sun().altitudeRadians(),
-                state.weatherVisibility());
+                state.weatherVisibility()) * atmosphere;
         if (alpha <= 0.001D) return;
         float localAngle = CelestialClientTime.vanillaCelestialAngle(
                 state.daylight().apparentDayTime(), Float.NaN);
@@ -134,20 +141,24 @@ public final class CelestialRenderer {
         builder.vertex(matrix, (float) center.x, (float) center.y, (float) center.z)
                 .color(sourceColor[0], sourceColor[1], sourceColor[2], centerAlpha).endVertex();
         for (int i = 0; i <= 24; i++) {
-            double angle = Math.PI * 2.0D * i / 24.0D;
-            Vec3 edge = center.add(right.scale(Math.cos(angle) * 80.0D))
-                    .add(up.scale(Math.sin(angle) * 32.0D));
-            builder.vertex(matrix, (float) edge.x, (float) edge.y, (float) edge.z)
+            double rightScale = CelestialVisualRules.twilightCosine(i) * 80.0D;
+            double upScale = CelestialVisualRules.twilightSine(i) * 32.0D;
+            builder.vertex(matrix,
+                            (float) ((center.x + right.x * rightScale) + up.x * upScale),
+                            (float) ((center.y + right.y * rightScale) + up.y * upScale),
+                            (float) ((center.z + right.z * rightScale) + up.z * upScale))
                     .color(sourceColor[0], sourceColor[1], sourceColor[2], 0.0F).endVertex();
         }
         BufferUploader.drawWithShader(builder.end());
     }
 
-    private static void renderStars(CelestialState state, double visualDayTime, PoseStack poseStack,
+    private static void renderStars(CelestialState state,
+                                    CelestialVisualRules.VisibilityProducts visibility,
+                                    PoseStack poseStack,
                                     Matrix4f projectionMatrix, Runnable setupFog) {
         if (CelestialConfig.starsMode() == CelestialConfig.StarsMode.NONE) return;
         float brightness = (float) CelestialVisualRules.starShaderBrightness(
-                visualDayTime, state.weatherVisibility(), CelestialConfig.starBrightness());
+                visibility, CelestialConfig.starBrightness());
         if (brightness <= 0.001F) return;
         VertexBuffer buffer = CelestialConfig.starsMode() == CelestialConfig.StarsMode.CUSTOM
                 ? StarDataManager.INSTANCE.customBuffer() : vanillaStars;
@@ -166,15 +177,18 @@ public final class CelestialRenderer {
         setupFog.run();
     }
 
-    private static void renderSun(Vec3 skyColor, CelestialState state, double visualDayTime,
+    private static void renderSun(Vec3 skyColor, CelestialState state,
+                                  CelestialVisualRules.VisibilityProducts visibility,
                                   PoseStack poseStack) {
         boolean sunRenderable = CelestialVisualRules.celestialDiscRenderable(
                 state.sun().observerDirection());
         float sunSize = (float) CelestialDiscGeometry.SUN_TEXTURE_HALF_SIZE * (float) state.sunScale();
-        if (sunRenderable && CelestialVisualRules.sunSkyCoverVisible(
-                visualDayTime, state.weatherVisibility())) {
-            drawCelestialPixelCover(poseStack, state.sun().observerDirection(), state.celestialNorth(),
-                    (float) CelestialVisualRules.sunAtlasBodyHalfSize(sunSize), skyColor);
+        DiscFrame sunFrame = sunRenderable
+                ? discFrame(state.sun().observerDirection(), state.celestialNorth()) : null;
+        if (sunRenderable && CelestialVisualRules.sunSkyCoverVisible(visibility)) {
+            drawCelestialPixelCover(poseStack, sunFrame,
+                    (float) CelestialVisualRules.sunAtlasBodyHalfSize(sunSize),
+                    skyColor.x, skyColor.y, skyColor.z);
         }
         enableAdditiveCelestialBlend();
         if (sunRenderable) {
@@ -185,7 +199,7 @@ public final class CelestialRenderer {
             float red = (float) (appearance.red() * tint.red());
             float green = (float) (appearance.green() * tint.green());
             float blue = (float) (appearance.blue() * tint.blue());
-            drawDisc(poseStack, state.sun().observerDirection(), state.celestialNorth(),
+            drawDisc(poseStack, sunFrame,
                     sunSize, SUN, 0.0F, 0.0F, 1.0F, 1.0F,
                     red, green, blue, weatherAlpha);
         }
@@ -196,6 +210,7 @@ public final class CelestialRenderer {
      * shadow therefore keep one stable order instead of inserting a second occultor at first contact.
      */
     private static void renderMoon(Vec3 skyColor, CelestialState state, double visualDayTime,
+                                   CelestialVisualRules.VisibilityProducts visibility,
                                    PoseStack poseStack) {
         int moonPhase = state.moonPhase();
         boolean moonRenderable = CelestialVisualRules.celestialDiscRenderable(
@@ -203,6 +218,7 @@ public final class CelestialRenderer {
         if (!moonRenderable) {
             return;
         }
+        DiscFrame moonFrame = discFrame(state.moon().observerDirection(), state.celestialNorth());
         boolean moonVisible = CelestialVisualRules.moonTextureVisible(moonPhase);
         float moonDistanceScale = (float) (CelestialMath.MOON_MEAN_DISTANCE_MILLION_KM
                 / state.moon().distance());
@@ -210,28 +226,27 @@ public final class CelestialRenderer {
                 * (float) state.moonScale() * moonDistanceScale;
         float moonBodyHalfSize = (float) CelestialVisualRules.moonAtlasBodyHalfSize(moonSize);
         float moonGlowRadius = (float) CelestialVisualRules.moonAtlasGlowRadius(moonSize);
-        if (CelestialVisualRules.starVisibility(visualDayTime, state.weatherVisibility()) > 0.001D) {
+        if (visibility.starVisibility() > 0.001D) {
             CelestialVisualRules.MoonHalo halo = CelestialVisualRules.moonHalo(
                     CelestialVisualRules.lunarEclipseMoonlight(state.moon().illuminatedFraction(),
-                            state.lunarEclipse()), state.weatherVisibility());
+                            state.lunarEclipse()), visibility);
             if (halo.centerAlpha() > 0.0D) {
-                drawMoonHalo(poseStack, state.moon().observerDirection(), state.celestialNorth(),
+                drawMoonHalo(poseStack, moonFrame,
                         moonGlowRadius * (float) halo.radiusMultiplier(), skyColor, (float) halo.centerAlpha());
             }
         }
-        if (CelestialVisualRules.moonSkyCoverVisible(moonPhase, visualDayTime,
-                state.weatherVisibility())) {
+        if (moonVisible) {
             CelestialVisualRules.SolarOccultorTint foreground = CelestialVisualRules.solarOccultorTint(
                     skyColor.x, skyColor.y, skyColor.z, state.solarEclipse());
-            drawCelestialPixelCover(poseStack, state.moon().observerDirection(), state.celestialNorth(),
-                    moonBodyHalfSize, new Vec3(foreground.red(), foreground.green(), foreground.blue()));
+            drawCelestialPixelCover(poseStack, moonFrame,
+                    moonBodyHalfSize, foreground.red(), foreground.green(), foreground.blue());
         }
         float moonAlpha = (float) CelestialVisualRules.solarOccultorMoonAlpha(
-                visualDayTime, state.weatherVisibility(), state.solarEclipse());
+                visibility, state.solarEclipse());
         CelestialVisualRules.MoonTint ordinaryMoonTint = CelestialVisualRules.moonSkyTint(
-                skyColor.x, skyColor.y, skyColor.z, visualDayTime);
+                skyColor.x, skyColor.y, skyColor.z, visibility);
         double blueMoonIntensity = CelestialVisualRules.supermoonBlueIntensity(
-                visualDayTime, state.weatherVisibility(), state.supermoon(),
+                visualDayTime, visibility, state.supermoon(),
                 CelestialVisualRules.lunarEclipseTintCoverage(state.lunarEclipseRegion()),
                 state.sun().altitudeRadians(), state.moon().altitudeRadians());
         CelestialVisualRules.MoonTint moonTint = CelestialVisualRules.supermoonTint(
@@ -244,31 +259,31 @@ public final class CelestialRenderer {
             float u1 = (column + 1) / 4.0F;
             float v1 = (row + 1) / 2.0F;
             enableAdditiveCelestialBlend();
-            drawRoundTexturedDisc(poseStack, state.moon().observerDirection(), state.celestialNorth(),
+            drawRoundTexturedDisc(poseStack, moonFrame,
                     moonSize, MOON, u0, v0, u1, v1,
                     (float) moonTint.red(), (float) moonTint.green(), (float) moonTint.blue(), moonAlpha);
         }
-        LunarEclipseRenderer.render(state, poseStack, moonBodyHalfSize, skyColor,
-                new Vec3(moonTint.red(), moonTint.green(), moonTint.blue()), moonAlpha);
+        LunarEclipseRenderer.render(state, moonFrame, poseStack, moonBodyHalfSize, skyColor,
+                moonTint, moonAlpha);
     }
 
-    private static void renderPlanets(CelestialState state, double visualDayTime, PoseStack poseStack) {
+    private static void renderPlanets(CelestialState state,
+                                      CelestialVisualRules.VisibilityProducts visibility,
+                                      PoseStack poseStack) {
         if (!CelestialConfig.planets()) return;
-        float night = (float) CelestialVisualRules.starVisibility(visualDayTime,
-                state.weatherVisibility());
+        double planetVisibility = CelestialVisualRules.planetVisibility(visibility);
+        float night = (float) planetVisibility;
         if (night <= 0.001F) return;
         enableAdditiveCelestialBlend();
         List<CelestialBodyState> bodies = state.orbitingBodies();
-        for (CelestialBodyState body : bodies) {
-            double visibility = CelestialVisualRules.planetVisibility(
-                    visualDayTime, state.weatherVisibility());
-            if (visibility <= 0.0D) continue;
-            CelestialBodies definition = CelestialBodies.byId(body.id());
+        float alpha = (float) planetVisibility;
+        for (int bodyIndex = 0; bodyIndex < bodies.size(); bodyIndex++) {
+            CelestialBodyState body = bodies.get(bodyIndex);
+            CelestialBodies definition = bodyDefinitionAt(body, bodyIndex);
             if (definition == null) continue;
             float size = (float) CelestialVisualRules.planetRenderRadius(body.angularRadiusRadians(),
                     definition.scaleFactor(), CelestialConfig.planetScale());
             if (size <= 0.0F) continue;
-            float alpha = (float) visibility;
             CelestialVector renderDirection = body.observerDirection();
             if (definition.parent() != null) {
                 CelestialBodyState parent = bodyAtDefinition(bodies, definition.parent());
@@ -278,9 +293,20 @@ public final class CelestialRenderer {
                 }
             }
             if (!CelestialVisualRules.celestialDiscRenderable(renderDirection)) continue;
-            drawDisc(poseStack, renderDirection, state.celestialNorth(), size, definition.texture(),
+            drawDisc(poseStack, renderDirection, state.celestialNorth(), size, definition.renderTexture(),
                     0.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, alpha);
         }
+    }
+
+    /** Uses the authoritative enum order when it is still present, with the old ID lookup as fallback. */
+    static CelestialBodies bodyDefinitionAt(CelestialBodyState body, int bodyIndex) {
+        if (bodyIndex >= 0 && bodyIndex < ORDERED_BODIES.length) {
+            CelestialBodies ordered = ORDERED_BODIES[bodyIndex];
+            if (ordered.id().equals(body.id())) {
+                return ordered;
+            }
+        }
+        return CelestialBodies.byId(body.id());
     }
 
     private static CelestialBodyState bodyAtDefinition(List<CelestialBodyState> bodies,
@@ -306,32 +332,61 @@ public final class CelestialRenderer {
                                  float red, float green, float blue, float alpha) {
         Vec3 direction = worldDirection(apiDirection);
         Basis basis = basis(apiDirection, celestialNorth);
-        Vec3 center = direction.scale(CelestialDiscGeometry.SKY_SPHERE_RADIUS);
-        Vec3 right = basis.right().scale(size);
-        Vec3 up = basis.up().scale(size);
+        drawDisc(poseStack, direction, basis.right(), basis.up(), size, texture,
+                u0, v0, u1, v1, red, green, blue, alpha);
+    }
+
+    private static void drawDisc(PoseStack poseStack, DiscFrame frame, float size,
+                                 ResourceLocation texture, float u0, float v0, float u1, float v1,
+                                 float red, float green, float blue, float alpha) {
+        drawDisc(poseStack, frame.direction(), frame.right(), frame.up(), size, texture,
+                u0, v0, u1, v1, red, green, blue, alpha);
+    }
+
+    private static void drawDisc(PoseStack poseStack, Vec3 direction, Vec3 basisRight,
+                                 Vec3 basisUp, float size, ResourceLocation texture,
+                                 float u0, float v0, float u1, float v1,
+                                 float red, float green, float blue, float alpha) {
+        double centerX = direction.x * CelestialDiscGeometry.SKY_SPHERE_RADIUS;
+        double centerY = direction.y * CelestialDiscGeometry.SKY_SPHERE_RADIUS;
+        double centerZ = direction.z * CelestialDiscGeometry.SKY_SPHERE_RADIUS;
+        double rightX = basisRight.x * size;
+        double rightY = basisRight.y * size;
+        double rightZ = basisRight.z * size;
+        double upX = basisUp.x * size;
+        double upY = basisUp.y * size;
+        double upZ = basisUp.z * size;
         RenderSystem.setShader(GameRenderer::getPositionTexShader);
         RenderSystem.setShaderTexture(0, texture);
         RenderSystem.setShaderColor(red, green, blue, alpha);
         BufferBuilder builder = Tesselator.getInstance().getBuilder();
         Matrix4f matrix = poseStack.last().pose();
         builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
-        vertex(builder, matrix, center.subtract(right).subtract(up), u0, v1);
-        vertex(builder, matrix, center.add(right).subtract(up), u1, v1);
-        vertex(builder, matrix, center.add(right).add(up), u1, v0);
-        vertex(builder, matrix, center.subtract(right).add(up), u0, v0);
+        vertex(builder, matrix, (centerX - rightX) - upX,
+                (centerY - rightY) - upY, (centerZ - rightZ) - upZ, u0, v1);
+        vertex(builder, matrix, (centerX + rightX) - upX,
+                (centerY + rightY) - upY, (centerZ + rightZ) - upZ, u1, v1);
+        vertex(builder, matrix, (centerX + rightX) + upX,
+                (centerY + rightY) + upY, (centerZ + rightZ) + upZ, u1, v0);
+        vertex(builder, matrix, (centerX - rightX) + upX,
+                (centerY - rightY) + upY, (centerZ - rightZ) + upZ, u0, v0);
         BufferUploader.drawWithShader(builder.end());
     }
 
     /** Clips an atlas cell to a round sky body so its opaque rectangular background cannot be exposed. */
-    private static void drawRoundTexturedDisc(PoseStack poseStack, CelestialVector apiDirection,
-                                              CelestialVector celestialNorth, float size,
+    private static void drawRoundTexturedDisc(PoseStack poseStack, DiscFrame frame, float size,
                                               ResourceLocation texture, float u0, float v0, float u1, float v1,
                                               float red, float green, float blue, float alpha) {
-        Vec3 direction = worldDirection(apiDirection);
-        Basis basis = basis(apiDirection, celestialNorth);
-        Vec3 center = direction.scale(CelestialDiscGeometry.SKY_SPHERE_RADIUS);
-        Vec3 right = basis.right().scale(size);
-        Vec3 up = basis.up().scale(size);
+        Vec3 direction = frame.direction();
+        double centerX = direction.x * CelestialDiscGeometry.SKY_SPHERE_RADIUS;
+        double centerY = direction.y * CelestialDiscGeometry.SKY_SPHERE_RADIUS;
+        double centerZ = direction.z * CelestialDiscGeometry.SKY_SPHERE_RADIUS;
+        double rightX = frame.right().x * size;
+        double rightY = frame.right().y * size;
+        double rightZ = frame.right().z * size;
+        double upX = frame.up().x * size;
+        double upY = frame.up().y * size;
+        double upZ = frame.up().z * size;
         float centerU = (u0 + u1) * 0.5F;
         float centerV = (v0 + v1) * 0.5F;
         float radiusU = (u1 - u0) * 0.499F;
@@ -342,54 +397,66 @@ public final class CelestialRenderer {
         BufferBuilder builder = Tesselator.getInstance().getBuilder();
         Matrix4f matrix = poseStack.last().pose();
         builder.begin(VertexFormat.Mode.TRIANGLE_FAN, DefaultVertexFormat.POSITION_TEX);
-        vertex(builder, matrix, center, centerU, centerV);
+        vertex(builder, matrix, centerX, centerY, centerZ, centerU, centerV);
         for (int index = 0; index <= 48; index++) {
-            double angle = CelestialMath.TAU * index / 48.0D;
-            double cosine = Math.cos(angle);
-            double sine = Math.sin(angle);
-            Vec3 edge = center.add(right.scale(cosine)).add(up.scale(sine));
-            vertex(builder, matrix, edge, centerU + radiusU * (float) cosine,
+            double cosine = CelestialVisualRules.discCosine(index);
+            double sine = CelestialVisualRules.discSine(index);
+            vertex(builder, matrix, (centerX + rightX * cosine) + upX * sine,
+                    (centerY + rightY * cosine) + upY * sine,
+                    (centerZ + rightZ * cosine) + upZ * sine,
+                    centerU + radiusU * (float) cosine,
                     centerV - radiusV * (float) sine);
         }
         BufferUploader.drawWithShader(builder.end());
     }
 
     /** Vanilla sun/moon textures use a centered 8x8 physical body that must occult stars. */
-    private static void drawCelestialPixelCover(PoseStack poseStack, CelestialVector apiDirection,
-                                                CelestialVector celestialNorth, float halfSize, Vec3 color) {
+    private static void drawCelestialPixelCover(PoseStack poseStack, DiscFrame frame, float halfSize,
+                                                double red, double green, double blue) {
         if (!(halfSize > 0.0F) || !Float.isFinite(halfSize)) return;
-        Vec3 direction = worldDirection(apiDirection);
-        Basis basis = basis(apiDirection, celestialNorth);
-        Vec3 center = direction.scale(CelestialDiscGeometry.PIXEL_COVER_RADIUS);
-        Vec3 right = basis.right().scale(halfSize);
-        Vec3 up = basis.up().scale(halfSize);
+        Vec3 direction = frame.direction();
+        double centerX = direction.x * CelestialDiscGeometry.PIXEL_COVER_RADIUS;
+        double centerY = direction.y * CelestialDiscGeometry.PIXEL_COVER_RADIUS;
+        double centerZ = direction.z * CelestialDiscGeometry.PIXEL_COVER_RADIUS;
+        double rightX = frame.right().x * halfSize;
+        double rightY = frame.right().y * halfSize;
+        double rightZ = frame.right().z * halfSize;
+        double upX = frame.up().x * halfSize;
+        double upY = frame.up().y * halfSize;
+        double upZ = frame.up().z * halfSize;
         RenderSystem.disableBlend();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         BufferBuilder builder = Tesselator.getInstance().getBuilder();
         Matrix4f matrix = poseStack.last().pose();
         builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
-        colorVertex(builder, matrix, center.subtract(right).add(up), color);
-        colorVertex(builder, matrix, center.add(right).add(up), color);
-        colorVertex(builder, matrix, center.add(right).subtract(up), color);
-        colorVertex(builder, matrix, center.subtract(right).subtract(up), color);
+        colorVertex(builder, matrix, (centerX - rightX) + upX,
+                (centerY - rightY) + upY, (centerZ - rightZ) + upZ, red, green, blue);
+        colorVertex(builder, matrix, (centerX + rightX) + upX,
+                (centerY + rightY) + upY, (centerZ + rightZ) + upZ, red, green, blue);
+        colorVertex(builder, matrix, (centerX + rightX) - upX,
+                (centerY + rightY) - upY, (centerZ + rightZ) - upZ, red, green, blue);
+        colorVertex(builder, matrix, (centerX - rightX) - upX,
+                (centerY - rightY) - upY, (centerZ - rightZ) - upZ, red, green, blue);
         BufferUploader.drawWithShader(builder.end());
     }
 
-    private static void colorVertex(BufferBuilder builder, Matrix4f matrix, Vec3 point, Vec3 color) {
-        builder.vertex(matrix, (float) point.x, (float) point.y, (float) point.z)
-                .color((float) color.x, (float) color.y, (float) color.z, 1.0F).endVertex();
+    private static void colorVertex(BufferBuilder builder, Matrix4f matrix,
+                                    double x, double y, double z,
+                                    double red, double green, double blue) {
+        builder.vertex(matrix, (float) x, (float) y, (float) z)
+                .color((float) red, (float) green, (float) blue, 1.0F).endVertex();
     }
 
     /** Radial moonlight veil drawn after stars; it brightens the local sky while reducing star contrast. */
-    private static void drawMoonHalo(PoseStack poseStack, CelestialVector apiDirection,
-                                     CelestialVector celestialNorth, float radius, Vec3 skyColor,
+    private static void drawMoonHalo(PoseStack poseStack, DiscFrame frame, float radius, Vec3 skyColor,
                                      float centerAlpha) {
         if (!(radius > 0.0F) || !Float.isFinite(radius)
                 || !(centerAlpha > 0.0F) || !Float.isFinite(centerAlpha)) return;
-        Vec3 direction = worldDirection(apiDirection);
-        Basis basis = basis(apiDirection, celestialNorth);
-        Vec3 center = direction.scale(99.85D);
+        Vec3 direction = frame.direction();
+        double centerX = direction.x * 99.85D;
+        double centerY = direction.y * 99.85D;
+        double centerZ = direction.z * 99.85D;
         float red = (float) clamp(skyColor.x + 0.16D, 0.0D, 1.0D);
         float green = (float) clamp(skyColor.y + 0.20D, 0.0D, 1.0D);
         float blue = (float) clamp(skyColor.z + 0.32D, 0.0D, 1.0D);
@@ -399,13 +466,18 @@ public final class CelestialRenderer {
         BufferBuilder builder = Tesselator.getInstance().getBuilder();
         Matrix4f matrix = poseStack.last().pose();
         builder.begin(VertexFormat.Mode.TRIANGLE_FAN, DefaultVertexFormat.POSITION_COLOR);
-        builder.vertex(matrix, (float) center.x, (float) center.y, (float) center.z)
+        builder.vertex(matrix, (float) centerX, (float) centerY, (float) centerZ)
                 .color(red, green, blue, centerAlpha).endVertex();
         for (int index = 0; index <= 48; index++) {
-            double angle = CelestialMath.TAU * index / 48.0D;
-            Vec3 edge = center.add(basis.right().scale(Math.cos(angle) * radius))
-                    .add(basis.up().scale(Math.sin(angle) * radius));
-            builder.vertex(matrix, (float) edge.x, (float) edge.y, (float) edge.z)
+            double rightScale = CelestialVisualRules.discCosine(index) * radius;
+            double upScale = CelestialVisualRules.discSine(index) * radius;
+            builder.vertex(matrix,
+                            (float) ((centerX + frame.right().x * rightScale)
+                                    + frame.up().x * upScale),
+                            (float) ((centerY + frame.right().y * rightScale)
+                                    + frame.up().y * upScale),
+                            (float) ((centerZ + frame.right().z * rightScale)
+                                    + frame.up().z * upScale))
                     .color(red, green, blue, 0.0F).endVertex();
         }
         BufferUploader.drawWithShader(builder.end());
@@ -426,16 +498,23 @@ public final class CelestialRenderer {
                 GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ZERO);
     }
 
-    private static void vertex(BufferBuilder builder, Matrix4f matrix, Vec3 point, float u, float v) {
-        builder.vertex(matrix, (float) point.x, (float) point.y, (float) point.z).uv(u, v).endVertex();
+    private static void vertex(BufferBuilder builder, Matrix4f matrix,
+                               double x, double y, double z, float u, float v) {
+        builder.vertex(matrix, (float) x, (float) y, (float) z).uv(u, v).endVertex();
     }
 
     static Vec3 worldDirection(CelestialVector vector) {
         return new Vec3(vector.x(), vector.y(), -vector.z()).normalize();
     }
 
+    static DiscFrame discFrame(CelestialVector direction, CelestialVector celestialNorth) {
+        Vec3 worldDirection = worldDirection(direction);
+        Basis basis = basis(direction, celestialNorth);
+        return new DiscFrame(worldDirection, basis.right(), basis.up());
+    }
+
     private static Basis basis(CelestialVector direction, CelestialVector celestialNorth) {
-        CelestialVisualRules.DiscBasis basis = CelestialVisualRules.stableDiscBasis(direction, celestialNorth);
+        CelestialDiscGeometry.Basis basis = CelestialVisualRules.stableDiscBasis(direction, celestialNorth);
         return new Basis(worldDirection(basis.right()), worldDirection(basis.up()));
     }
 
@@ -549,6 +628,8 @@ public final class CelestialRenderer {
     private static double clamp(double value, double min, double max) {
         return Math.max(min, Math.min(max, value));
     }
+
+    record DiscFrame(Vec3 direction, Vec3 right, Vec3 up) {}
 
     private record Basis(Vec3 right, Vec3 up) {}
 }

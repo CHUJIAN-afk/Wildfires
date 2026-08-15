@@ -48,7 +48,7 @@ final class StarTableLoader {
             if (colorText.startsWith("#")) {
                 colorText = colorText.substring(1);
             }
-            if (!colorText.matches("[0-9a-fA-F]{6}")) {
+            if (!isRgbHex(colorText)) {
                 throw new IllegalArgumentException("invalid RGB value " + colorText);
             }
             double ascension = finite(star, "ascension");
@@ -58,6 +58,22 @@ final class StarTableLoader {
                     ascension, declination, magnitude, Integer.parseInt(colorText, 16)));
         }
         return new ParsedFile(replace, stars);
+    }
+
+    /** Exact non-regex form of {@code [0-9a-fA-F]{6}} used for every catalog entry. */
+    static boolean isRgbHex(String text) {
+        if (text.length() != 6) {
+            return false;
+        }
+        for (int index = 0; index < 6; index++) {
+            char value = text.charAt(index);
+            if (!((value >= '0' && value <= '9')
+                    || (value >= 'a' && value <= 'f')
+                    || (value >= 'A' && value <= 'F'))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static double finite(JsonObject star, String name) {

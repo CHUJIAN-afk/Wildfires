@@ -12,11 +12,42 @@ final class CelestialVisualRules {
     private static final double DEG_TO_RAD = Math.PI / 180.0D;
     private static final double TFCCAELUM_ARCSECONDS_PER_RADIAN = 206265.0D;
     private static final double SKY_SPHERE_RADIUS = 100.0D;
+    private static final double[] TWILIGHT_COSINES = circleValues(24, true);
+    private static final double[] TWILIGHT_SINES = circleValues(24, false);
+    private static final double[] DISC_COSINES = circleValues(48, true);
+    private static final double[] DISC_SINES = circleValues(48, false);
+    private static final ThreadLocal<VisibilityProducts> VISIBILITY_PRODUCTS =
+            ThreadLocal.withInitial(VisibilityProducts::new);
     static final double SATELLITE_ORBIT_RENDER_SCALE = 50.0D;
     static final long RAINBOW_DURATION_TICKS = 5000L;
     private static final double LEGACY_RAINBOW_CURVE = 0.0003544658838845707D;
 
     private CelestialVisualRules() {
+    }
+
+    static double twilightCosine(int index) {
+        return TWILIGHT_COSINES[index];
+    }
+
+    static double twilightSine(int index) {
+        return TWILIGHT_SINES[index];
+    }
+
+    static double discCosine(int index) {
+        return DISC_COSINES[index];
+    }
+
+    static double discSine(int index) {
+        return DISC_SINES[index];
+    }
+
+    private static double[] circleValues(int segments, boolean cosine) {
+        double[] values = new double[segments + 1];
+        for (int index = 0; index <= segments; index++) {
+            double angle = CelestialMath.TAU * index / segments;
+            values[index] = cosine ? Math.cos(angle) : Math.sin(angle);
+        }
+        return values;
     }
 
     static double auroraProbability(double absoluteLatitudeDegrees) {
@@ -86,6 +117,29 @@ final class CelestialVisualRules {
         return alpha * alpha * 0.5D;
     }
 
+    /**
+     * Prepares the shared vanilla night curve once for every consumer in one rendered sky frame.
+     * The mutable holder is render-thread local and its fields preserve the exact expressions used
+     * by the individual legacy helpers below.
+     */
+    static VisibilityProducts prepareVisibility(double apparentDayTime,
+                                                 double weatherVisibility) {
+        double starAlpha = vanillaStarAlpha(apparentDayTime);
+        double weather = Double.isFinite(weatherVisibility)
+                ? clamp(weatherVisibility, 0.0D, 1.0D) : 0.0D;
+        double starVisibility = Double.isFinite(weatherVisibility)
+                ? starAlpha * weather : 0.0D;
+        double moonVisibility = Double.isFinite(apparentDayTime)
+                && Double.isFinite(weatherVisibility)
+                ? (0.2D + 0.8D * starAlpha) * weather : 0.0D;
+        double moonNeutralWeight = 0.25D
+                + 0.75D * clamp(starAlpha * 2.0D, 0.0D, 1.0D);
+        VisibilityProducts products = VISIBILITY_PRODUCTS.get();
+        products.set(starAlpha, weather, Double.isFinite(weatherVisibility), starVisibility,
+                moonVisibility, moonNeutralWeight);
+        return products;
+    }
+
     static double starVisibility(double apparentDayTime, double weatherVisibility) {
         if (!Double.isFinite(weatherVisibility)) {
             return 0.0D;
@@ -123,6 +177,14 @@ final class CelestialVisualRules {
         return starVisibility(apparentDayTime, weatherVisibility) * configuredBrightness;
     }
 
+    static double starShaderBrightness(VisibilityProducts visibility,
+                                       double configuredBrightness) {
+        if (!Double.isFinite(configuredBrightness) || configuredBrightness <= 0.0D) {
+            return 0.0D;
+        }
+        return visibility.starVisibility() * configuredBrightness;
+    }
+
     /** TFC 1.21 keeps the daytime moon at 20% prominence and restores it continuously at night. */
     static double moonVisibility(double apparentDayTime, double weatherVisibility) {
         if (!Double.isFinite(apparentDayTime) || !Double.isFinite(weatherVisibility)) {
@@ -140,6 +202,10 @@ final class CelestialVisualRules {
     /** Visible stars require an opaque solar-body pass before the additive sun texture. */
     static boolean sunSkyCoverVisible(double apparentDayTime, double weatherVisibility) {
         return starVisibility(apparentDayTime, weatherVisibility) > 0.001D;
+    }
+
+    static boolean sunSkyCoverVisible(VisibilityProducts visibility) {
+        return visibility.starVisibility() > 0.001D;
     }
 
     /**
@@ -172,12 +238,24 @@ final class CelestialVisualRules {
         if (!Double.isFinite(illuminatedFraction) || !Double.isFinite(weatherVisibility)) {
             return MoonHalo.NONE;
         }
-        double phase = clamp(illuminatedFraction, 0.0D, 1.0D);
-        double weather = clamp(weatherVisibility, 0.0D, 1.0D);
-        if (phase <= 0.0D || weather <= 0.0D) {
+        return moonHaloPrepared(illuminatedFraction,
+                clamp(weatherVisibility, 0.0D, 1.0D));
+    }
+
+    static MoonHalo moonHalo(double illuminatedFraction, VisibilityProducts visibility) {
+        if (!Double.isFinite(illuminatedFraction) || !visibility.weatherFinite()) {
             return MoonHalo.NONE;
         }
-        double strength = Math.pow(phase, 0.75D) * weather;
+        return moonHaloPrepared(illuminatedFraction, visibility.weatherVisibility());
+    }
+
+    private static MoonHalo moonHaloPrepared(double illuminatedFraction,
+                                             double weatherVisibility) {
+        double phase = clamp(illuminatedFraction, 0.0D, 1.0D);
+        if (phase <= 0.0D || weatherVisibility <= 0.0D) {
+            return MoonHalo.NONE;
+        }
+        double strength = Math.pow(phase, 0.75D) * weatherVisibility;
         return new MoonHalo(1.5D + 2.0D * Math.sqrt(phase), 0.34D * strength);
     }
 
@@ -208,6 +286,10 @@ final class CelestialVisualRules {
         return starVisibility(apparentDayTime, weatherVisibility);
     }
 
+    static double planetVisibility(VisibilityProducts visibility) {
+        return visibility.starVisibility();
+    }
+
     /**
      * Restores TFCCaelum's exact small-angle apparent-diameter quad scale. The unified state stores
      * atan2(diameter / 2, distance), so twice its tangent reconstructs the source diameter/distance
@@ -235,7 +317,7 @@ final class CelestialVisualRules {
                                                      CelestialVector satelliteDirection) {
         CelestialVector parent = parentDirection.normalized();
         CelestialVector satellite = satelliteDirection.normalized();
-        if (parent.lengthSquared() < 1.0E-12D || satellite.lengthSquared() < 1.0E-12D) {
+        if (parent == CelestialVector.ZERO || satellite == CelestialVector.ZERO) {
             return satellite;
         }
         double dot = clamp(parent.dot(satellite), -1.0D, 1.0D);
@@ -256,9 +338,9 @@ final class CelestialVisualRules {
      * has an unavoidable hard reference-axis switch around the zenith; projecting celestial north
      * keeps the Sun, Moon and planet textures continuous along the ecliptic instead.
      */
-    static DiscBasis stableDiscBasis(CelestialVector bodyDirection, CelestialVector celestialNorth) {
-        CelestialDiscGeometry.Basis basis = CelestialDiscGeometry.stableBasis(bodyDirection, celestialNorth);
-        return new DiscBasis(basis.right(), basis.up());
+    static CelestialDiscGeometry.Basis stableDiscBasis(CelestialVector bodyDirection,
+                                                       CelestialVector celestialNorth) {
+        return CelestialDiscGeometry.stableBasis(bodyDirection, celestialNorth);
     }
 
     static boolean startsRainbow(float rainBefore, float currentRain, float rainAfter, double apparentDayTime,
@@ -318,6 +400,10 @@ final class CelestialVisualRules {
                 * solarOccultorTextureAlpha(coverage);
     }
 
+    static double solarOccultorMoonAlpha(VisibilityProducts visibility, double coverage) {
+        return visibility.moonVisibility() * solarOccultorTextureAlpha(coverage);
+    }
+
     /** Daylight washes the Moon into the local sky; night continuously restores its neutral texture. */
     static MoonTint moonSkyTint(double skyRed, double skyGreen, double skyBlue,
                                 double apparentDayTime) {
@@ -331,6 +417,17 @@ final class CelestialVisualRules {
                 blue + (1.0D - blue) * neutralWeight);
     }
 
+    static MoonTint moonSkyTint(double skyRed, double skyGreen, double skyBlue,
+                                VisibilityProducts visibility) {
+        double red = clamp(Double.isFinite(skyRed) ? skyRed : 0.0D, 0.0D, 1.0D);
+        double green = clamp(Double.isFinite(skyGreen) ? skyGreen : 0.0D, 0.0D, 1.0D);
+        double blue = clamp(Double.isFinite(skyBlue) ? skyBlue : 0.0D, 0.0D, 1.0D);
+        double neutralWeight = visibility.moonNeutralWeight();
+        return new MoonTint(red + (1.0D - red) * neutralWeight,
+                green + (1.0D - green) * neutralWeight,
+                blue + (1.0D - blue) * neutralWeight);
+    }
+
     /**
      * Local-night blue-moon strength. Sunset and sunrise stay white, midnight reaches the
      * configured supermoon strength, weather attenuates the tint, and the shared lunar-eclipse
@@ -339,7 +436,30 @@ final class CelestialVisualRules {
     static double supermoonBlueIntensity(double apparentDayTime, double weatherVisibility,
                                          double supermoonStrength, double lunarEclipseCoverage,
                                          double sunAltitudeRadians, double moonAltitudeRadians) {
-        if (!Double.isFinite(apparentDayTime) || !Double.isFinite(weatherVisibility)
+        if (!Double.isFinite(weatherVisibility)) {
+            return 0.0D;
+        }
+        return supermoonBlueIntensityPrepared(apparentDayTime,
+                clamp(weatherVisibility, 0.0D, 1.0D), supermoonStrength,
+                lunarEclipseCoverage, sunAltitudeRadians, moonAltitudeRadians);
+    }
+
+    static double supermoonBlueIntensity(double apparentDayTime, VisibilityProducts visibility,
+                                         double supermoonStrength, double lunarEclipseCoverage,
+                                         double sunAltitudeRadians, double moonAltitudeRadians) {
+        if (!visibility.weatherFinite()) {
+            return 0.0D;
+        }
+        return supermoonBlueIntensityPrepared(apparentDayTime, visibility.weatherVisibility(),
+                supermoonStrength, lunarEclipseCoverage,
+                sunAltitudeRadians, moonAltitudeRadians);
+    }
+
+    private static double supermoonBlueIntensityPrepared(
+            double apparentDayTime, double weatherVisibility,
+            double supermoonStrength, double lunarEclipseCoverage,
+            double sunAltitudeRadians, double moonAltitudeRadians) {
+        if (!Double.isFinite(apparentDayTime)
                 || !Double.isFinite(supermoonStrength) || !Double.isFinite(lunarEclipseCoverage)
                 || !Double.isFinite(sunAltitudeRadians) || !Double.isFinite(moonAltitudeRadians)
                 || sunAltitudeRadians > 0.0D || moonAltitudeRadians <= 0.0D) {
@@ -349,7 +469,7 @@ final class CelestialVisualRules {
         distanceFromMidnight = Math.min(distanceFromMidnight, 1.0D - distanceFromMidnight);
         double nightProgress = smoothstep(0.0D, 1.0D,
                 clamp(1.0D - distanceFromMidnight / 0.25D, 0.0D, 1.0D));
-        return nightProgress * clamp(weatherVisibility, 0.0D, 1.0D)
+        return nightProgress * weatherVisibility
                 * clamp(supermoonStrength, 0.0D, 1.0D)
                 * (1.0D - clamp(lunarEclipseCoverage, 0.0D, 1.0D));
     }
@@ -444,6 +564,49 @@ final class CelestialVisualRules {
                 first.x() * second.y() - first.y() * second.x());
     }
 
+    static final class VisibilityProducts {
+        private double starAlpha;
+        private double weatherVisibility;
+        private boolean weatherFinite;
+        private double starVisibility;
+        private double moonVisibility;
+        private double moonNeutralWeight;
+
+        private void set(double starAlpha, double weatherVisibility, boolean weatherFinite,
+                         double starVisibility, double moonVisibility, double moonNeutralWeight) {
+            this.starAlpha = starAlpha;
+            this.weatherVisibility = weatherVisibility;
+            this.weatherFinite = weatherFinite;
+            this.starVisibility = starVisibility;
+            this.moonVisibility = moonVisibility;
+            this.moonNeutralWeight = moonNeutralWeight;
+        }
+
+        double starAlpha() {
+            return starAlpha;
+        }
+
+        double weatherVisibility() {
+            return weatherVisibility;
+        }
+
+        boolean weatherFinite() {
+            return weatherFinite;
+        }
+
+        double starVisibility() {
+            return starVisibility;
+        }
+
+        double moonVisibility() {
+            return moonVisibility;
+        }
+
+        double moonNeutralWeight() {
+            return moonNeutralWeight;
+        }
+    }
+
     record SunTint(double red, double green, double blue) {}
 
     record SolarOccultorTint(double red, double green, double blue) {}
@@ -455,8 +618,6 @@ final class CelestialVisualRules {
     record HorizonFrame(CelestialVector horizon, CelestialVector right, CelestialVector up) {}
 
     record RainbowDirection(double x, double y, double z) {}
-
-    record DiscBasis(CelestialVector right, CelestialVector up) {}
 
     record MoonHalo(double radiusMultiplier, double centerAlpha) {
         private static final MoonHalo NONE = new MoonHalo(0.0D, 0.0D);

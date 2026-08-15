@@ -10,7 +10,14 @@ import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.tterrag.registrate.util.entry.BlockEntry;
 import first.wildfires.Wildfires;
 import first.wildfires.client.ThermalDebugRenderer;
+import first.wildfires.client.ThermalHudState;
+import first.wildfires.client.space.NtmAscentAtmosphereVisuals;
 import first.wildfires.client.space.OrbitVisualDebugClock;
+import first.wildfires.client.space.ReturnCapsuleClientTransition;
+import first.wildfires.client.space.ReturnCapsuleSoundController;
+import first.wildfires.client.space.StationCoreOverlay;
+import first.wildfires.client.celestial.CelestialClientStateCache;
+import first.wildfires.client.space.render.NtmAscentPlanetRenderer;
 import first.wildfires.api.customEvent.CreativeTabBuildEvent;
 import first.wildfires.kinetic.loom.LoomControlBlock;
 import first.wildfires.network.PlayerInputPacket;
@@ -22,6 +29,7 @@ import first.wildfires.utils.CuriosUtil;
 import net.createmod.ponder.api.registration.PonderPlugin;
 import net.createmod.ponder.foundation.PonderIndex;
 import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -29,10 +37,13 @@ import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.MovementInputUpdateEvent;
+import net.minecraft.client.Minecraft;
 import net.minecraftforge.client.event.RegisterClientCommandsEvent;
+import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.client.event.RenderLevelStageEvent;
+import net.minecraftforge.client.event.RenderGuiOverlayEvent;
+import net.minecraftforge.client.event.MovementInputUpdateEvent;
 import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -48,26 +59,44 @@ public class ClientForgeEvent {
     private static final float LOOM_STRESS_IMPACT = 4.0f;
     private static boolean jumpWasDown;
 
+    @SubscribeEvent
+    public static void onClientLogout(ClientPlayerNetworkEvent.LoggingOut event) {
+        ReturnCapsuleClientTransition.shutdown();
+        jumpWasDown = false;
+    }
 
+    /** Normal gameplay input is authoritative; this is the same Forge edge NTM-style launch used. */
     @SubscribeEvent
     public static void inputEvent(MovementInputUpdateEvent event) {
-        boolean jumping = event.getInput().jumping;
-        if (jumping && !jumpWasDown) {
-            PlayerInputPacket packet = new PlayerInputPacket();
-            packet.sendToServer();
-        }
-        jumpWasDown = jumping;
+        syncJumpState(event.getInput().jumping);
     }
+
 
     @SubscribeEvent
     public static void renderThermalDebug(RenderLevelStageEvent event) {
+        if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_SKY) {
+            Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft.level != null && NtmAscentAtmosphereVisuals
+                    .ascentBody(minecraft.level, event.getCamera()).isPresent()) {
+                var state = CelestialClientStateCache.stateForBoundSurfaceAscent(minecraft.level,
+                        event.getCamera().getPosition(), event.getPartialTick());
+                NtmAscentPlanetRenderer.render(minecraft.level, state, event.getCamera(),
+                        event.getPoseStack(), event.getProjectionMatrix());
+            }
+        }
+        if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_LEVEL) {
+            ReturnCapsuleClientTransition.markTargetFrameRendered();
+        }
         ThermalDebugRenderer.render(event);
     }
 
     @SubscribeEvent
-    public static void tickThermalDebug(TickEvent.ClientTickEvent event) {
-        if (event.phase == TickEvent.Phase.END) {
-            ThermalDebugRenderer.tick();
+      public static void tickThermalDebug(TickEvent.ClientTickEvent event) {
+          if (event.phase == TickEvent.Phase.END) {
+              if (ReturnCapsuleClientTransition.armed()) syncPhysicalJumpKey();
+              ReturnCapsuleClientTransition.tick();
+              ReturnCapsuleSoundController.tick();
+              ThermalDebugRenderer.tick();
         }
     }
 
@@ -94,8 +123,15 @@ public class ClientForgeEvent {
                             ThermalDebugRenderer.diagnosticsSummary()), false);
                     return 1;
                 }));
+        var thermalHud = Commands.literal("thermalhud")
+                .executes(context -> setThermalHud(context.getSource(), ThermalHudState.toggle()))
+                .then(Commands.literal("on")
+                        .executes(context -> setThermalHud(context.getSource(), true)))
+                .then(Commands.literal("off")
+                        .executes(context -> setThermalHud(context.getSource(), false)));
         event.getDispatcher().register(Commands.literal("wildfires")
-                .then(thermalDebug));
+                .then(thermalDebug)
+                .then(thermalHud));
         if (!FMLEnvironment.production) {
             var orbitVisualTime = Commands.literal("orbitvisualtime")
                     .then(Commands.literal("set")
@@ -120,6 +156,39 @@ public class ClientForgeEvent {
             event.getDispatcher().register(Commands.literal("wildfires")
                     .then(orbitVisualTime));
         }
+    }
+
+    @SubscribeEvent
+    public static void renderStationCoreInformation(RenderGuiOverlayEvent.Post event) {
+        StationCoreOverlay.render(event);
+    }
+
+    /** Polls the physical key through receiving screens so one held press cannot become release+press. */
+    private static void syncPhysicalJumpKey() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.getConnection() == null) {
+            jumpWasDown = false;
+            return;
+        }
+        // During ClientboundRespawn the player object can be absent for a few ticks. Preserve the
+        // last state actually sent to the server; once the target player exists, a real release is
+        // delivered and a still-held key does not manufacture a second press.
+        if (minecraft.player == null) return;
+        syncJumpState(minecraft.options.keyJump.isDown());
+    }
+
+    private static void syncJumpState(boolean jumping) {
+        if (jumping == jumpWasDown) return;
+        new PlayerInputPacket(jumping).sendToServer();
+        jumpWasDown = jumping;
+    }
+
+    private static int setThermalHud(CommandSourceStack source, boolean enabled) {
+        ThermalHudState.setEnabled(enabled);
+        source.sendSuccess(() -> Component.translatable(enabled
+                ? "commands.wildfires.thermal_hud.enabled"
+                : "commands.wildfires.thermal_hud.disabled"), false);
+        return 1;
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)

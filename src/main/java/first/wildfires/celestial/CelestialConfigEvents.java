@@ -29,9 +29,12 @@ public final class CelestialConfigEvents {
         CelestialConfig.refreshServerSettings();
         var server = ServerLifecycleHooks.getCurrentServer();
         if (server != null) {
-            server.execute(() -> server.getPlayerList().getPlayers().forEach(player ->
-                    new CelestialSettingsSyncPacket(CelestialConfig.serverSettings().withOrbitalPhases(
-                            CelestialEphemerisSavedData.get(server).phases())).sendTo(player)));
+            server.execute(() -> {
+                CelestialRuntimeSettings settings = CelestialEphemerisSavedData.get(server)
+                        .settings(CelestialConfig.serverSettings());
+                server.getPlayerList().getPlayers().forEach(player ->
+                        new CelestialSettingsSyncPacket(settings).sendTo(player));
+            });
         }
     }
 }

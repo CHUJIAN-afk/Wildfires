@@ -2,6 +2,7 @@ package first.wildfires.mixin.minecraft;
 
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import com.llamalad7.mixinextras.injector.ModifyReturnValue;
+import first.wildfires.api.celestial.CelestialState;
 import first.wildfires.client.celestial.CelestialClientTime;
 import first.wildfires.client.celestial.CelestialClientStateCache;
 import first.wildfires.client.space.OrbitClientIllumination;
@@ -21,9 +22,9 @@ public abstract class CelestialClientLevelMixin {
     )
     private float wildfires$localSkyColorTime(float original, Vec3 observer, float partialTick) {
         ClientLevel level = (ClientLevel) (Object) this;
-        return CelestialClientStateCache.state(level, observer, partialTick)
-                .map(state -> CelestialClientTime.visualCelestialAngle(
-                        state.daylight().apparentDayTime(), state.solarEclipse(), original)).orElse(original);
+        CelestialState state = CelestialClientStateCache.stateOrNull(level, observer, partialTick);
+        return state == null ? original : CelestialClientTime.visualCelestialAngle(
+                state.daylight().apparentDayTime(), state.solarEclipse(), original);
     }
 
     @ModifyExpressionValue(
@@ -62,8 +63,8 @@ public abstract class CelestialClientLevelMixin {
     private float wildfires$localCameraTime(float original, float partialTick) {
         ClientLevel level = (ClientLevel) (Object) this;
         Vec3 observer = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-        return CelestialClientStateCache.state(level, observer, partialTick)
-                .map(state -> CelestialClientTime.visualCelestialAngle(
-                        state.daylight().apparentDayTime(), state.solarEclipse(), original)).orElse(original);
+        CelestialState state = CelestialClientStateCache.stateOrNull(level, observer, partialTick);
+        return state == null ? original : CelestialClientTime.visualCelestialAngle(
+                state.daylight().apparentDayTime(), state.solarEclipse(), original);
     }
 }

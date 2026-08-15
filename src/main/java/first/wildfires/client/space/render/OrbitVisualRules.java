@@ -80,6 +80,12 @@ public final class OrbitVisualRules {
     private static final double DEPTH_REFERENCE_MILLION_KM = 0.02D;
     private static final double DEPTH_LOG_SCALE = 18.0D;
     private static final double TAU = Math.PI * 2.0D;
+    private static final double SQRT_TWO = Math.sqrt(2.0D);
+    private static final double SQRT_THREE = Math.sqrt(3.0D);
+    private static final CelestialVector NTM_ECLIPTIC_NORTH =
+            ntmFrameVector(new CelestialVector(0.0D, 0.0D, 1.0D));
+    private static final Map<ResourceLocation, Quaternionf> BODY_ROTATION_BASES =
+            createBodyRotationBases();
     private static final Map<LocalTransferCacheKey, CachedLocalTransferPlan> LOCAL_TRANSFER_CACHE =
             new LinkedHashMap<>(LOCAL_TRANSFER_CACHE_SIZE + 1, 0.75F, true) {
                 @Override
@@ -124,10 +130,19 @@ public final class OrbitVisualRules {
             throw new IllegalArgumentException("Calendar days in month must be positive");
         }
 
+        // A phase packet can reach the client a frame or two after the authoritative boundary.
+        // The stale deceleration snapshot already contains that exact boundary, so predict only
+        // the fixed ten-tick reveal instead of holding a point and jumping when ARRIVING arrives.
+        context = extrapolateJumpReveal(context, gameTime);
+
         Map<ResourceLocation, BodyEphemeris> ephemeris = bodyEphemeris(state);
         ObservationJourney journey = context.journey().orElse(null);
+        JumpLine frameJumpLine = journey != null && journey.mode() == StationTravelMode.JUMP
+                && (journey.phase() == StationJourneyPhase.DEPARTING
+                || journey.phase().isJumpPhase() || journey.phase() == StationJourneyPhase.ARRIVING)
+                ? jumpLine(journey, ephemeris) : null;
         CelestialVector observer = observerPosition(context, ephemeris, gameTime,
-                visualCalendarTicks, calendarTicksPerGameTick, calendarDaysInMonth);
+                visualCalendarTicks, calendarTicksPerGameTick, calendarDaysInMonth, frameJumpLine);
         double viewRotationRadians = viewRotationRadians(context, ephemeris, gameTime,
                 visualCalendarTicks, calendarTicksPerGameTick, calendarDaysInMonth);
         BodyEphemeris sunEphemeris = requireBody(ephemeris, SUN);
@@ -143,21 +158,27 @@ public final class OrbitVisualRules {
             if (!(distance > 1.0E-12D) || !Double.isFinite(distance)) {
                 continue;
             }
+            CelestialVector relativeDirection = normalizedAtLength(relative, distance);
             double apparentSize = apparentSize(body.radius(), distance);
             double cubeAlpha = cubeAlphaFor(apparentSize);
             double pointAlpha = pointAlphaFor(apparentSize);
-            CelestialVector lightDirection = ntmFrameVector(
-                    body.position().subtract(sunPosition).normalized());
+            CelestialVector bodyFromSun = body.position().subtract(sunPosition);
+            double bodySunDistance = bodyFromSun.length();
+            CelestialVector incomingLight = normalizedAtLength(bodyFromSun, bodySunDistance);
+            CelestialVector lightDirection = ntmFrameVector(incomingLight);
+            double sunHalfTangent = sunEphemeris.radius() / bodySunDistance;
+            double shadowSunHalfTangent = sunEphemeris.radius()
+                    / Math.max(1.0E-12D, bodySunDistance);
             List<SatelliteShadow> satelliteShadows = cubeAlpha > 0.001D
-                    ? satelliteShadows(entry.getKey(), body, ephemeris, sunEphemeris)
+                    ? satelliteShadows(entry.getKey(), body, ephemeris, incomingLight,
+                    shadowSunHalfTangent)
                     : List.of();
             double renderDistance = renderDistance(distance);
             BodyLayer layer = new BodyLayer(entry.getKey(), body.position(),
-                    ntmFrameVector(relative.normalized()), distance,
+                    ntmFrameVector(relativeDirection), distance,
                     body.radius(), apparentSize, renderDistance,
                     cubeHalfSize(body.radius(), distance, renderDistance), pointAlpha, cubeAlpha,
-                    lightDirection, sunEphemeris.radius()
-                    / body.position().subtract(sunPosition).length(), satelliteShadows);
+                    lightDirection, sunHalfTangent, satelliteShadows);
             if (journey != null && journey.mode() == StationTravelMode.JUMP
                     && (journey.phase().isJumpPhase() || journey.phase() == StationJourneyPhase.ARRIVING)
                     && entry.getKey().equals(journey.toBody())) {
@@ -167,35 +188,65 @@ public final class OrbitVisualRules {
         }
         bodies.sort(Comparator.comparingDouble(BodyLayer::distance).reversed());
 
-        BodyEphemeris sun = requireBody(ephemeris, SUN);
+        BodyEphemeris sun = sunEphemeris;
         CelestialVector relativeSun = sun.position().subtract(observer);
-        double sunDistance = Math.max(1.0E-12D, relativeSun.length());
+        double rawSunDistance = relativeSun.length();
+        double sunDistance = Math.max(1.0E-12D, rawSunDistance);
         double sunApparentSize = ntmSunApparentSize(context, ephemeris, sun, observer, gameTime);
         double sunRenderDistance = renderDistance(sunDistance);
-        SunLayer sunLayer = new SunLayer(ntmFrameVector(relativeSun.normalized()), sunDistance,
+        SunLayer sunLayer = new SunLayer(ntmFrameVector(
+                normalizedAtLength(relativeSun, rawSunDistance)), sunDistance,
                 sun.radius(), sunApparentSize, sunRenderDistance,
                 Math.min(sunRenderDistance * 0.72D,
                         ntmBillboardHalfSize(sunApparentSize, sunRenderDistance)));
         OrbitIllumination illumination = orbitIllumination(observer, sun.position(), sunLayer,
                 bodies, visualCalendarTicks);
-        RelativisticVisualRules.State relativity = context.journey()
-                .map(activeJourney -> RelativisticVisualRules.state(activeJourney, gameTime))
-                .orElse(new RelativisticVisualRules.State(0.0D));
-        CelestialVector visibleTargetDirection = bodies.stream()
-                .filter(body -> context.journey().map(activeJourney -> activeJourney.toBody()
-                        .equals(body.body())).orElse(false))
-                .map(BodyLayer::direction).findFirst().orElse(sunLayer.direction());
+        RelativisticVisualRules.State relativity = journey != null
+                ? RelativisticVisualRules.state(journey, gameTime)
+                : new RelativisticVisualRules.State(0.0D);
+        CelestialVector visibleTargetDirection = sunLayer.direction();
+        if (journey != null) {
+            for (BodyLayer body : bodies) {
+                if (journey.toBody().equals(body.body())) {
+                    visibleTargetDirection = body.direction();
+                    break;
+                }
+            }
+        }
         CelestialVector velocityDirection = journey != null && usesFixedJumpDirection(journey, gameTime)
-                ? jumpDirection(journey, ephemeris) : visibleTargetDirection;
-        double targetLockStrength = context.journey()
-                .map(activeJourney -> jumpTargetLockStrength(activeJourney, gameTime))
-                .orElse(0.0D);
+                ? jumpDirection(frameJumpLine, requireBody(ephemeris, journey.toBody()))
+                : visibleTargetDirection;
+        double targetLockStrength = journey != null
+                ? jumpTargetLockStrength(journey, gameTime) : 0.0D;
         if (relativity.active()) {
             sunLayer = sunLayer.relativity(velocityDirection, relativity);
-            bodies = bodies.stream().map(body -> body.relativity(velocityDirection, relativity)).toList();
+            List<BodyLayer> relativisticBodies = new ArrayList<>(bodies.size());
+            for (BodyLayer body : bodies) {
+                relativisticBodies.add(body.relativity(velocityDirection, relativity));
+            }
+            bodies = List.copyOf(relativisticBodies);
         }
         return new Frame(observer, viewRotationRadians, sunLayer, bodies, illumination, relativity,
                 velocityDirection, targetLockStrength);
+    }
+
+    static ObservationContext extrapolateJumpReveal(ObservationContext context, double gameTime) {
+        Objects.requireNonNull(context, "context");
+        ObservationJourney journey = context.journey().orElse(null);
+        if (journey == null || journey.mode() != StationTravelMode.JUMP
+                || journey.phase() != StationJourneyPhase.JUMP_DECELERATING
+                || journey.phaseStartedGameTime() > Long.MAX_VALUE - journey.phaseDurationTicks()) {
+            return context;
+        }
+        long revealStartedGameTime = journey.phaseStartedGameTime() + journey.phaseDurationTicks();
+        if (gameTime < revealStartedGameTime) {
+            return context;
+        }
+        ObservationJourney reveal = new ObservationJourney(journey.fromBody(), journey.toBody(),
+                journey.mode(), StationJourneyPhase.ARRIVING, revealStartedGameTime, 10L);
+        return new ObservationContext(context.stationId(), context.stationRevision(), context.region(),
+                journey.toBody(), context.status(), java.util.Optional.of(reveal),
+                context.celestialRegistryGeneration());
     }
 
     /**
@@ -210,7 +261,7 @@ public final class OrbitVisualRules {
                                                         double calendarTicks) {
         double sunHalfTangent = sun.radius() / sun.distance();
         double occlusion = 0.0D;
-        CelestialVector north = ntmFrameVector(new CelestialVector(0.0D, 0.0D, 1.0D));
+        CelestialVector north = NTM_ECLIPTIC_NORTH;
         for (BodyLayer body : bodies) {
             if (body.distance() >= sun.distance()) {
                 continue;
@@ -247,18 +298,28 @@ public final class OrbitVisualRules {
         first.wildfires.celestial.CelestialDiscGeometry.Basis basis =
                 first.wildfires.celestial.CelestialDiscGeometry.stableBasis(sun, celestialNorth);
         List<ProjectedPoint> points = new ArrayList<>(8);
-        for (int x : new int[]{-1, 1}) {
-            for (int y : new int[]{-1, 1}) {
-                for (int z : new int[]{-1, 1}) {
-                    Vector3f local = new Vector3f(x, y, z).mul((float) cubeHalfSize);
+        Vector3f local = new Vector3f();
+        for (int xIndex = 0; xIndex < 2; xIndex++) {
+            int x = xIndex == 0 ? -1 : 1;
+            for (int yIndex = 0; yIndex < 2; yIndex++) {
+                int y = yIndex == 0 ? -1 : 1;
+                for (int zIndex = 0; zIndex < 2; zIndex++) {
+                    int z = zIndex == 0 ? -1 : 1;
+                    local.set(x, y, z).mul((float) cubeHalfSize);
                     cubeRotation.transform(local);
-                    CelestialVector corner = cubeCenter.add(new CelestialVector(local.x, local.y, local.z));
-                    double forward = corner.dot(sun);
+                    double cornerX = cubeCenter.x() + local.x;
+                    double cornerY = cubeCenter.y() + local.y;
+                    double cornerZ = cubeCenter.z() + local.z;
+                    double forward = cornerX * sun.x() + cornerY * sun.y()
+                            + cornerZ * sun.z();
                     if (!(forward > 1.0E-12D) || !Double.isFinite(forward)) {
                         return 0.0D;
                     }
-                    points.add(new ProjectedPoint(corner.dot(basis.right()) / forward,
-                            corner.dot(basis.up()) / forward));
+                    points.add(new ProjectedPoint(
+                            (cornerX * basis.right().x() + cornerY * basis.right().y()
+                                    + cornerZ * basis.right().z()) / forward,
+                            (cornerX * basis.up().x() + cornerY * basis.up().y()
+                                    + cornerZ * basis.up().z()) / forward));
                 }
             }
         }
@@ -271,11 +332,39 @@ public final class OrbitVisualRules {
     }
 
     static Quaternionf bodyRotation(ResourceLocation body, double calendarTicks) {
+        Quaternionf cached = BODY_ROTATION_BASES.get(body);
+        Quaternionf rotation = cached == null
+                ? bodyRotationBase(body) : new Quaternionf(cached);
+        return rotation.rotateY((float) surfaceRotationRadians(body, calendarTicks));
+    }
+
+    /** Sun-to-body incoming light in the common NTM render frame for any ephemeris body. */
+    public static CelestialVector incomingLightDirection(ResourceLocation bodyId,
+                                                          CelestialState state) {
+        Objects.requireNonNull(bodyId, "bodyId");
+        Objects.requireNonNull(state, "state");
+        Map<ResourceLocation, BodyEphemeris> ephemeris = bodyEphemeris(state);
+        BodyEphemeris body = requireBody(ephemeris, bodyId);
+        BodyEphemeris sun = requireBody(ephemeris, SUN);
+        CelestialVector bodyFromSun = body.position().subtract(sun.position());
+        return ntmFrameVector(normalizedAtLength(bodyFromSun, bodyFromSun.length()));
+    }
+
+    private static Quaternionf bodyRotationBase(ResourceLocation body) {
         CelestialVector renderAxis = ntmFrameVector(spinAxisEcliptic(body)).normalized();
         Vector3f axis = new Vector3f((float) renderAxis.x(), (float) renderAxis.y(),
                 (float) renderAxis.z());
-        return new Quaternionf().rotationTo(new Vector3f(0.0F, 1.0F, 0.0F), axis)
-                .rotateY((float) surfaceRotationRadians(body, calendarTicks));
+        return new Quaternionf().rotationTo(new Vector3f(0.0F, 1.0F, 0.0F), axis);
+    }
+
+    private static Map<ResourceLocation, Quaternionf> createBodyRotationBases() {
+        Map<ResourceLocation, Quaternionf> bases = new LinkedHashMap<>();
+        bases.put(EARTH, bodyRotationBase(EARTH));
+        bases.put(MOON, bodyRotationBase(MOON));
+        for (CelestialBodies body : CelestialBodies.values()) {
+            bases.put(body.id(), bodyRotationBase(body.id()));
+        }
+        return Map.copyOf(bases);
     }
 
     /**
@@ -287,10 +376,34 @@ public final class OrbitVisualRules {
                                                    BodyEphemeris parent,
                                                    Map<ResourceLocation, BodyEphemeris> ephemeris,
                                                    BodyEphemeris sun) {
-        CelestialVector incomingLight = parent.position().subtract(sun.position()).normalized();
-        double sunHalfTangent = sun.radius()
-                / Math.max(1.0E-12D, parent.position().subtract(sun.position()).length());
+        CelestialVector parentFromSun = parent.position().subtract(sun.position());
+        double parentSunDistance = parentFromSun.length();
+        CelestialVector incomingLight = parentSunDistance > 1.0E-12D
+                ? parentFromSun.scale(1.0D / parentSunDistance) : CelestialVector.ZERO;
+        double sunHalfTangent = sun.radius() / Math.max(1.0E-12D, parentSunDistance);
+        return satelliteShadows(parentId, parent, ephemeris, incomingLight, sunHalfTangent);
+    }
+
+    /** Shared bound-body shadow frame for orbit and reusable-capsule surface transitions. */
+    static SatelliteShadowFrame satelliteShadowFrame(ResourceLocation parentId,
+                                                      CelestialState state) {
+        Map<ResourceLocation, BodyEphemeris> ephemeris = bodyEphemeris(state);
+        BodyEphemeris parent = requireBody(ephemeris, parentId);
+        BodyEphemeris sun = requireBody(ephemeris, SUN);
+        CelestialVector parentFromSun = parent.position().subtract(sun.position());
+        double parentSunDistance = parentFromSun.length();
+        double sunHalfTangent = sun.radius() / Math.max(1.0E-12D, parentSunDistance);
+        return new SatelliteShadowFrame(parent.radius(), sunHalfTangent,
+                satelliteShadows(parentId, parent, ephemeris, sun));
+    }
+
+    static List<SatelliteShadow> satelliteShadows(ResourceLocation parentId,
+                                                   BodyEphemeris parent,
+                                                   Map<ResourceLocation, BodyEphemeris> ephemeris,
+                                                   CelestialVector incomingLight,
+                                                   double sunHalfTangent) {
         List<SatelliteShadowCandidate> candidates = new ArrayList<>();
+        double parentCorner = SQRT_THREE * parent.radius();
         for (Map.Entry<ResourceLocation, BodyEphemeris> entry : ephemeris.entrySet()) {
             BodyEphemeris satellite = entry.getValue();
             if (!parentId.equals(satellite.parent())) {
@@ -304,9 +417,8 @@ public final class OrbitVisualRules {
             }
             CelestialVector lateralVector = relative.subtract(incomingLight.scale(signedLightDistance));
             double lateral = lateralVector.length();
-            double parentCorner = Math.sqrt(3.0D) * parent.radius();
-            double satelliteCorner = Math.sqrt(3.0D) * satellite.radius();
-            double squareStarSpread = Math.sqrt(2.0D) * sunHalfTangent * satelliteToParent;
+            double satelliteCorner = SQRT_THREE * satellite.radius();
+            double squareStarSpread = SQRT_TWO * sunHalfTangent * satelliteToParent;
             if (lateral > parentCorner + satelliteCorner + squareStarSpread) {
                 continue;
             }
@@ -316,8 +428,12 @@ public final class OrbitVisualRules {
         }
         candidates.sort(Comparator.comparingDouble(SatelliteShadowCandidate::priority).reversed()
                 .thenComparing(candidate -> candidate.shadow().satellite().toString()));
-        return candidates.stream().limit(MAX_SATELLITE_SHADOWS)
-                .map(SatelliteShadowCandidate::shadow).toList();
+        int selectedCount = Math.min(MAX_SATELLITE_SHADOWS, candidates.size());
+        List<SatelliteShadow> selected = new ArrayList<>(selectedCount);
+        for (int index = 0; index < selectedCount; index++) {
+            selected.add(candidates.get(index).shadow());
+        }
+        return List.copyOf(selected);
     }
 
     /**
@@ -393,13 +509,20 @@ public final class OrbitVisualRules {
                 - (second.y() - first.y()) * (third.x() - first.x());
     }
 
-    private static double polygonArea(List<ProjectedPoint> polygon) {
+    static double polygonArea(List<ProjectedPoint> polygon) {
         double twiceArea = 0.0D;
-        for (int index = 0; index < polygon.size(); index++) {
-            ProjectedPoint first = polygon.get(index);
-            ProjectedPoint second = polygon.get((index + 1) % polygon.size());
-            twiceArea += first.x() * second.y() - first.y() * second.x();
+        int count = polygon.size();
+        if (count == 0) {
+            return 0.0D;
         }
+        ProjectedPoint first = polygon.get(0);
+        ProjectedPoint previous = first;
+        for (int index = 1; index < count; index++) {
+            ProjectedPoint current = polygon.get(index);
+            twiceArea += previous.x() * current.y() - previous.y() * current.x();
+            previous = current;
+        }
+        twiceArea += previous.x() * first.y() - previous.y() * first.x();
         return Math.abs(twiceArea) * 0.5D;
     }
 
@@ -593,7 +716,14 @@ public final class OrbitVisualRules {
                     : circularLerpRadians(localSkyAngle, travelSkyAngle, progress);
             case CRUISE -> travelSkyAngle;
             case JUMP_ACCELERATING, JUMP_CRUISING, JUMP_DECELERATING -> travelSkyAngle;
-            case ARRIVING -> circularLerpRadians(travelSkyAngle, targetSkyAngle, progress);
+            // Jump arrival already owns the complete 3-D sky orientation.  Letting its ordinary
+            // yaw recover at the same time as target-lock slerp moves both quaternion endpoints;
+            // near the halfway point their shortest-arc sign can change and rotate the sky by
+            // almost 180 degrees in one frame.  A jump therefore unlocks between one fixed route
+            // attitude and the final inertial attitude.  Ordinary travel retains NTM's planar yaw.
+            case ARRIVING -> journey.mode() == StationTravelMode.JUMP
+                    ? localSkyAngle
+                    : circularLerpRadians(travelSkyAngle, targetSkyAngle, progress);
             default -> localSkyAngle;
         };
     }
@@ -716,27 +846,24 @@ public final class OrbitVisualRules {
     }
 
     /**
-     * Keep the departure turn and every straight-flight phase on the same route direction.  Once
-     * the ten-tick target reveal has ended, arrival returns to the live target direction while the
-     * station resumes its ordinary target-centred orbit.
+     * Keep the departure turn, every straight-flight phase and the complete arrival unlock on the
+     * same route direction.  The target and observer may move onto the target-centred orbit after
+     * the ten-tick reveal, but changing this slerp endpoint at the same time would make its shortest
+     * quaternion arc switch branches and visibly flip the complete sky.
      */
     private static boolean usesFixedJumpDirection(ObservationJourney journey, double gameTime) {
         if (journey.mode() != StationTravelMode.JUMP) return false;
         if (journey.phase() == StationJourneyPhase.DEPARTING || journey.phase().isJumpPhase()) {
             return true;
         }
-        return journey.phase() == StationJourneyPhase.ARRIVING
-                && gameTime - journey.phaseStartedGameTime() <= 10.0D;
+        return journey.phase() == StationJourneyPhase.ARRIVING;
     }
 
     /** Direct unobstructed heading held from the end of orbital phasing through target reveal. */
-    private static CelestialVector jumpDirection(ObservationJourney journey,
-                                                 Map<ResourceLocation, BodyEphemeris> ephemeris) {
-        double accelerationStart = jumpAccelerationStart(journey);
-        CelestialVector source = jumpLockPosition(journey.fromBody(), journey.toBody(), ephemeris,
-                accelerationStart);
-        return ntmFrameVector(requireBody(ephemeris, journey.toBody()).position()
-                .subtract(source).normalized());
+    private static CelestialVector jumpDirection(JumpLine line, BodyEphemeris target) {
+        Objects.requireNonNull(line, "line");
+        Objects.requireNonNull(target, "target");
+        return ntmFrameVector(target.position().subtract(line.source()).normalized());
     }
 
     private static CelestialVector observerPosition(ObservationContext context,
@@ -744,18 +871,17 @@ public final class OrbitVisualRules {
                                                      double gameTime,
                                                      double calendarTicks,
                                                      double calendarTicksPerGameTick,
-                                                     int calendarDaysInMonth) {
+                                                     int calendarDaysInMonth,
+                                                     JumpLine frameJumpLine) {
         if (context.journey().isEmpty()) {
             return orbitPosition(context.currentBody(), ephemeris, gameTime);
         }
         ObservationJourney journey = context.journey().orElseThrow();
         StationJourneyPhase phase = journey.phase();
         if (phase == StationJourneyPhase.DEPARTING && journey.mode() == StationTravelMode.JUMP) {
-            double lockTime = journey.phaseStartedGameTime() + journey.phaseDurationTicks();
             CelestialVector currentOrbit = orbitPosition(journey.fromBody(), ephemeris,
                     journey.phaseStartedGameTime());
-            CelestialVector clearLock = jumpLockPosition(journey.fromBody(), journey.toBody(),
-                    ephemeris, lockTime);
+            CelestialVector clearLock = Objects.requireNonNull(frameJumpLine, "frameJumpLine").source();
             BodyEphemeris source = requireBody(ephemeris, journey.fromBody());
             double orbitRadius = currentOrbit.subtract(source.position()).length();
             return sphericalArc(source.position(), currentOrbit, clearLock,
@@ -787,13 +913,13 @@ public final class OrbitVisualRules {
             return safeTransferPosition(from, to, origin, target, circularTransfer(phaseProgress));
         }
         if (phase.isJumpPhase()) {
-            JumpLine line = jumpLine(journey, ephemeris);
+            JumpLine line = Objects.requireNonNull(frameJumpLine, "frameJumpLine");
             return mix(line.source(), line.revealStart(),
                     jumpTravelProgress(journey, gameTime, line.joinSpeedFraction()));
         }
         if (phase == StationJourneyPhase.ARRIVING) {
             if (journey.mode() == StationTravelMode.JUMP) {
-                JumpLine line = jumpLine(journey, ephemeris);
+                JumpLine line = Objects.requireNonNull(frameJumpLine, "frameJumpLine");
                 double elapsed = clamp(gameTime - journey.phaseStartedGameTime(), 0.0D,
                         journey.phaseDurationTicks());
                 if (elapsed <= 10.0D) {
@@ -955,23 +1081,27 @@ public final class OrbitVisualRules {
                                             double lockGameTime) {
         BodyEphemeris source = requireBody(ephemeris, fromId);
         BodyEphemeris target = requireBody(ephemeris, toId);
+        JumpObstacles obstacles = jumpObstacles(toId, ephemeris);
         CelestialVector initial = orbitPosition(fromId, ephemeris, lockGameTime);
         double orbitRadius = initial.subtract(source.position()).length();
         double startAngle = Math.atan2(initial.y() - source.position().y(),
                 initial.x() - source.position().x());
         for (int step = 0; step < 720; step++) {
             double angle = startAngle + TAU * step / 720.0D;
-            CelestialVector candidate = source.position().add(
-                    new CelestialVector(Math.cos(angle), Math.sin(angle), 0.0D).scale(orbitRadius));
-            if (hasClearTargetLine(candidate, toId, target.position(), ephemeris)) {
-                return candidate;
+            double candidateX = source.position().x() + Math.cos(angle) * orbitRadius;
+            double candidateY = source.position().y() + Math.sin(angle) * orbitRadius;
+            // Preserve the former vector scale/add operation even for IEEE-754 signed zero.
+            double candidateZ = source.position().z() + 0.0D * orbitRadius;
+            if (hasClearTargetLine(candidateX, candidateY, candidateZ,
+                    target.position(), obstacles)) {
+                return new CelestialVector(candidateX, candidateY, candidateZ);
             }
         }
         CelestialVector targetOrbit = orbitPosition(toId, ephemeris, lockGameTime);
         for (int step = 1; step <= 720; step++) {
             CelestialVector candidate = safeTransferPosition(initial, targetOrbit, source, target,
                     step / 720.0D);
-            if (hasClearTargetLine(candidate, toId, target.position(), ephemeris)) {
+            if (hasClearTargetLine(candidate, target.position(), obstacles)) {
                 return candidate;
             }
         }
@@ -981,17 +1111,62 @@ public final class OrbitVisualRules {
     static boolean hasClearTargetLine(CelestialVector observer, ResourceLocation targetId,
                                       CelestialVector targetPosition,
                                       Map<ResourceLocation, BodyEphemeris> ephemeris) {
-        CelestialVector segment = targetPosition.subtract(observer);
-        double segmentLengthSquared = segment.dot(segment);
-        if (!(segmentLengthSquared > 1.0E-18D)) return false;
+        return hasClearTargetLine(observer, targetPosition, jumpObstacles(targetId, ephemeris));
+    }
+
+    private static JumpObstacles jumpObstacles(ResourceLocation targetId,
+                                               Map<ResourceLocation, BodyEphemeris> ephemeris) {
+        int size = ephemeris.containsKey(targetId) ? ephemeris.size() - 1 : ephemeris.size();
+        double[] x = new double[size];
+        double[] y = new double[size];
+        double[] z = new double[size];
+        double[] radius = new double[size];
+        int index = 0;
         for (Map.Entry<ResourceLocation, BodyEphemeris> entry : ephemeris.entrySet()) {
             if (entry.getKey().equals(targetId)) continue;
             BodyEphemeris obstacle = entry.getValue();
-            double along = clamp(obstacle.position().subtract(observer).dot(segment)
-                    / segmentLengthSquared, 0.0D, 1.0D);
-            CelestialVector closest = observer.add(segment.scale(along));
-            double conservativeCubeRadius = obstacle.radius() * Math.sqrt(3.0D) * 1.05D;
-            if (closest.subtract(obstacle.position()).length() <= conservativeCubeRadius) {
+            x[index] = obstacle.position().x();
+            y[index] = obstacle.position().y();
+            z[index] = obstacle.position().z();
+            radius[index] = obstacle.radius() * Math.sqrt(3.0D) * 1.05D;
+            index++;
+        }
+        return new JumpObstacles(x, y, z, radius);
+    }
+
+    private static boolean hasClearTargetLine(CelestialVector observer,
+                                              CelestialVector targetPosition,
+                                              JumpObstacles obstacles) {
+        return hasClearTargetLine(observer.x(), observer.y(), observer.z(), targetPosition, obstacles);
+    }
+
+    private static boolean hasClearTargetLine(double observerX, double observerY, double observerZ,
+                                              CelestialVector targetPosition,
+                                              JumpObstacles obstacles) {
+        double segmentX = targetPosition.x() - observerX;
+        double segmentY = targetPosition.y() - observerY;
+        double segmentZ = targetPosition.z() - observerZ;
+        double segmentLengthSquared = segmentX * segmentX + segmentY * segmentY
+                + segmentZ * segmentZ;
+        if (!(segmentLengthSquared > 1.0E-18D)) return false;
+        for (int index = 0; index < obstacles.size(); index++) {
+            double obstacleX = obstacles.x()[index];
+            double obstacleY = obstacles.y()[index];
+            double obstacleZ = obstacles.z()[index];
+            double relativeX = obstacleX - observerX;
+            double relativeY = obstacleY - observerY;
+            double relativeZ = obstacleZ - observerZ;
+            double along = clamp((relativeX * segmentX + relativeY * segmentY
+                    + relativeZ * segmentZ) / segmentLengthSquared, 0.0D, 1.0D);
+            double closestX = observerX + segmentX * along;
+            double closestY = observerY + segmentY * along;
+            double closestZ = observerZ + segmentZ * along;
+            double separationX = closestX - obstacleX;
+            double separationY = closestY - obstacleY;
+            double separationZ = closestZ - obstacleZ;
+            double separation = Math.sqrt(separationX * separationX + separationY * separationY
+                    + separationZ * separationZ);
+            if (separation <= obstacles.radius()[index]) {
                 return false;
             }
         }
@@ -1162,14 +1337,14 @@ public final class OrbitVisualRules {
                     present.radius(), present.parent()));
         }
 
+        double synodicDays = settings.resolvedSynodicDays(calendarDaysInMonth);
+        double anomalisticDays = settings.resolvedAnomalisticDays(calendarDaysInMonth);
         CelestialMath.Input currentInput = new CelestialMath.Input(0.0D, 1.0D,
                 currentCalendarTicks, calendarDaysInMonth,
-                settings.resolvedSynodicDays(calendarDaysInMonth),
-                settings.resolvedAnomalisticDays(calendarDaysInMonth), settings.nodalYears(),
+                synodicDays, anomalisticDays, settings.nodalYears(),
                 settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale());
         CelestialMath.Input targetInput = new CelestialMath.Input(0.0D, 1.0D, targetTicks,
-                calendarDaysInMonth, settings.resolvedSynodicDays(calendarDaysInMonth),
-                settings.resolvedAnomalisticDays(calendarDaysInMonth), settings.nodalYears(),
+                calendarDaysInMonth, synodicDays, anomalisticDays, settings.nodalYears(),
                 settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale());
         CelestialMath.Result currentFrame = CelestialMath.calculate(currentInput);
         CelestialMath.Result targetFrame = CelestialMath.calculate(targetInput);
@@ -1275,8 +1450,8 @@ public final class OrbitVisualRules {
     }
 
     private static CelestialVector equatorialToEcliptic(CelestialVector vector) {
-        double cosine = Math.cos(CelestialMath.AXIAL_TILT);
-        double sine = Math.sin(CelestialMath.AXIAL_TILT);
+        double cosine = CelestialMath.AXIAL_TILT_COS;
+        double sine = CelestialMath.AXIAL_TILT_SIN;
         return new CelestialVector(vector.x(), vector.y() * cosine + vector.z() * sine,
                 -vector.y() * sine + vector.z() * cosine);
     }
@@ -1522,9 +1697,12 @@ public final class OrbitVisualRules {
 
     private static ResourceLocation findId(BodyEphemeris needle,
                                            Map<ResourceLocation, BodyEphemeris> ephemeris) {
-        return ephemeris.entrySet().stream().filter(entry -> entry.getValue() == needle)
-                .map(Map.Entry::getKey).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Local-system primary is absent"));
+        for (Map.Entry<ResourceLocation, BodyEphemeris> entry : ephemeris.entrySet()) {
+            if (entry.getValue() == needle) {
+                return entry.getKey();
+            }
+        }
+        throw new IllegalArgumentException("Local-system primary is absent");
     }
 
     /** Radius-interpolated great-circle arc with deterministic handling of opposite directions. */
@@ -1699,6 +1877,10 @@ public final class OrbitVisualRules {
         return wrapped;
     }
 
+    static CelestialVector normalizedAtLength(CelestialVector vector, double length) {
+        return length > 1.0E-12D ? vector.scale(1.0D / length) : CelestialVector.ZERO;
+    }
+
     private static boolean finite(CelestialVector vector) {
         return vector != null && Double.isFinite(vector.x()) && Double.isFinite(vector.y())
                 && Double.isFinite(vector.z());
@@ -1826,6 +2008,18 @@ public final class OrbitVisualRules {
         }
     }
 
+    record SatelliteShadowFrame(double parentRadius, double sunHalfTangent,
+                                List<SatelliteShadow> shadows) {
+        SatelliteShadowFrame {
+            shadows = List.copyOf(Objects.requireNonNull(shadows, "shadows"));
+            if (!(parentRadius > 0.0D) || !Double.isFinite(parentRadius)
+                    || !(sunHalfTangent > 0.0D) || !Double.isFinite(sunHalfTangent)
+                    || shadows.size() > MAX_SATELLITE_SHADOWS) {
+                throw new IllegalArgumentException("Invalid satellite shadow frame");
+            }
+        }
+    }
+
     public record SatelliteShadow(ResourceLocation satellite, CelestialVector relativePosition,
                                   double halfSize) {
         public SatelliteShadow {
@@ -1842,6 +2036,12 @@ public final class OrbitVisualRules {
 
     private record JumpLine(CelestialVector source, CelestialVector revealStart,
                             CelestialVector arrival, double joinSpeedFraction) {
+    }
+
+    private record JumpObstacles(double[] x, double[] y, double[] z, double[] radius) {
+        int size() {
+            return x.length;
+        }
     }
 
     private record LocalTransferGate(CelestialVector stablePhasingPoint,
@@ -1885,6 +2085,6 @@ public final class OrbitVisualRules {
         }
     }
 
-    private record ProjectedPoint(double x, double y) {
+    record ProjectedPoint(double x, double y) {
     }
 }

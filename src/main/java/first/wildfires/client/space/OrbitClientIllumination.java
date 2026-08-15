@@ -9,6 +9,7 @@ package first.wildfires.client.space;
 
 import first.wildfires.api.celestial.CelestialState;
 import first.wildfires.client.celestial.CelestialClientStateCache;
+import first.wildfires.client.space.render.OrbitVisualFrameCache;
 import first.wildfires.client.space.render.OrbitVisualRules;
 import first.wildfires.space.SpaceDimensions;
 import first.wildfires.space.celestial.ObservationContext;
@@ -33,7 +34,7 @@ public final class OrbitClientIllumination {
             return Optional.empty();
         }
         ObservationContext context = ObservationContextResolver.resolve(level, observer).orElse(null);
-        CelestialState celestial = CelestialClientStateCache.state(level, observer, partialTick).orElse(null);
+        CelestialState celestial = CelestialClientStateCache.stateOrNull(level, observer, partialTick);
         if (context == null || celestial == null) {
             return Optional.empty();
         }
@@ -43,7 +44,7 @@ public final class OrbitClientIllumination {
                 .orElse(celestial.calendarTicks());
         double calendarRate = OrbitVisualDebugClock.calendarTicks().isPresent()
                 ? 0.0D : TfcCalendarRateController.clientMultiplier();
-        return Optional.of(OrbitVisualRules.frame(context, celestial, gameTime, calendarTicks,
+        return Optional.of(OrbitVisualFrameCache.frame(context, celestial, gameTime, calendarTicks,
                 calendarRate, Calendars.get(level).getCalendarDaysInMonth()).illumination());
     }
 }

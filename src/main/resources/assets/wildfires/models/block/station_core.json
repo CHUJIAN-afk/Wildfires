@@ -6,5 +6,6 @@
   "automatic_culling": false,
   "textures": {
     "particle": "wildfires:third_party/ntm_space/docking_port"
-  }
+  },
+  "transform": { "translation": [0.5, 0, 0.5], "origin": "corner" }
 }

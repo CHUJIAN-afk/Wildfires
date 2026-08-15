@@ -105,6 +105,10 @@ minecraft {
         client {
             // Comma-separated list of namespaces to load gametests from. Empty = all namespaces.
             property 'forge.enabledGameTestNamespaces', mod_id
+
+            // Keep the large development modpack inside a predictable Windows commit budget.
+            // This affects only ForgeGradle's development client, not the distributed mod.
+            jvmArgs '-Xms1G', '-Xmx8G'
         }
 
         server {
@@ -277,6 +281,14 @@ tasks.withType(JavaExec).configureEach {
     javaLauncher = javaToolchains.launcherFor {
         languageVersion = JavaLanguageVersion.of(21)
     }
+}
+
+// Pure verification JVMs do not need Java 21's machine-sized ergonomic heap. Keeping them
+// bounded prevents an orphaned/parallel self-test from exhausting Windows commit while the
+// development client is running; ForgeGradle run configurations retain their own limits.
+tasks.withType(JavaExec).matching { it.name.endsWith('SelfTest') }.configureEach {
+    minHeapSize = '256m'
+    maxHeapSize = '2g'
 }
 
 apply from: 'gradle/tfe-dev-bootstrap.gradle'

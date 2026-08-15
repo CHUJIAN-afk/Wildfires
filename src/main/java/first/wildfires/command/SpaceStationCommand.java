@@ -6,8 +6,10 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import first.wildfires.Wildfires;
 import first.wildfires.space.celestial.CelestialRegistryRuntime;
+import first.wildfires.space.celestial.CelestialSurfaceBindingResolver;
 import first.wildfires.space.SpaceDimensions;
 import first.wildfires.space.content.StationCoreService;
+import first.wildfires.space.content.StationIdTapeItem;
 import first.wildfires.space.station.SpaceSavedData;
 import first.wildfires.space.station.StationRecord;
 import first.wildfires.space.station.StationService;
@@ -18,7 +20,11 @@ import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 
+import java.util.Comparator;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import com.mojang.brigadier.suggestion.Suggestions;
+import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 
 /** Permission-2 development commands that only call the authoritative station service. */
 public final class SpaceStationCommand {
@@ -36,12 +42,19 @@ public final class SpaceStationCommand {
                         .then(Commands.literal("list").executes(SpaceStationCommand::list))
                         .then(Commands.literal("info")
                                 .then(Commands.argument("station", UuidArgument.uuid())
+                                        .suggests(SpaceStationCommand::suggestStations)
                                         .executes(SpaceStationCommand::info)))
+                        .then(Commands.literal("tape")
+                                .then(Commands.argument("station", UuidArgument.uuid())
+                                        .suggests(SpaceStationCommand::suggestStations)
+                                        .executes(SpaceStationCommand::tape)))
                         .then(Commands.literal("teleport")
                                 .then(Commands.argument("station", UuidArgument.uuid())
+                                        .suggests(SpaceStationCommand::suggestStations)
                                         .executes(SpaceStationCommand::teleport)))
                         .then(Commands.literal("recover")
                                 .then(Commands.argument("station", UuidArgument.uuid())
+                                        .suggests(SpaceStationCommand::suggestStations)
                                         .executes(SpaceStationCommand::recover))))
                 .then(Commands.literal("returncapsule")
                         .then(Commands.literal("info")
@@ -61,10 +74,17 @@ public final class SpaceStationCommand {
             source.sendFailure(Component.literal("A player is required to own a new station"));
             return 0;
         }
+        var earth = Wildfires.rl("earth");
+        var surface = CelestialSurfaceBindingResolver.resolve(source.getServer(), earth).orElse(null);
+        if (surface == null || !surface.dimension().equals(net.minecraft.world.level.Level.OVERWORLD.location())) {
+            source.sendFailure(Component.literal("Cannot create an Earth test station: "
+                    + "wildfires:earth is not bound to the loaded minecraft:overworld"));
+            return 0;
+        }
         StationService.OperationResult result = StationService.create(
                 SpaceSavedData.get(source.getServer()), UUID.randomUUID(),
                 StringArgumentType.getString(context, "name"), player.getUUID(),
-                Wildfires.rl("earth"), CelestialRegistryRuntime.current(),
+                earth, CelestialRegistryRuntime.current(),
                 source.getServer().overworld().getGameTime());
         result.station().ifPresent(station -> StationCoreService.ensureCore(source.getServer(), station));
         return sendResult(source, result);
@@ -135,6 +155,28 @@ public final class SpaceStationCommand {
                 });
     }
 
+    private static int tape(CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        UUID stationId = UuidArgument.getUuid(context, "station");
+        StationRecord station = SpaceSavedData.get(source.getServer()).station(stationId).orElse(null);
+        if (station == null) {
+            source.sendFailure(Component.literal("Unknown station: " + stationId));
+            return 0;
+        }
+        ServerPlayer player;
+        try {
+            player = source.getPlayerOrException();
+        } catch (com.mojang.brigadier.exceptions.CommandSyntaxException exception) {
+            source.sendFailure(Component.literal("A player is required to receive a station ID tape"));
+            return 0;
+        }
+        var tape = StationIdTapeItem.createProgrammed(station);
+        if (!player.getInventory().add(tape)) player.drop(tape, false);
+        source.sendSuccess(() -> Component.literal("Issued station ID tape for "
+                + station.name() + " (" + station.stationId() + ")"), false);
+        return Command.SINGLE_SUCCESS;
+    }
+
     private static int recover(CommandContext<CommandSourceStack> context) {
         CommandSourceStack source = context.getSource();
         UUID stationId = UuidArgument.getUuid(context, "station");
@@ -165,6 +207,19 @@ public final class SpaceStationCommand {
                 + capsule.transitionTicket().map(value -> value.ticketId() + "/" + value.stage())
                 .orElse("none")), false);
         return Command.SINGLE_SUCCESS;
+    }
+
+    private static CompletableFuture<Suggestions> suggestStations(
+            CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {
+        String remaining = builder.getRemainingLowerCase();
+        SpaceSavedData.get(context.getSource().getServer()).stations().values().stream()
+                .sorted(Comparator.comparing(StationRecord::name, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(station -> station.stationId().toString()))
+                .filter(station -> station.stationId().toString().startsWith(remaining)
+                        || station.name().toLowerCase(java.util.Locale.ROOT).contains(remaining))
+                .forEach(station -> builder.suggest(station.stationId().toString(),
+                        Component.literal(station.name())));
+        return builder.buildFuture();
     }
 
     private static int capsuleRecover(CommandContext<CommandSourceStack> context) {

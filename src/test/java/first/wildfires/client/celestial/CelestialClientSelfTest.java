@@ -40,12 +40,19 @@ public final class CelestialClientSelfTest {
             return;
         }
         starTablesMergeInStableOrderAndIsolateErrors();
+        starRgbValidationMatchesLegacyRegexExactly();
+        starCatalogBufferPreparationMatchesLegacyBits();
+        starConfigSignatureStableFrameCheckMatchesRecordEquals();
         auroraRulesCoverBothPolesAndLegacyMode();
         auroraAppearancePresetsAreCompleteAndDeterministic();
         auroraCachedGeometryRetainsTheOriginalWave();
         auroraAnimationUsesClientTicks();
         rainbowRulesCoverWeatherAndSolarBounds();
         rainbowDirectionIsFiniteAtSolarZenith();
+        sharedRainbowBasisMatchesLegacyLayerBits();
+        cachedCircleTrigonometryMatchesLegacyBits();
+        preparedVisibilityProductsMatchLegacyBits();
+        preparedDiscFramesMatchRepeatedLegacyGeometryBits();
         eclipseAppearanceIsContinuousAndBounded();
         solarOccultorTextureMatchesOrdinaryNewMoonAtZeroCoverage();
         eclipseBodiesUsePhysicalScaleAndMovingSquareShadow();
@@ -58,6 +65,7 @@ public final class CelestialClientSelfTest {
         publicPhaseEventApiRequiresCorrectLocalLight();
         moonHaloAttenuatesNearbyStarsByPhaseAndDistance();
         planetRenderingRestoresTfccaelumArcSecondScale();
+        orderedPlanetDefinitionLookupMatchesLegacyIdentity();
         satelliteRenderingRetainsVisibleThreeDimensionalSeparation();
         actualJupiterAndSaturnSatellitesOrbitTheirParents();
         celestialDiscOrientationIsContinuousAcrossTheZenith();
@@ -65,12 +73,448 @@ public final class CelestialClientSelfTest {
         allOrbitingBodiesHaveFiniteVisualSizes();
         clientStateCacheIsExactAndInvalidatesEverySemanticKey();
         localApparentTimeUsesVanillaCelestialAngle();
+        cachedVisualCelestialAnglesMatchLegacyBits();
         solarEclipseVisualTimeDimsEverySharedConsumer();
         polarVisualLightingFollowsTheLocalSun();
         planetariumProjectionAndEclipsePlotAreExact();
         planetariumPixelAssetsClockAndTimelineAreComplete();
         localVisualSceneMatrixIsFiniteAndComplete();
         System.out.println("CelestialClientSelfTest: all checks passed");
+    }
+
+    private static void cachedCircleTrigonometryMatchesLegacyBits() {
+        for (int index = 0; index <= 24; index++) {
+            double angle = Math.PI * 2.0D * index / 24.0D;
+            assertRawDouble(Math.cos(angle), CelestialVisualRules.twilightCosine(index),
+                    "cached 24-segment cosine");
+            assertRawDouble(Math.sin(angle), CelestialVisualRules.twilightSine(index),
+                    "cached 24-segment sine");
+        }
+        for (int index = 0; index <= 48; index++) {
+            double angle = CelestialMath.TAU * index / 48.0D;
+            assertRawDouble(Math.cos(angle), CelestialVisualRules.discCosine(index),
+                    "cached 48-segment cosine");
+            assertRawDouble(Math.sin(angle), CelestialVisualRules.discSine(index),
+                    "cached 48-segment sine");
+        }
+        for (double dayTime : new double[]{-1.0D, 0.0D, 0.125D, 0.25D, 0.5D,
+                0.75D, 0.999999D, 2.0D, Double.NaN}) {
+            for (double weather : new double[]{-1.0D, 0.0D, 0.25D, 1.0D, 2.0D,
+                    Double.NaN}) {
+                assertRawDouble(CelestialVisualRules.starVisibility(dayTime, weather),
+                        CelestialVisualRules.planetVisibility(dayTime, weather),
+                        "hoisted planet visibility");
+            }
+        }
+    }
+
+    private static void starRgbValidationMatchesLegacyRegexExactly() {
+        List<String> fixed = new ArrayList<>(List.of(
+                "", "0", "00000", "000000", "ffffff", "FFFFFF", "aBcDeF",
+                "gggggg", "00000g", "#ffffff", "##ffff", " 00000", "00000 ",
+                "１２３４５６", "é00000"));
+        fixed.add(new String(Character.toChars(0x1F600)) + "0000");
+        fixed.add(new String(new char[]{0, '0', '0', '0', '0', '0'}));
+        for (String text : fixed) {
+            assertRgbValidation(text);
+        }
+        java.util.Random random = new java.util.Random(0x26B6B11DL);
+        for (int sample = 0; sample < 16384; sample++) {
+            int length = random.nextInt(10);
+            char[] characters = new char[length];
+            for (int index = 0; index < length; index++) {
+                characters[index] = (char) random.nextInt(Character.MAX_VALUE + 1);
+            }
+            assertRgbValidation(new String(characters));
+        }
+    }
+
+    private static void assertRgbValidation(String text) {
+        boolean legacy = text.matches("[0-9a-fA-F]{6}");
+        boolean optimized = StarTableLoader.isRgbHex(text);
+        if (legacy != optimized) {
+            throw new AssertionError("RGB validation changed for " + printable(text));
+        }
+    }
+
+    private static String printable(String value) {
+        StringBuilder result = new StringBuilder();
+        for (int index = 0; index < value.length(); index++) {
+            result.append(String.format("\\u%04X", (int) value.charAt(index)));
+        }
+        return result.toString();
+    }
+
+    private static void starCatalogBufferPreparationMatchesLegacyBits() {
+        List<List<StarTableLoader.Star>> fixed = List.of(
+                List.of(),
+                List.of(testStar(-0.0D)),
+                List.of(testStar(+0.0D), testStar(-0.0D)),
+                List.of(testStar(5.0D), testStar(-3.0D), testStar(5.0D), testStar(1.25D)),
+                List.of(testStar(-30.0D), testStar(30.0D), testStar(0.0D)));
+        for (int index = 0; index < fixed.size(); index++) {
+            assertMagnitudeRangeMatchesLegacy(fixed.get(index), "fixed star catalog " + index);
+        }
+
+        java.util.Random random = new java.util.Random(0x57A2CA7AL);
+        List<StarTableLoader.Star> randomStars = new ArrayList<>(4096);
+        for (int index = 0; index < 4096; index++) {
+            randomStars.add(testStar(random.nextDouble() * 60.0D - 30.0D));
+        }
+        assertMagnitudeRangeMatchesLegacy(randomStars, "random finite star catalog");
+
+        for (double threshold : new double[]{Double.NEGATIVE_INFINITY, -30.0D, -0.0D,
+                +0.0D, 5.0D, 30.0D, Double.POSITIVE_INFINITY, Double.NaN}) {
+            List<StarTableLoader.Star> legacy = randomStars.stream()
+                    .filter(star -> star.magnitude() <= threshold).toList();
+            List<StarTableLoader.Star> optimized = new ArrayList<>();
+            for (StarTableLoader.Star star : randomStars) {
+                if (StarDataManager.visibleMagnitude(star.magnitude(), threshold)) {
+                    optimized.add(star);
+                }
+            }
+            if (legacy.size() != optimized.size()) {
+                throw new AssertionError("star visibility count changed at " + threshold);
+            }
+            for (int index = 0; index < legacy.size(); index++) {
+                if (legacy.get(index) != optimized.get(index)) {
+                    throw new AssertionError("star visibility order/identity changed at "
+                            + threshold + " index " + index);
+                }
+            }
+        }
+    }
+
+    private static void assertMagnitudeRangeMatchesLegacy(List<StarTableLoader.Star> stars,
+                                                          String name) {
+        double legacyMinimum = stars.stream().mapToDouble(StarTableLoader.Star::magnitude)
+                .min().orElse(0.0D);
+        double legacyMaximum = stars.stream().mapToDouble(StarTableLoader.Star::magnitude)
+                .max().orElse(0.0D);
+        StarDataManager.MagnitudeRange optimized = StarDataManager.magnitudeRange(stars);
+        assertRawDouble(legacyMinimum, optimized.minimum(), name + " minimum");
+        assertRawDouble(legacyMaximum, optimized.maximum(), name + " maximum");
+    }
+
+    private static StarTableLoader.Star testStar(double magnitude) {
+        return new StarTableLoader.Star("", 0.0D, 0.0D, magnitude, 0xFFFFFF);
+    }
+
+    private static void starConfigSignatureStableFrameCheckMatchesRecordEquals() {
+        double[] special = {
+                Double.NEGATIVE_INFINITY, -Double.MAX_VALUE, -1.0D, -0.0D, +0.0D,
+                Double.MIN_VALUE, 1.0D, Double.MAX_VALUE, Double.POSITIVE_INFINITY,
+                Double.longBitsToDouble(0x7ff8000000000001L),
+                Double.longBitsToDouble(0x7ff8000000000002L)
+        };
+        for (double builtMax : special) {
+            for (double currentMax : special) {
+                for (double builtSize : special) {
+                    for (boolean colors : new boolean[]{false, true}) {
+                        assertStarConfigSignatureMatch(builtMax, colors, builtSize,
+                                currentMax, colors, builtSize);
+                        assertStarConfigSignatureMatch(builtMax, colors, builtSize,
+                                currentMax, !colors, builtSize);
+                    }
+                }
+            }
+        }
+        java.util.Random random = new java.util.Random(0xC0F16A17L);
+        for (int sample = 0; sample < 8192; sample++) {
+            assertStarConfigSignatureMatch(Double.longBitsToDouble(random.nextLong()),
+                    random.nextBoolean(), Double.longBitsToDouble(random.nextLong()),
+                    Double.longBitsToDouble(random.nextLong()), random.nextBoolean(),
+                    Double.longBitsToDouble(random.nextLong()));
+        }
+    }
+
+    private static void assertStarConfigSignatureMatch(double builtMax, boolean builtColors,
+                                                       double builtSize, double currentMax,
+                                                       boolean currentColors, double currentSize) {
+        StarDataManager.ConfigSignature built = new StarDataManager.ConfigSignature(
+                builtMax, builtColors, builtSize);
+        StarDataManager.ConfigSignature current = new StarDataManager.ConfigSignature(
+                currentMax, currentColors, currentSize);
+        if (built.matches(currentMax, currentColors, currentSize) != built.equals(current)) {
+            throw new AssertionError("stable star config comparison diverged: built=" + built
+                    + ", current=" + current);
+        }
+    }
+
+    private static void preparedVisibilityProductsMatchLegacyBits() {
+        double[] apparentTimes = {
+                Double.NEGATIVE_INFINITY, -Double.MAX_VALUE, -1.0D, -0.0D, 0.0D,
+                0.125D, 0.25D, 0.5D, 0.75D, 1.0D, Double.MAX_VALUE,
+                Double.POSITIVE_INFINITY, Double.longBitsToDouble(0x7ff8000000000001L)
+        };
+        double[] weatherValues = {
+                Double.NEGATIVE_INFINITY, -Double.MAX_VALUE, -1.0D, -0.0D, 0.0D,
+                0.001D, 0.5D, 1.0D, 2.0D, Double.MAX_VALUE,
+                Double.POSITIVE_INFINITY, Double.longBitsToDouble(0x7ff8000000000002L)
+        };
+        double[] brightnessValues = {
+                Double.NEGATIVE_INFINITY, -1.0D, -0.0D, 0.0D, Double.MIN_VALUE,
+                0.5D, 2.0D, Double.MAX_VALUE, Double.POSITIVE_INFINITY, Double.NaN
+        };
+        double[] coverages = {
+                Double.NEGATIVE_INFINITY, -1.0D, -0.0D, 0.0D, 0.2D, 0.5D,
+                1.0D, 2.0D, Double.POSITIVE_INFINITY, Double.NaN
+        };
+        for (double apparent : apparentTimes) {
+            for (double weather : weatherValues) {
+                assertPreparedVisibilityProducts(apparent, weather, brightnessValues, coverages);
+            }
+        }
+        java.util.Random random = new java.util.Random(0x51B1A17EL);
+        for (int sample = 0; sample < 4096; sample++) {
+            assertPreparedVisibilityProducts(Double.longBitsToDouble(random.nextLong()),
+                    Double.longBitsToDouble(random.nextLong()), brightnessValues, coverages);
+        }
+
+        CelestialVisualRules.VisibilityProducts sameThread =
+                CelestialVisualRules.prepareVisibility(0.125D, 0.75D);
+        if (sameThread != CelestialVisualRules.prepareVisibility(0.875D, 0.25D)) {
+            throw new AssertionError("prepared visibility holder was allocated on a stable thread");
+        }
+        CelestialVisualRules.VisibilityProducts[] otherThread = new CelestialVisualRules.VisibilityProducts[1];
+        Throwable[] failure = new Throwable[1];
+        Thread thread = new Thread(() -> {
+            try {
+                otherThread[0] = CelestialVisualRules.prepareVisibility(0.875D, 0.25D);
+                assertPreparedVisibilityProducts(0.875D, 0.25D,
+                        brightnessValues, coverages);
+            } catch (Throwable throwable) {
+                failure[0] = throwable;
+            }
+        }, "wildfires-visibility-products-test");
+        thread.start();
+        try {
+            thread.join();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("visibility-products thread test was interrupted", exception);
+        }
+        if (failure[0] != null) {
+            throw new AssertionError("visibility-products thread test failed", failure[0]);
+        }
+        if (otherThread[0] == null || otherThread[0] == sameThread) {
+            throw new AssertionError("prepared visibility holder leaked across threads");
+        }
+    }
+
+    private static void cachedVisualCelestialAnglesMatchLegacyBits() {
+        double[] apparentTimes = {
+                Double.NEGATIVE_INFINITY, -Double.MAX_VALUE, -1.0D, -0.0D, 0.0D,
+                0.25D, 0.5D, 0.75D, 1.0D, Double.MAX_VALUE,
+                Double.POSITIVE_INFINITY, Double.longBitsToDouble(0x7ff8000000000001L)
+        };
+        double[] eclipseCoverages = {
+                Double.NEGATIVE_INFINITY, -Double.MAX_VALUE, -1.0D, -0.0D, 0.0D,
+                0.2D, 0.5D, 1.0D, 2.0D, Double.MAX_VALUE,
+                Double.POSITIVE_INFINITY, Double.longBitsToDouble(0x7ff8000000000002L)
+        };
+        float[] fallbacks = {
+                Float.NEGATIVE_INFINITY, -Float.MAX_VALUE, -1.0F, -0.0F, 0.0F,
+                0.125F, 1.0F, Float.MAX_VALUE, Float.POSITIVE_INFINITY,
+                Float.intBitsToFloat(0x7fc00001)
+        };
+        for (double apparent : apparentTimes) {
+            for (double eclipse : eclipseCoverages) {
+                for (float fallback : fallbacks) {
+                    assertVisualAngleRaw(apparent, eclipse, fallback);
+                    assertVisualAngleRaw(apparent, eclipse, fallback);
+                }
+            }
+        }
+        java.util.Random random = new java.util.Random(0xA1161E5L);
+        for (int sample = 0; sample < 8192; sample++) {
+            double apparent = Double.longBitsToDouble(random.nextLong());
+            double eclipse = Double.longBitsToDouble(random.nextLong());
+            float fallback = Float.intBitsToFloat(random.nextInt());
+            assertVisualAngleRaw(apparent, eclipse, fallback);
+            if ((sample & 7) == 0) {
+                assertVisualAngleRaw(apparent, eclipse, fallback);
+            }
+        }
+
+        Throwable[] failure = new Throwable[1];
+        Thread thread = new Thread(() -> {
+            try {
+                java.util.Random threadRandom = new java.util.Random(0x7A11C4C4EL);
+                for (int sample = 0; sample < 4096; sample++) {
+                    assertVisualAngleRaw(Double.longBitsToDouble(threadRandom.nextLong()),
+                            Double.longBitsToDouble(threadRandom.nextLong()),
+                            Float.intBitsToFloat(threadRandom.nextInt()));
+                }
+            } catch (Throwable throwable) {
+                failure[0] = throwable;
+            }
+        }, "wildfires-visual-angle-cache-test");
+        thread.start();
+        try {
+            thread.join();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("visual-angle cache thread test was interrupted", exception);
+        }
+        if (failure[0] != null) {
+            throw new AssertionError("visual-angle cache thread test failed", failure[0]);
+        }
+    }
+
+    private static void assertVisualAngleRaw(double apparent, double eclipse, float fallback) {
+        float expected = CelestialClientTime.vanillaCelestialAngle(
+                CelestialClientTime.visualApparentDayTime(apparent, eclipse), fallback);
+        float actual = CelestialClientTime.visualCelestialAngle(apparent, eclipse, fallback);
+        if (Float.floatToRawIntBits(expected) != Float.floatToRawIntBits(actual)) {
+            throw new AssertionError("cached visual celestial angle changed: expected raw 0x"
+                    + Integer.toHexString(Float.floatToRawIntBits(expected)) + ", actual raw 0x"
+                    + Integer.toHexString(Float.floatToRawIntBits(actual)));
+        }
+    }
+
+    private static void assertPreparedVisibilityProducts(double apparent, double weather,
+                                                         double[] brightnessValues,
+                                                         double[] coverages) {
+        CelestialVisualRules.VisibilityProducts prepared =
+                CelestialVisualRules.prepareVisibility(apparent, weather);
+        assertRawDouble(CelestialVisualRules.vanillaStarAlpha(apparent), prepared.starAlpha(),
+                "prepared vanilla star alpha");
+        double expectedWeather = Double.isFinite(weather)
+                ? Math.max(0.0D, Math.min(1.0D, weather)) : 0.0D;
+        assertRawDouble(expectedWeather, prepared.weatherVisibility(),
+                "prepared weather visibility");
+        if (prepared.weatherFinite() != Double.isFinite(weather)) {
+            throw new AssertionError("prepared weather finite flag changed");
+        }
+        assertRawDouble(CelestialVisualRules.starVisibility(apparent, weather),
+                prepared.starVisibility(), "prepared star visibility");
+        assertRawDouble(CelestialVisualRules.moonVisibility(apparent, weather),
+                prepared.moonVisibility(), "prepared moon visibility");
+        assertRawDouble(CelestialVisualRules.planetVisibility(apparent, weather),
+                CelestialVisualRules.planetVisibility(prepared),
+                "prepared planet visibility");
+        if (CelestialVisualRules.sunSkyCoverVisible(apparent, weather)
+                != CelestialVisualRules.sunSkyCoverVisible(prepared)) {
+            throw new AssertionError("prepared solar sky-cover visibility changed");
+        }
+        for (double brightness : brightnessValues) {
+            assertRawDouble(CelestialVisualRules.starShaderBrightness(
+                            apparent, weather, brightness),
+                    CelestialVisualRules.starShaderBrightness(prepared, brightness),
+                    "prepared star shader brightness");
+        }
+        for (double coverage : coverages) {
+            assertRawDouble(CelestialVisualRules.solarOccultorMoonAlpha(
+                            apparent, weather, coverage),
+                    CelestialVisualRules.solarOccultorMoonAlpha(prepared, coverage),
+                    "prepared occultor Moon alpha");
+            CelestialVisualRules.MoonHalo expectedHalo =
+                    CelestialVisualRules.moonHalo(coverage, weather);
+            CelestialVisualRules.MoonHalo preparedHalo =
+                    CelestialVisualRules.moonHalo(coverage, prepared);
+            assertRawDouble(expectedHalo.radiusMultiplier(), preparedHalo.radiusMultiplier(),
+                    "prepared Moon halo radius");
+            assertRawDouble(expectedHalo.centerAlpha(), preparedHalo.centerAlpha(),
+                    "prepared Moon halo alpha");
+            assertRawDouble(CelestialVisualRules.supermoonBlueIntensity(apparent, weather,
+                            coverage, 1.0D - coverage, -0.5D, 0.5D),
+                    CelestialVisualRules.supermoonBlueIntensity(apparent, prepared,
+                            coverage, 1.0D - coverage, -0.5D, 0.5D),
+                    "prepared supermoon blue intensity");
+        }
+        for (double sky : new double[] {Double.NEGATIVE_INFINITY, -1.0D, -0.0D,
+                0.0D, 0.5D, 1.0D, 2.0D, Double.POSITIVE_INFINITY, Double.NaN}) {
+            CelestialVisualRules.MoonTint expected = CelestialVisualRules.moonSkyTint(
+                    sky, 1.0D - sky, sky * 0.5D, apparent);
+            CelestialVisualRules.MoonTint actual = CelestialVisualRules.moonSkyTint(
+                    sky, 1.0D - sky, sky * 0.5D, prepared);
+            assertRawDouble(expected.red(), actual.red(), "prepared Moon sky red");
+            assertRawDouble(expected.green(), actual.green(), "prepared Moon sky green");
+            assertRawDouble(expected.blue(), actual.blue(), "prepared Moon sky blue");
+        }
+    }
+
+    private static void preparedDiscFramesMatchRepeatedLegacyGeometryBits() {
+        CelestialVector[] directions = {
+                new CelestialVector(1.0D, 0.0D, 0.0D),
+                new CelestialVector(0.0D, 1.0D, 0.0D),
+                new CelestialVector(0.0D, -1.0D, 1.0E-12D),
+                new CelestialVector(-0.371D, 0.918D, 0.139D),
+                new CelestialVector(1.0E-200D, -2.0E-200D, 3.0E-200D)
+        };
+        CelestialVector[] norths = {
+                new CelestialVector(0.0D, 0.0D, 1.0D),
+                new CelestialVector(0.0D, 1.0D, 0.0D),
+                new CelestialVector(0.17D, 0.93D, -0.32D)
+        };
+        float[] sizes = {Float.MIN_NORMAL, 0.03125F, 3.75F, 1000.0F};
+        double[] radii = {CelestialDiscGeometry.SKY_SPHERE_RADIUS,
+                CelestialDiscGeometry.PIXEL_COVER_RADIUS,
+                CelestialDiscGeometry.LUNAR_ECLIPSE_LAYER_RADIUS, 99.85D};
+        for (CelestialVector direction : directions) {
+            for (CelestialVector north : norths) {
+                Vec3 legacyDirection = CelestialRenderer.worldDirection(direction);
+                CelestialDiscGeometry.Basis legacyApiBasis =
+                        CelestialVisualRules.stableDiscBasis(direction, north);
+                Vec3 legacyRight = CelestialRenderer.worldDirection(legacyApiBasis.right());
+                Vec3 legacyUp = CelestialRenderer.worldDirection(legacyApiBasis.up());
+                CelestialRenderer.DiscFrame frame = CelestialRenderer.discFrame(direction, north);
+                CelestialRenderer.DiscFrame repeated = CelestialRenderer.discFrame(direction, north);
+                assertVec3Raw(legacyDirection, frame.direction(), "prepared disc direction");
+                assertVec3Raw(legacyRight, frame.right(), "prepared disc right");
+                assertVec3Raw(legacyUp, frame.up(), "prepared disc up");
+                assertVec3Raw(frame.direction(), repeated.direction(), "repeated disc direction");
+                assertVec3Raw(frame.right(), repeated.right(), "repeated disc right");
+                assertVec3Raw(frame.up(), repeated.up(), "repeated disc up");
+                for (double radius : radii) {
+                    for (float size : sizes) {
+                        double[] expected = discQuadVertices(
+                                legacyDirection, legacyRight, legacyUp, radius, size);
+                        double[] actual = discQuadVertices(
+                                frame.direction(), frame.right(), frame.up(), radius, size);
+                        for (int index = 0; index < expected.length; index++) {
+                            assertRawDouble(expected[index], actual[index],
+                                    "prepared disc vertex " + index);
+                            int expectedFloat = Float.floatToRawIntBits((float) expected[index]);
+                            int actualFloat = Float.floatToRawIntBits((float) actual[index]);
+                            if (expectedFloat != actualFloat) {
+                                throw new AssertionError("prepared disc float vertex changed at " + index);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static double[] discQuadVertices(Vec3 direction, Vec3 right, Vec3 up,
+                                             double radius, float size) {
+        double centerX = direction.x * radius;
+        double centerY = direction.y * radius;
+        double centerZ = direction.z * radius;
+        double rightX = right.x * size;
+        double rightY = right.y * size;
+        double rightZ = right.z * size;
+        double upX = up.x * size;
+        double upY = up.y * size;
+        double upZ = up.z * size;
+        return new double[]{
+                (centerX - rightX) - upX, (centerY - rightY) - upY,
+                (centerZ - rightZ) - upZ,
+                (centerX + rightX) - upX, (centerY + rightY) - upY,
+                (centerZ + rightZ) - upZ,
+                (centerX + rightX) + upX, (centerY + rightY) + upY,
+                (centerZ + rightZ) + upZ,
+                (centerX - rightX) + upX, (centerY - rightY) + upY,
+                (centerZ - rightZ) + upZ
+        };
+    }
+
+    private static void assertVec3Raw(Vec3 expected, Vec3 actual, String label) {
+        assertRawDouble(expected.x, actual.x, label + " x");
+        assertRawDouble(expected.y, actual.y, label + " y");
+        assertRawDouble(expected.z, actual.z, label + " z");
     }
 
     private static void starTablesMergeInStableOrderAndIsolateErrors() {
@@ -122,41 +566,58 @@ public final class CelestialClientSelfTest {
     }
 
     private static void clientStateCacheIsExactAndInvalidatesEverySemanticKey() {
+        int[] computations = {0};
         CelestialClientStateCache.SingleEntryCache<String> cache =
-                new CelestialClientStateCache.SingleEntryCache<>();
+                new CelestialClientStateCache.SingleEntryCache<>(
+                        (ignoredLevel, ignoredTick, ignoredWorldTick, ignoredPartialTick,
+                         ignoredRain, ignoredRate, ignoredObserver, ignoredSettings,
+                         ignoredContext) -> "state-" + ++computations[0]);
         Object level = new Object();
         Object settings = new Object();
         Vec3 observer = new Vec3(1.25D, 64.0D, -987.5D);
-        int[] computations = {0};
-        java.util.function.Supplier<String> factory = () -> "state-" + ++computations[0];
         String first = cache.get(level, 1234L, 55L, 0.375F, 0.25F, 1200.0D,
-                observer, settings, factory);
+                observer, settings);
         String repeated = cache.get(level, 1234L, 55L, 0.375F, 0.25F, 1200.0D,
-                observer, settings, factory);
+                observer, settings);
         if (first != repeated || computations[0] != 1) {
             throw new AssertionError("identical client visual queries did not share one state");
         }
         cache.get(level, 1234L, 55L, 0.375F, 0.25F, 1200.0D,
-                observer.add(0.0D, 0.0D, 1.0D), settings, factory);
-        cache.get(level, 1235L, 55L, 0.375F, 0.25F, 1200.0D, observer, settings, factory);
-        cache.get(level, 1235L, 56L, 0.375F, 0.25F, 1200.0D, observer, settings, factory);
-        cache.get(level, 1235L, 56L, 0.5F, 0.25F, 1200.0D, observer, settings, factory);
-        cache.get(level, 1235L, 56L, 0.5F, 0.5F, 1200.0D, observer, settings, factory);
-        cache.get(level, 1235L, 56L, 0.5F, 0.5F, 600.0D, observer, settings, factory);
-        cache.get(new Object(), 1235L, 56L, 0.5F, 0.5F, 600.0D, observer, settings, factory);
-        cache.get(level, 1235L, 56L, 0.5F, 0.5F, 600.0D, observer, new Object(), factory);
+                observer.add(0.0D, 0.0D, 1.0D), settings);
+        cache.get(level, 1235L, 55L, 0.375F, 0.25F, 1200.0D, observer, settings);
+        cache.get(level, 1235L, 56L, 0.375F, 0.25F, 1200.0D, observer, settings);
+        cache.get(level, 1235L, 56L, 0.5F, 0.25F, 1200.0D, observer, settings);
+        cache.get(level, 1235L, 56L, 0.5F, 0.5F, 1200.0D, observer, settings);
+        cache.get(level, 1235L, 56L, 0.5F, 0.5F, 600.0D, observer, settings);
+        cache.get(new Object(), 1235L, 56L, 0.5F, 0.5F, 600.0D, observer, settings);
+        cache.get(level, 1235L, 56L, 0.5F, 0.5F, 600.0D, observer, new Object());
         cache.clear();
-        cache.get(level, 1235L, 56L, 0.5F, 0.5F, 600.0D, observer, settings, factory);
+        cache.get(level, 1235L, 56L, 0.5F, 0.5F, 600.0D, observer, settings);
         Object stationContext = new Object();
         cache.get(level, 1235L, 56L, 0.5F, 0.5F, 600.0D,
-                observer, settings, stationContext, factory);
+                observer, settings, stationContext);
         cache.get(level, 1235L, 56L, 0.5F, 0.5F, 600.0D,
-                observer, settings, stationContext, factory);
+                observer, settings, stationContext);
         cache.get(level, 1235L, 56L, 0.5F, 0.5F, 600.0D,
-                observer, settings, new Object(), factory);
+                observer, settings, new Object());
         if (computations[0] != 12) {
             throw new AssertionError("client cache failed to invalidate a position/tick/frame/level/settings key: "
                     + computations[0]);
+        }
+        int[] nullComputations = {0};
+        CelestialClientStateCache.SingleEntryCache<String> nullCache =
+                new CelestialClientStateCache.SingleEntryCache<>(
+                        (ignoredLevel, ignoredTick, ignoredWorldTick, ignoredPartialTick,
+                         ignoredRain, ignoredRate, ignoredObserver, ignoredSettings,
+                         ignoredContext) -> {
+                            nullComputations[0]++;
+                            return null;
+                        });
+        if (nullCache.get(level, 1L, 2L, 0.0F, 0.0F, 1.0D,
+                observer, settings) != null
+                || nullCache.get(level, 1L, 2L, 0.0F, 0.0F, 1.0D,
+                observer, settings) != null || nullComputations[0] != 1) {
+            throw new AssertionError("client cache no longer memoizes a null provider result");
         }
     }
 
@@ -286,6 +747,42 @@ public final class CelestialClientSelfTest {
             if (!Double.isFinite(direction.x()) || !Double.isFinite(direction.y())
                     || !Double.isFinite(direction.z()) || Math.abs(length - 1.0D) > EPSILON) {
                 throw new AssertionError("rainbow direction became invalid at a vertical sun: " + direction);
+            }
+        }
+    }
+
+    private static void sharedRainbowBasisMatchesLegacyLayerBits() {
+        Vec3 xReference = new Vec3(1.0D, 0.0D, 0.0D);
+        Vec3 yReference = new Vec3(0.0D, 1.0D, 0.0D);
+        Vec3[] directions = {
+                new Vec3(1.0D, 0.0D, 0.0D),
+                new Vec3(0.0D, 1.0D, 0.0D),
+                new Vec3(0.0D, -1.0D, 0.0D),
+                new Vec3(0.2D, 0.98D, -0.1D).normalize(),
+                new Vec3(0.2D, Math.nextUp(0.98D), -0.1D).normalize(),
+                new Vec3(-0.731D, 0.123D, 0.671D).normalize()
+        };
+        float[] sizes = {0.03125F, 140.0F, 280.0F, 4096.0F};
+        for (Vec3 direction : directions) {
+            Vec3 reference = Math.abs(direction.y) > 0.98D ? xReference : yReference;
+            Vec3 unitRight = RainbowRenderer.Geometry.unitRight(direction);
+            assertVec3Raw(direction.cross(reference).normalize(), unitRight,
+                    "shared rainbow unit right");
+            for (float size : sizes) {
+                Vec3 expectedRight = direction.cross(reference).normalize().scale(size);
+                Vec3 actualRight = unitRight.scale(size);
+                assertVec3Raw(expectedRight, actualRight, "shared rainbow scaled right");
+                Vec3 expectedUp = expectedRight.cross(direction).normalize().scale(size);
+                Vec3 actualUp = actualRight.cross(direction).normalize().scale(size);
+                assertVec3Raw(expectedUp, actualUp, "shared rainbow up");
+                double[] expected = discQuadVertices(direction, expectedRight, expectedUp,
+                        201.0D, 1.0F);
+                double[] actual = discQuadVertices(direction, actualRight, actualUp,
+                        201.0D, 1.0F);
+                for (int index = 0; index < expected.length; index++) {
+                    assertRawDouble(expected[index], actual[index],
+                            "shared rainbow vertex " + index);
+                }
             }
         }
     }
@@ -756,6 +1253,57 @@ public final class CelestialClientSelfTest {
         }
     }
 
+    private static void orderedPlanetDefinitionLookupMatchesLegacyIdentity() {
+        CelestialBodies[] ordered = CelestialBodies.values();
+        for (int index = 0; index < ordered.length; index++) {
+            CelestialBodyState body = definitionLookupBody(ordered[index].id());
+            if (CelestialRenderer.bodyDefinitionAt(body, index) != CelestialBodies.byId(body.id())) {
+                throw new AssertionError("ordered planet definition fast path changed identity at " + index);
+            }
+            int wrongIndex = (index + 1) % ordered.length;
+            if (CelestialRenderer.bodyDefinitionAt(body, wrongIndex) != CelestialBodies.byId(body.id())) {
+                throw new AssertionError("misordered planet definition fallback changed identity at " + index);
+            }
+        }
+
+        ResourceLocation unknown = ResourceLocation.fromNamespaceAndPath("wildfires", "unknown_body");
+        CelestialBodyState unknownBody = definitionLookupBody(unknown);
+        for (int index : new int[]{-1, 0, ordered.length, ordered.length + 7}) {
+            if (CelestialRenderer.bodyDefinitionAt(unknownBody, index)
+                    != CelestialBodies.byId(unknown)) {
+                throw new AssertionError("unknown/subset planet definition fallback changed at " + index);
+            }
+        }
+
+        CelestialBodyState nullId = definitionLookupBody(null);
+        Throwable legacyFailure = definitionLookupFailure(nullId, Integer.MIN_VALUE, true);
+        Throwable optimizedFailure = definitionLookupFailure(nullId, 0, false);
+        if (legacyFailure == null ? optimizedFailure != null
+                : optimizedFailure == null || legacyFailure.getClass() != optimizedFailure.getClass()) {
+            throw new AssertionError("null planet id fallback changed failure semantics: legacy="
+                    + legacyFailure + ", optimized=" + optimizedFailure);
+        }
+    }
+
+    private static CelestialBodyState definitionLookupBody(ResourceLocation id) {
+        return new CelestialBodyState(id, null, CelestialVector.ZERO, CelestialVector.ZERO,
+                0.0D, 0.0D, 0.0D, 0.0D, 0.0D, 0.0D);
+    }
+
+    private static Throwable definitionLookupFailure(CelestialBodyState body, int index,
+                                                     boolean legacy) {
+        try {
+            if (legacy) {
+                CelestialBodies.byId(body.id());
+            } else {
+                CelestialRenderer.bodyDefinitionAt(body, index);
+            }
+            return null;
+        } catch (Throwable failure) {
+            return failure;
+        }
+    }
+
     private static void satelliteRenderingRetainsVisibleThreeDimensionalSeparation() {
         double physicalAngle = 0.01D;
         CelestialVector parent = new CelestialVector(1.0D, 0.0D, 0.0D);
@@ -778,6 +1326,55 @@ public final class CelestialClientSelfTest {
             assertClose(sourceAngle * CelestialVisualRules.SATELLITE_ORBIT_RENDER_SCALE, projectedAngle,
                     "TFCCaelum satellite x50 separation at " + sourceAngle);
         }
+
+        CelestialVector[][] fixed = {
+                {CelestialVector.ZERO, satellite},
+                {parent, CelestialVector.ZERO},
+                {new CelestialVector(Double.NaN, 0.0D, 0.0D), satellite},
+                {new CelestialVector(Double.POSITIVE_INFINITY, 1.0D, 0.0D), satellite},
+                {new CelestialVector(-0.0D, 0.0D, -0.0D),
+                        new CelestialVector(0.0D, -0.0D, 0.0D)}
+        };
+        for (int index = 0; index < fixed.length; index++) {
+            assertVectorRaw(legacySatelliteRenderDirection(fixed[index][0], fixed[index][1]),
+                    CelestialVisualRules.satelliteRenderDirection(fixed[index][0], fixed[index][1]),
+                    "fixed satellite render direction " + index);
+        }
+        java.util.Random random = new java.util.Random(0x5A7E1117L);
+        for (int sample = 0; sample < 512; sample++) {
+            CelestialVector randomParent = new CelestialVector(
+                    random.nextDouble() * 2.0D - 1.0D,
+                    random.nextDouble() * 2.0D - 1.0D,
+                    random.nextDouble() * 2.0D - 1.0D);
+            CelestialVector randomSatellite = new CelestialVector(
+                    random.nextDouble() * 2.0D - 1.0D,
+                    random.nextDouble() * 2.0D - 1.0D,
+                    random.nextDouble() * 2.0D - 1.0D);
+            assertVectorRaw(legacySatelliteRenderDirection(randomParent, randomSatellite),
+                    CelestialVisualRules.satelliteRenderDirection(randomParent, randomSatellite),
+                    "random satellite render direction " + sample);
+        }
+    }
+
+    private static CelestialVector legacySatelliteRenderDirection(
+            CelestialVector parentDirection, CelestialVector satelliteDirection) {
+        CelestialVector parent = parentDirection.normalized();
+        CelestialVector satellite = satelliteDirection.normalized();
+        if (parent.lengthSquared() < 1.0E-12D || satellite.lengthSquared() < 1.0E-12D) {
+            return satellite;
+        }
+        double dot = Math.max(-1.0D, Math.min(1.0D, parent.dot(satellite)));
+        CelestialVector tangent = satellite.subtract(parent.scale(dot));
+        double tangentLength = tangent.length();
+        if (tangentLength < 1.0E-12D) {
+            return satellite;
+        }
+        double physicalAngle = Math.atan2(tangentLength, dot);
+        double visualAngle = Math.min(Math.PI * 0.5D,
+                physicalAngle * CelestialVisualRules.SATELLITE_ORBIT_RENDER_SCALE);
+        CelestialVector tangentDirection = tangent.scale(1.0D / tangentLength);
+        return parent.scale(Math.cos(visualAngle))
+                .add(tangentDirection.scale(Math.sin(visualAngle))).normalized();
     }
 
     private static void actualJupiterAndSaturnSatellitesOrbitTheirParents() {
@@ -794,11 +1391,11 @@ public final class CelestialClientSelfTest {
 
     private static void celestialDiscOrientationIsContinuousAcrossTheZenith() {
         CelestialVector north = new CelestialVector(0.23D, 0.31D, 0.92D).normalized();
-        CelestialVisualRules.DiscBasis previous = null;
+        CelestialDiscGeometry.Basis previous = null;
         for (int step = -100; step <= 100; step++) {
             double angle = step * 0.0005D;
             CelestialVector direction = new CelestialVector(Math.sin(angle), Math.cos(angle), 0.0D);
-            CelestialVisualRules.DiscBasis basis = CelestialVisualRules.stableDiscBasis(direction, north);
+            CelestialDiscGeometry.Basis basis = CelestialVisualRules.stableDiscBasis(direction, north);
             assertDiscBasis(direction, basis, "zenith step " + step);
             if (previous != null && (previous.right().dot(basis.right()) < 0.999D
                     || previous.up().dot(basis.up()) < 0.999D)) {
@@ -868,7 +1465,7 @@ public final class CelestialClientSelfTest {
         }
     }
 
-    private static void assertDiscBasis(CelestialVector direction, CelestialVisualRules.DiscBasis basis,
+    private static void assertDiscBasis(CelestialVector direction, CelestialDiscGeometry.Basis basis,
                                         String label) {
         CelestialVector unitDirection = direction.normalized();
         for (CelestialVector vector : new CelestialVector[]{basis.right(), basis.up()}) {
@@ -1376,21 +1973,112 @@ public final class CelestialClientSelfTest {
                 "clock pointer negative wrap");
         assertClose(0.25D, PlanetariumClock.pointerFraction(1.25D),
                 "clock pointer positive wrap");
-        if (PlanetariumProjection.POINTER_TEXTURE_SIZE != 128
-                || PlanetariumProjection.TIMELINE_ICON_SIZE != 8
+        if (PlanetariumProjection.CLOCK_TEXTURE_X != 148
+                || PlanetariumProjection.CLOCK_TEXTURE_Y != 39
+                || PlanetariumProjection.CLOCK_TEXTURE_WIDTH != 96
+                || PlanetariumProjection.CLOCK_TEXTURE_HEIGHT != 86
+                || PlanetariumProjection.POINTER_TEXTURE_WIDTH != 96
+                || PlanetariumProjection.POINTER_TEXTURE_HEIGHT != 86
+                || PlanetariumProjection.CLOCK_CENTER_SOURCE_X != 47.5D
+                || PlanetariumProjection.CLOCK_CENTER_SOURCE_Y != 42.0D
+                || PlanetariumProjection.CLOCK_RADIUS_X != 38.0D
+                || PlanetariumProjection.CLOCK_RADIUS_Y != 30.0D
+                || PlanetariumProjection.POINTER_PIVOT_X != 47.5D
+                || PlanetariumProjection.POINTER_PIVOT_Y != 44.0D
+                || PlanetariumProjection.POINTER_SHADOW_PIVOT_X != 47.5D
+                || PlanetariumProjection.POINTER_SHADOW_PIVOT_Y != 46.0D
+                || PlanetariumProjection.POINTER_SHADOW_OFFSET_Y != 1.0D
+                || PlanetariumProjection.TIMELINE_ICON_SIZE != 4
                 || PlanetariumProjection.TIMELINE_DISC_SOURCE_SIZE != 8
                 || PlanetariumProjection.TIMELINE_DISC_SOURCE_U != 12
                 || PlanetariumProjection.TIMELINE_DISC_SOURCE_V != 12
                 || PlanetariumProjection.TIMELINE_NEW_MOON_SOURCE_V != 44
-                || PlanetariumProjection.TIMELINE_POINTER_LENGTH != 16
+                || PlanetariumProjection.TIMELINE_POINTER_LENGTH != 5
                 || PlanetariumProjection.TIMELINE_POINTER_WIDTH != 1
                 || PlanetariumProjection.TIMELINE_POINTER_COLOR != 0xFF2D8FB8
-                || PlanetariumProjection.TIMELINE_LABEL_Y != 97
+                || PlanetariumProjection.TIMELINE_SELECTED_COLOR != 0xFF62E7FF
+                || PlanetariumProjection.TIMELINE_LABEL_Y != 37
+                || PlanetariumProjection.TIMELINE_LABEL_COLOR != 0xFFFFFF55
+                || PlanetariumProjection.INFO_BOX_WIDTH != 140
+                || PlanetariumProjection.INFO_BOX_HEIGHT != 180
+                || PlanetariumProjection.INFO_LINE_HEIGHT != 9
+                || PlanetariumProjection.INFO_GROUP_GAP != 1
                 || !PlanetariumProjection.TIMELINE_SUN_TEXTURE
                 .equals("minecraft:textures/environment/sun.png")
                 || !PlanetariumProjection.TIMELINE_FULL_MOON_TEXTURE
                 .equals("minecraft:textures/environment/moon_phases.png")) {
             throw new AssertionError("planetarium pointer pivot or vanilla timeline icon layout changed");
+        }
+        int timelineLabelRed = PlanetariumProjection.TIMELINE_LABEL_COLOR >>> 16 & 0xFF;
+        int timelineLabelGreen = PlanetariumProjection.TIMELINE_LABEL_COLOR >>> 8 & 0xFF;
+        int timelineLabelBlue = PlanetariumProjection.TIMELINE_LABEL_COLOR & 0xFF;
+        if (timelineLabelRed < 240 || timelineLabelGreen < 240 || timelineLabelBlue > 128) {
+            throw new AssertionError("brass timeline labels are no longer high-contrast bright yellow");
+        }
+        var iconBounds = PlanetariumProjection.timelineIconBounds(40, 60);
+        if (iconBounds.left() != 38 || iconBounds.top() != 58
+                || iconBounds.right() != 42 || iconBounds.bottom() != 62
+                || iconBounds.width() != PlanetariumProjection.TIMELINE_ICON_SIZE
+                || iconBounds.height() != PlanetariumProjection.TIMELINE_ICON_SIZE
+                || !iconBounds.contains(38.0D, 58.0D)
+                || !iconBounds.contains(Math.nextDown(42.0D), Math.nextDown(62.0D))
+                || iconBounds.contains(42.0D, 60.0D) || iconBounds.contains(40.0D, 62.0D)) {
+            throw new AssertionError("timeline selection/hit bounds no longer match the 4x4 icon: "
+                    + iconBounds);
+        }
+        int[] informationPalette = {
+                PlanetariumProjection.INFO_TITLE_COLOR,
+                PlanetariumProjection.INFO_PRIMARY_COLOR,
+                PlanetariumProjection.INFO_ACCENT_COLOR,
+                PlanetariumProjection.INFO_SECONDARY_COLOR,
+                PlanetariumProjection.INFO_SOLAR_COLOR,
+                PlanetariumProjection.INFO_LUNAR_COLOR,
+                PlanetariumProjection.INFO_SUPERMOON_COLOR
+        };
+        for (int color : informationPalette) {
+            int red = color >>> 16 & 0xFF;
+            int green = color >>> 8 & 0xFF;
+            int blue = color & 0xFF;
+            if (red > 180 && green > 140 && blue < 128) {
+                throw new AssertionError("planetarium information palette restored a yellow tone: 0x"
+                        + Integer.toHexString(color));
+            }
+            if (Math.max(red, Math.max(green, blue)) < 184) {
+                throw new AssertionError("planetarium information color is too dark for the paper: 0x"
+                        + Integer.toHexString(color));
+            }
+        }
+        var ellipseTop = PlanetariumProjection.ellipsePoint(0.0D, 100.0D, 80.0D,
+                PlanetariumProjection.CLOCK_RADIUS_X, PlanetariumProjection.CLOCK_RADIUS_Y);
+        var ellipseRight = PlanetariumProjection.ellipsePoint(0.25D, 100.0D, 80.0D,
+                PlanetariumProjection.CLOCK_RADIUS_X, PlanetariumProjection.CLOCK_RADIUS_Y);
+        assertClose(100.0D, ellipseTop.x(), "elliptical clock top x");
+        assertClose(50.0D, ellipseTop.y(), "elliptical clock top y");
+        assertClose(138.0D, ellipseRight.x(), "elliptical clock right x");
+        assertClose(80.0D, ellipseRight.y(), "elliptical clock right y");
+        var pointerPivot = PlanetariumProjection.ellipsePointerVertex(
+                PlanetariumProjection.POINTER_PIVOT_X,
+                PlanetariumProjection.POINTER_PIVOT_Y, 0.375D, 100.0D, 80.0D);
+        assertClose(100.0D, pointerPivot.x(), "elliptical pointer pivot x");
+        assertClose(80.0D, pointerPivot.y(), "elliptical pointer pivot y");
+        var pointerTip = PlanetariumProjection.ellipsePointerVertex(
+                PlanetariumProjection.POINTER_PIVOT_X + PlanetariumProjection.CLOCK_RADIUS_X,
+                PlanetariumProjection.POINTER_PIVOT_Y, 0.25D, 100.0D, 80.0D);
+        assertClose(138.0D, pointerTip.x(), "elliptical pointer right x");
+        assertClose(80.0D, pointerTip.y(), "elliptical pointer right y");
+        double[][] pointerSamples = {
+                {37.0D, 43.0D}, {52.0D, 41.0D}, {79.0D, 47.0D}, {95.0D, 85.0D}
+        };
+        for (double fraction : new double[] {0.0D, 0.125D, 0.25D, 0.5D, 0.875D}) {
+            for (double[] sample : pointerSamples) {
+                var pointer = PlanetariumProjection.ellipsePointerVertex(
+                        sample[0], sample[1], fraction, 100.0D, 80.0D);
+                var shadow = PlanetariumProjection.ellipsePointerShadowVertex(
+                        sample[0], sample[1] + 2.0D, fraction, 100.0D, 80.0D);
+                assertClose(pointer.x(), shadow.x(), "elliptical pointer shadow x");
+                assertClose(pointer.y() + 1.0D, shadow.y(),
+                        "elliptical pointer shadow one-pixel offset");
+            }
         }
         var blueMoon = new first.wildfires.celestial.EclipsePredictionService.LunarPrediction(
                 true, 0L, 0.0D, 0.0D, 1.0D, 0.0D, 0.0D,
@@ -1446,7 +2134,7 @@ public final class CelestialClientSelfTest {
                 PlanetariumProjection.TIMELINE_TRACK_GAP, 0, 200);
         if (oneDayLayout.size() != 1 || oneDayLayout.get(0).pointerX() != 92
                 || !oneDayLayout.get(0).upperLefts().isEmpty()
-                || !oneDayLayout.get(0).lowerLefts().equals(java.util.List.of(78, 88, 98))) {
+                || !oneDayLayout.get(0).lowerLefts().equals(java.util.List.of(85, 90, 95))) {
             throw new AssertionError("same-day lunar events did not share one centered pointer: "
                     + oneDayLayout);
         }
@@ -1455,18 +2143,31 @@ public final class CelestialClientSelfTest {
                 PlanetariumProjection.TIMELINE_ICON_SIZE,
                 PlanetariumProjection.TIMELINE_TRACK_GAP, 0, 200);
         if (mixedDayLayout.size() != 1 || mixedDayLayout.get(0).pointerX() != 120
-                || !mixedDayLayout.get(0).upperLefts().equals(java.util.List.of(116))
-                || !mixedDayLayout.get(0).lowerLefts().equals(java.util.List.of(111, 121))) {
+                || !mixedDayLayout.get(0).upperLefts().equals(java.util.List.of(118))
+                || !mixedDayLayout.get(0).lowerLefts().equals(java.util.List.of(116, 121))) {
             throw new AssertionError("same-day solar/lunar events lost their single date pointer: "
                     + mixedDayLayout);
         }
-        var axisPhase = PlanetariumProjection.timelineAxisMarker(92, 72,
-                PlanetariumProjection.TIMELINE_ICON_SIZE);
-        if (axisPhase.left() != 88 || axisPhase.top() != 68
-                || axisPhase.left() + PlanetariumProjection.TIMELINE_ICON_SIZE / 2 != 92
-                || axisPhase.top() + PlanetariumProjection.TIMELINE_ICON_SIZE / 2 != 72) {
-            throw new AssertionError("ordinary phase marker is not centered directly on the axis: "
-                    + axisPhase);
+        if (PlanetariumProjection.timelineGroupCenter(java.util.List.of(118),
+                java.util.List.of(), 4) != 120
+                || PlanetariumProjection.timelineGroupCenter(java.util.List.of(),
+                java.util.List.of(116, 121), 4) != 120) {
+            throw new AssertionError("timeline pointer no longer originates at the final icon-group center");
+        }
+        if (PlanetariumProjection.topInputLayer(false, true, false, true)
+                != PlanetariumProjection.InputLayer.TIMELINE
+                || PlanetariumProjection.topInputLayer(true, true, false, true)
+                != PlanetariumProjection.InputLayer.EVENT_MARKER
+                || PlanetariumProjection.topInputLayer(false, false, true, true)
+                != PlanetariumProjection.InputLayer.CLOCK
+                || PlanetariumProjection.topInputLayer(false, false, false, true)
+                != PlanetariumProjection.InputLayer.MAP) {
+            throw new AssertionError("floating planetarium components no longer block the map beneath them");
+        }
+        int worstCaseInformationHeight = 18 * PlanetariumProjection.INFO_LINE_HEIGHT
+                + 4 * PlanetariumProjection.INFO_GROUP_GAP;
+        if (worstCaseInformationHeight > PlanetariumProjection.INFO_BOX_HEIGHT) {
+            throw new AssertionError("planetarium information box can no longer contain the worst-case layout");
         }
 
         double period = 80_000.0D;
@@ -1538,6 +2239,39 @@ public final class CelestialClientSelfTest {
                 == PlanetariumProjection.MAP_SELECTION_COLOR) {
             throw new AssertionError("player and movable map cursors are no longer visually distinct");
         }
+        var componentDrag = PlanetariumProjection.ComponentDragState.NONE.begin(
+                350.0D, 210.0D, 300.0D, 200.0D, 208.0D, 22.0D, 0.0D, 0.0D);
+        if (!componentDrag.dragging()) {
+            throw new AssertionError("floating brass timeline did not begin its own drag");
+        }
+        var movedComponent = componentDrag.drag(450.0D, 310.0D, 3.0D,
+                300.0D, 200.0D, 624.0D, 66.0D, 1920, 1080);
+        assertClose(100.0D / 3.0D, movedComponent.x(), "floating component drag x");
+        assertClose(100.0D / 3.0D, movedComponent.y(), "floating component drag y");
+        var clampedComponent = componentDrag.drag(-500.0D, 2_000.0D, 3.0D,
+                300.0D, 200.0D, 624.0D, 66.0D, 1920, 1080);
+        assertClose(-100.0D, clampedComponent.x(), "floating component left clamp");
+        assertClose((1080.0D - 66.0D - 200.0D) / 3.0D,
+                clampedComponent.y(), "floating component bottom clamp");
+        if (componentDrag.release().dragging()
+                || PlanetariumProjection.ComponentDragState.NONE.begin(
+                299.0D, 199.0D, 300.0D, 200.0D, 208.0D, 22.0D,
+                0.0D, 0.0D).dragging()) {
+            throw new AssertionError("floating component release/outside press changed");
+        }
+        if (PlanetariumProjection.ComponentDragState.NONE.originOffsetX() != 0.0D
+                || PlanetariumProjection.ComponentDragState.NONE.originOffsetY() != 0.0D) {
+            throw new AssertionError("new planetarium screens no longer begin at the authored layout");
+        }
+        var firstOpenLayout = PlanetariumProjection.initialFloatingComponentLayout();
+        var reopenedLayout = PlanetariumProjection.initialFloatingComponentLayout();
+        if (firstOpenLayout == reopenedLayout || !firstOpenLayout.equals(reopenedLayout)
+                || firstOpenLayout.timelineOffsetX() != 0.0D
+                || firstOpenLayout.timelineOffsetY() != 0.0D
+                || firstOpenLayout.clockOffsetX() != 0.0D
+                || firstOpenLayout.clockOffsetY() != 0.0D) {
+            throw new AssertionError("reopened planetarium did not discard session drag offsets");
+        }
 
         var apiBloodMoon = new first.wildfires.api.celestial.CelestialEventState(
                 true, false, true, true, true, true, false, false,
@@ -1561,6 +2295,48 @@ public final class CelestialClientSelfTest {
                 first.wildfires.celestial.CelestialEventType.LUNAR_ECLIPSE))
                 || !PlanetariumProjection.currentEventTypes(null).isEmpty()) {
             throw new AssertionError("planetarium API lunar-event row mapping changed");
+        }
+        for (int flags = 0; flags < 64; flags++) {
+            boolean solar = (flags & 1) != 0;
+            boolean fresh = (flags & 2) != 0;
+            boolean full = (flags & 4) != 0;
+            boolean lunar = (flags & 8) != 0;
+            boolean blood = (flags & 16) != 0;
+            boolean supermoon = (flags & 32) != 0;
+            var snapshot = new first.wildfires.api.celestial.CelestialEventState(
+                    false, false, false, false, full, fresh, false, false,
+                    solar ? 1.0D : 0.0D, solar, lunar ? 1.0D : 0.0D,
+                    lunar ? 1.0D : 0.0D, lunar, supermoon ? 1.0D : 0.0D,
+                    supermoon, blood ? 1.0D : 0.0D, blood);
+            java.util.List<first.wildfires.celestial.CelestialEventType> expected =
+                    new java.util.ArrayList<>(5);
+            if (solar) {
+                expected.add(first.wildfires.celestial.CelestialEventType.SOLAR_ECLIPSE);
+            }
+            if (fresh) {
+                expected.add(first.wildfires.celestial.CelestialEventType.NEW_MOON);
+            }
+            if (full) {
+                expected.add(first.wildfires.celestial.CelestialEventType.FULL_MOON);
+            }
+            if (blood) {
+                expected.add(first.wildfires.celestial.CelestialEventType.BLOOD_MOON);
+            } else if (lunar) {
+                expected.add(first.wildfires.celestial.CelestialEventType.LUNAR_ECLIPSE);
+            }
+            if (supermoon) {
+                expected.add(first.wildfires.celestial.CelestialEventType.SUPERMOON);
+            }
+            int mask = PlanetariumProjection.currentEventMask(snapshot);
+            if (!PlanetariumProjection.currentEventTypes(snapshot).equals(expected)
+                    || !PlanetariumProjection.currentEventTypes(mask).equals(expected)) {
+                throw new AssertionError("planetarium event mask changed ordered API rows for flags="
+                        + flags);
+            }
+        }
+        if (PlanetariumProjection.currentEventMask(null) != 0
+                || !PlanetariumProjection.currentEventTypes(0).isEmpty()) {
+            throw new AssertionError("planetarium empty API mask semantics changed");
         }
 
         var timeline = first.wildfires.celestial.EclipsePredictionService.predictTimeline(
@@ -1700,12 +2476,12 @@ public final class CelestialClientSelfTest {
                 PlanetariumProjection.timelineLunarMarkerKinds(lunar).size());
         var defaultDaySeeds = exceptionalCountsByDay.entrySet().stream().map(entry ->
                 new PlanetariumProjection.TimelineDaySeed(entry.getKey(),
-                        (int) Math.round(632.0D * PlanetariumProjection.timelineProgress(timeline,
+                        24 + (int) Math.round(203.0D * PlanetariumProjection.timelineProgress(timeline,
                                 (entry.getKey() + 0.5D) * CelestialMath.TICKS_IN_DAY)),
                         entry.getValue()[0], entry.getValue()[1])).toList();
         var defaultDayLayouts = PlanetariumProjection.timelineDayLayouts(defaultDaySeeds,
                 PlanetariumProjection.TIMELINE_ICON_SIZE,
-                PlanetariumProjection.TIMELINE_TRACK_GAP, -4, 636);
+                PlanetariumProjection.TIMELINE_TRACK_GAP, 22, 229);
         if (defaultDayLayouts.size() != exceptionalCountsByDay.size()) {
             throw new AssertionError("timeline no longer emits exactly one pointer per exceptional-event day");
         }
@@ -1718,39 +2494,30 @@ public final class CelestialClientSelfTest {
             }
             assertSeparatedTimelineRow(layout.upperLefts(), "upper day " + layout.day());
             assertSeparatedTimelineRow(layout.lowerLefts(), "lower day " + layout.day());
-            if (index > 0) {
-                var previousLayout = defaultDayLayouts.get(index - 1);
-                int previousRight = Math.max(rowRight(previousLayout.upperLefts()),
-                        rowRight(previousLayout.lowerLefts()));
+            if (layout.lane() != 0
+                    || Math.abs(layout.pointerX() - defaultDaySeeds.get(index).desiredCenter()) > 8) {
+                throw new AssertionError("exceptional timeline left its single finite lane or shifted too far: "
+                        + layout);
+            }
+            for (int previous = 0; previous < index; previous++) {
+                var prior = defaultDayLayouts.get(previous);
+                if (prior.lane() != layout.lane()) {
+                    continue;
+                }
+                int previousRight = Math.max(rowRight(prior.upperLefts()),
+                        rowRight(prior.lowerLefts()));
                 int currentLeft = Math.min(rowLeft(layout.upperLefts()),
                         rowLeft(layout.lowerLefts()));
                 if (previousRight + PlanetariumProjection.TIMELINE_TRACK_GAP > currentLeft) {
-                    throw new AssertionError("adjacent timeline day groups overlap: "
-                            + previousLayout + " / " + layout);
+                    throw new AssertionError("timeline groups overlap inside one vertical lane: "
+                            + prior + " / " + layout);
                 }
             }
         }
-        boolean ordinaryOnlyPhase = false;
-        for (var phase : timeline.phases()) {
-            long phaseDay = (long) Math.floor(phase.calendarTicks() / CelestialMath.TICKS_IN_DAY);
-            int phaseCenter = (int) Math.round(632.0D
-                    * PlanetariumProjection.timelineProgress(timeline, phase.calendarTicks()));
-            var phaseLayout = PlanetariumProjection.timelineAxisMarker(phaseCenter, 72,
-                    PlanetariumProjection.TIMELINE_ICON_SIZE);
-            if (phaseLayout.left() + PlanetariumProjection.TIMELINE_ICON_SIZE / 2 != phaseCenter
-                    || phaseLayout.top() + PlanetariumProjection.TIMELINE_ICON_SIZE / 2 != 72) {
-                throw new AssertionError("full/new Moon marker left the timeline axis: " + phase);
-            }
-            if (!exceptionalCountsByDay.containsKey(phaseDay)) {
-                ordinaryOnlyPhase = true;
-                if (defaultDayLayouts.stream().anyMatch(layout -> layout.day() == phaseDay)) {
-                    throw new AssertionError("ordinary-only phase day unexpectedly received a pointer: "
-                            + phaseDay);
-                }
-            }
-        }
-        if (!ordinaryOnlyPhase) {
-            throw new AssertionError("400-day timeline did not provide an ordinary-only phase day");
+        if (timeline.phases().isEmpty()
+                || exceptionalCountsByDay.size() >= timeline.phases().size()
+                + timeline.solar().size() + timeline.lunar().size()) {
+            throw new AssertionError("full/new Moon source predictions unexpectedly entered the exceptional axis");
         }
         assertClose(0.0D, PlanetariumProjection.timelineProgress(timeline,
                 timeline.startCalendarTicks() - 1.0D), "timeline left clamp");
@@ -1773,27 +2540,31 @@ public final class CelestialClientSelfTest {
                 || PlanetariumProjection.selectLunar(timeline, Long.MIN_VALUE).present()) {
             throw new AssertionError("clickable lunar timeline selection changed");
         }
-        var selectedPhase = PlanetariumProjection.selectPhase(timeline,
-                timeline.phases().get(0).phaseIndex(), timeline.phases().get(0).kind());
-        if (!selectedPhase.present() || selectedPhase.phaseIndex()
-                != timeline.phases().get(0).phaseIndex()
-                || selectedPhase.kind() != timeline.phases().get(0).kind()
-                || PlanetariumProjection.selectPhase(timeline, Long.MIN_VALUE, null).present()) {
-            throw new AssertionError("clickable full/new Moon timeline selection changed");
-        }
         var adjacentDays = PlanetariumProjection.timelineDayLayouts(java.util.List.of(
                         new PlanetariumProjection.TimelineDaySeed(20L, 92, 0, 3),
                         new PlanetariumProjection.TimelineDaySeed(21L, 93, 0, 1)),
                 PlanetariumProjection.TIMELINE_ICON_SIZE,
                 PlanetariumProjection.TIMELINE_TRACK_GAP, 0, 200);
-        if (adjacentDays.size() != 2 || adjacentDays.get(0).pointerX() == 92
-                || adjacentDays.get(1).pointerX() == 93
-                || adjacentDays.get(0).lowerLefts().get(2)
-                + PlanetariumProjection.TIMELINE_ICON_SIZE
+        if (adjacentDays.size() != 2 || adjacentDays.get(0).lane() != 0
+                || adjacentDays.get(1).lane() != 0
+                || rowRight(adjacentDays.get(0).lowerLefts())
                 + PlanetariumProjection.TIMELINE_TRACK_GAP
-                > adjacentDays.get(1).lowerLefts().get(0)) {
-            throw new AssertionError("neighboring day groups overlap or retained duplicate pointers: "
+                > rowLeft(adjacentDays.get(1).lowerLefts())) {
+            throw new AssertionError("neighboring day groups left the single brass-slot lane: "
                     + adjacentDays);
+        }
+        var rightEdgeDays = PlanetariumProjection.timelineDayLayouts(java.util.List.of(
+                        new PlanetariumProjection.TimelineDaySeed(30L, 190, 0, 3),
+                        new PlanetariumProjection.TimelineDaySeed(31L, 195, 0, 1)),
+                PlanetariumProjection.TIMELINE_ICON_SIZE,
+                PlanetariumProjection.TIMELINE_TRACK_GAP, 0, 200);
+        if (rightEdgeDays.size() != 2
+                || rowRight(rightEdgeDays.get(1).lowerLefts()) > 200
+                || rowRight(rightEdgeDays.get(0).lowerLefts())
+                + PlanetariumProjection.TIMELINE_TRACK_GAP
+                > rowLeft(rightEdgeDays.get(1).lowerLefts())) {
+            throw new AssertionError("right-edge fallback re-overlapped timeline groups: "
+                    + rightEdgeDays);
         }
         double previous = Double.NEGATIVE_INFINITY;
         for (var solar : timeline.solar()) {
@@ -1836,13 +2607,22 @@ public final class CelestialClientSelfTest {
         }
 
         assertPixelAsset("/assets/wildfires/textures/gui/planetarium/planetarium_background.png",
-                1024, 576, false);
+                256, 256, true);
+        assertPixelAsset("/assets/wildfires/textures/gui/planetarium/planetarium_clock_frame.png",
+                96, 86, true);
         assertPixelAsset("/assets/wildfires/textures/gui/planetarium/planetarium_day_disc.png",
-                256, 256, true);
+                96, 86, true);
         assertPixelAsset("/assets/wildfires/textures/gui/planetarium/planetarium_night_disc.png",
-                256, 256, true);
+                96, 86, true);
         assertPixelAsset("/assets/wildfires/textures/gui/planetarium/planetarium_time_pointer.png",
-                128, 128, true);
+                96, 86, true);
+        assertPixelAsset(
+                "/assets/wildfires/textures/gui/planetarium/planetarium_time_pointer_shadow.png",
+                96, 86, true);
+        assertPlanetariumClockAssetGeometry();
+        assertPixelAsset("/assets/wildfires/textures/gui/planetarium/planetarium_timeline_slot.png",
+                256, 32, true);
+        assertNoLocatorPixels();
         assertVanillaTimelineTextures();
         String english = resourceText("/assets/wildfires/lang/en_us.json");
         String chinese = resourceText("/assets/wildfires/lang/zh_cn.json");
@@ -1928,7 +2708,7 @@ public final class CelestialClientSelfTest {
     private static void assertSeparatedTimelineRow(java.util.List<Integer> lefts, String label) {
         for (int index = 0; index < lefts.size(); index++) {
             int left = lefts.get(index);
-            if (left < -4 || left + PlanetariumProjection.TIMELINE_ICON_SIZE > 636
+            if (left < 22 || left + PlanetariumProjection.TIMELINE_ICON_SIZE > 229
                     || index > 0 && left - lefts.get(index - 1)
                     < PlanetariumProjection.TIMELINE_ICON_SIZE
                     + PlanetariumProjection.TIMELINE_TRACK_GAP) {
@@ -1991,21 +2771,108 @@ public final class CelestialClientSelfTest {
                 throw new AssertionError("planetarium asset corner alpha changed: " + path
                         + " alpha=" + cornerAlpha);
             }
-            for (int y = 0; y < image.getHeight(); y += 4) {
-                for (int x = 0; x < image.getWidth(); x += 4) {
-                    int pixel = image.getRGB(x, y);
-                    for (int offsetY = 0; offsetY < 4; offsetY++) {
-                        for (int offsetX = 0; offsetX < 4; offsetX++) {
-                            if (image.getRGB(x + offsetX, y + offsetY) != pixel) {
-                                throw new AssertionError("planetarium asset is no longer nearest-neighbor "
-                                        + "pixel art at " + x + "," + y + ": " + path);
-                            }
+        } catch (IOException exception) {
+            throw new AssertionError("failed to read planetarium pixel asset " + path, exception);
+        }
+    }
+
+    private static void assertNoLocatorPixels() {
+        String[] paths = {
+                "/assets/wildfires/textures/gui/planetarium/planetarium_clock_frame.png",
+                "/assets/wildfires/textures/gui/planetarium/planetarium_day_disc.png",
+                "/assets/wildfires/textures/gui/planetarium/planetarium_night_disc.png",
+                "/assets/wildfires/textures/gui/planetarium/planetarium_time_pointer.png",
+                "/assets/wildfires/textures/gui/planetarium/planetarium_time_pointer_shadow.png"
+        };
+        for (String path : paths) {
+            try (InputStream stream = CelestialClientSelfTest.class.getResourceAsStream(path)) {
+                BufferedImage image = stream == null ? null : ImageIO.read(stream);
+                if (image == null) {
+                    throw new AssertionError("missing locator-cleaned asset " + path);
+                }
+                for (int y = 0; y < image.getHeight(); y++) {
+                    for (int x = 0; x < image.getWidth(); x++) {
+                        int rgb = image.getRGB(x, y);
+                        int alpha = rgb >>> 24;
+                        int red = rgb >> 16 & 255;
+                        int green = rgb >> 8 & 255;
+                        int blue = rgb & 255;
+                        boolean redLocator = alpha != 0 && red > 250 && green == 0 && blue == 0
+                                && path.contains("clock_frame");
+                        boolean greenLocator = alpha != 0 && green > 250 && red == 0 && blue < 32;
+                        if (redLocator || greenLocator) {
+                            throw new AssertionError("planetarium locator pixel leaked into " + path
+                                    + " at " + x + "," + y);
                         }
                     }
                 }
+            } catch (IOException exception) {
+                throw new AssertionError("failed to audit locator pixels " + path, exception);
             }
-        } catch (IOException exception) {
-            throw new AssertionError("failed to read planetarium pixel asset " + path, exception);
+        }
+    }
+
+    private static void assertPlanetariumClockAssetGeometry() {
+        String root = "/assets/wildfires/textures/gui/planetarium/";
+        try (InputStream frameStream = CelestialClientSelfTest.class.getResourceAsStream(
+                root + "planetarium_clock_frame.png");
+             InputStream dayStream = CelestialClientSelfTest.class.getResourceAsStream(
+                     root + "planetarium_day_disc.png");
+             InputStream nightStream = CelestialClientSelfTest.class.getResourceAsStream(
+                     root + "planetarium_night_disc.png");
+             InputStream pointerStream = CelestialClientSelfTest.class.getResourceAsStream(
+                     root + "planetarium_time_pointer.png");
+             InputStream shadowStream = CelestialClientSelfTest.class.getResourceAsStream(
+                     root + "planetarium_time_pointer_shadow.png")) {
+            BufferedImage frame = ImageIO.read(frameStream);
+            BufferedImage day = ImageIO.read(dayStream);
+            BufferedImage night = ImageIO.read(nightStream);
+            BufferedImage pointer = ImageIO.read(pointerStream);
+            BufferedImage shadow = ImageIO.read(shadowStream);
+            assertAlphaGeometry(frame, 0, 0, 95, 85, 3944, "clock frame");
+            assertAlphaGeometry(day, 10, 11, 85, 71, 3621, "day disc");
+            assertAlphaGeometry(night, 10, 11, 85, 71, 3621, "night disc");
+            assertAlphaGeometry(pointer, 37, 41, 79, 47, 92, "time pointer");
+            assertAlphaGeometry(shadow, 37, 43, 79, 49, 92, "time pointer shadow");
+            for (int y = 0; y < pointer.getHeight() - 2; y++) {
+                for (int x = 0; x < pointer.getWidth(); x++) {
+                    boolean pointerAlpha = (pointer.getRGB(x, y) >>> 24) != 0;
+                    boolean shadowAlpha = (shadow.getRGB(x, y + 2) >>> 24) != 0;
+                    if (pointerAlpha != shadowAlpha) {
+                        throw new AssertionError("pointer shadow is no longer the same authored shape"
+                                + " at " + x + "," + y);
+                    }
+                }
+            }
+        } catch (IOException | NullPointerException exception) {
+            throw new AssertionError("failed to audit planetarium clock assets", exception);
+        }
+    }
+
+    private static void assertAlphaGeometry(BufferedImage image, int expectedMinX,
+                                            int expectedMinY, int expectedMaxX,
+                                            int expectedMaxY, int expectedCount, String label) {
+        int minX = image.getWidth();
+        int minY = image.getHeight();
+        int maxX = -1;
+        int maxY = -1;
+        int count = 0;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                if ((image.getRGB(x, y) >>> 24) == 0) {
+                    continue;
+                }
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+                count++;
+            }
+        }
+        if (minX != expectedMinX || minY != expectedMinY || maxX != expectedMaxX
+                || maxY != expectedMaxY || count != expectedCount) {
+            throw new AssertionError(label + " alpha geometry changed: " + minX + "," + minY
+                    + ".." + maxX + "," + maxY + " pixels=" + count);
         }
     }
 
@@ -2054,5 +2921,22 @@ public final class CelestialClientSelfTest {
         if (Math.abs(expected - actual) > EPSILON) {
             throw new AssertionError(name + ": expected " + expected + ", got " + actual);
         }
+    }
+
+    private static void assertRawDouble(double expected, double actual, String name) {
+        long expectedBits = Double.doubleToRawLongBits(expected);
+        long actualBits = Double.doubleToRawLongBits(actual);
+        if (expectedBits != actualBits) {
+            throw new AssertionError(name + ": expected " + expected + " (0x"
+                    + Long.toHexString(expectedBits) + "), got " + actual + " (0x"
+                    + Long.toHexString(actualBits) + ")");
+        }
+    }
+
+    private static void assertVectorRaw(CelestialVector expected, CelestialVector actual,
+                                        String name) {
+        assertRawDouble(expected.x(), actual.x(), name + " x");
+        assertRawDouble(expected.y(), actual.y(), name + " y");
+        assertRawDouble(expected.z(), actual.z(), name + " z");
     }
 }

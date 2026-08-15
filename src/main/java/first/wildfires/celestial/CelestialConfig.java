@@ -2,9 +2,12 @@ package first.wildfires.celestial;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.common.ForgeConfigSpec;
 import net.minecraftforge.fml.ModLoadingContext;
@@ -44,6 +47,7 @@ public final class CelestialConfig {
     private static final ForgeConfigSpec.DoubleValue MOON_SCALE;
     private static final ForgeConfigSpec.DoubleValue PLANET_SCALE;
     private static volatile CelestialRuntimeSettings cachedServerSettings;
+    private static volatile SurfaceMonsterIdFilter cachedSurfaceMonsterIdFilter;
 
     static {
         ForgeConfigSpec.Builder server = new ForgeConfigSpec.Builder();
@@ -144,6 +148,8 @@ public final class CelestialConfig {
 
     static void refreshServerSettings() {
         cachedServerSettings = readServerSettings();
+        cachedSurfaceMonsterIdFilter = SurfaceMonsterIdFilter.from(
+                BLOOD_MOON_SURFACE_MONSTER_IDS.get());
     }
 
     private static CelestialRuntimeSettings readServerSettings() {
@@ -163,6 +169,15 @@ public final class CelestialConfig {
 
     public static List<? extends String> bloodMoonSurfaceMonsterIds() {
         return BLOOD_MOON_SURFACE_MONSTER_IDS.get();
+    }
+
+    static SurfaceMonsterIdFilter surfaceMonsterIdFilter() {
+        SurfaceMonsterIdFilter cached = cachedSurfaceMonsterIdFilter;
+        if (cached == null) {
+            cached = SurfaceMonsterIdFilter.from(BLOOD_MOON_SURFACE_MONSTER_IDS.get());
+            cachedSurfaceMonsterIdFilter = cached;
+        }
+        return cached;
     }
 
     static boolean isServerSpec(net.minecraftforge.fml.config.ModConfig config) {
@@ -188,6 +203,34 @@ public final class CelestialConfig {
         private CelestialBodyParameters parameters() {
             return new CelestialBodyParameters(diameterKm.get(), orbitalDays.get(), semiMajorMillionKm.get(),
                     synodicDays.get(), Math.toRadians(inclinationDegrees.get()));
+        }
+    }
+
+    record SurfaceMonsterIdFilter(boolean unrestricted, Set<ResourceLocation> canonicalIds) {
+        SurfaceMonsterIdFilter {
+            canonicalIds = Set.copyOf(canonicalIds);
+        }
+
+        static SurfaceMonsterIdFilter from(List<? extends String> configured) {
+            Objects.requireNonNull(configured, "configured");
+            if (configured.isEmpty()) {
+                return new SurfaceMonsterIdFilter(true, Set.of());
+            }
+            Set<ResourceLocation> canonical = new LinkedHashSet<>();
+            for (String text : configured) {
+                if (text == null) {
+                    continue;
+                }
+                ResourceLocation parsed = ResourceLocation.tryParse(text);
+                if (parsed != null && parsed.toString().equals(text)) {
+                    canonical.add(parsed);
+                }
+            }
+            return new SurfaceMonsterIdFilter(false, canonical);
+        }
+
+        boolean allows(ResourceLocation id) {
+            return unrestricted || canonicalIds.contains(Objects.requireNonNull(id, "id"));
         }
     }
 

@@ -1,5 +1,6 @@
 {
   "variants": {
-    "": { "model": "wildfires:block/station_structure" }
+    "fluid_port=false": { "model": "wildfires:block/station_structure" },
+    "fluid_port=true": { "model": "wildfires:block/station_structure" }
   }
 }

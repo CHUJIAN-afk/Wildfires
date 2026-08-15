@@ -18,7 +18,6 @@ import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexBuffer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.renderer.GameRenderer;
-import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
@@ -61,8 +60,13 @@ public final class NtmOrbitSkyRenderer {
         drawVacuumBackdrop(poseStack, projectionMatrix);
 
         enableAdditiveBlend();
-        ShaderInstance relativisticSky = relativity.active() ? RelativisticSkyShader.get() : null;
-        RenderSystem.setShader(relativisticSky == null ? GameRenderer::getPositionTexShader : () -> relativisticSky);
+        RelativisticSkyShader.Bindings relativisticSky = relativity.active()
+                ? RelativisticSkyShader.bindings() : null;
+        if (relativisticSky == null) {
+            RenderSystem.setShader(GameRenderer::getPositionTexShader);
+        } else {
+            RenderSystem.setShader(relativisticSky);
+        }
         RenderSystem.setShaderTexture(0, NIGHT);
         float visualStarAlpha = (float) RelativisticVisualRules.starVisibility(starVisibility, relativity);
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, visualStarAlpha);
@@ -70,10 +74,11 @@ public final class NtmOrbitSkyRenderer {
         poseStack.scale(106.0F, 106.0F, 106.0F);
         nightSkybox.bind();
         if (relativisticSky != null) {
-            relativisticSky.safeGetUniform("Velocity").set((float) velocityDirection.x(),
+            relativisticSky.velocity().set((float) velocityDirection.x(),
                     (float) velocityDirection.y(), (float) velocityDirection.z());
-            relativisticSky.safeGetUniform("Beta").set((float) relativity.beta());
-            relativisticSky.safeGetUniform("AberrationBeta").set((float) relativity.aberrationBeta());
+            relativisticSky.beta().set((float) relativity.beta());
+            relativisticSky.aberrationBeta().set((float) relativity.aberrationBeta());
+            relativisticSky.starTrailStrength().set((float) relativity.starTrailStrength());
             // The shader applies direction-dependent RGB/brightness. Keep this only as the NTM
             // atlas' global visibility/opacity gate, so gameplay light remains untouched.
             RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, visualStarAlpha);

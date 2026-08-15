@@ -38,14 +38,14 @@ public final class TfcCalendarEventAcceleration {
         Evaluation evaluation = evaluation(level, observer);
         if (event == CelestialEventType.AURORA
                 && CelestialEventRules.auroraProbability(Math.abs(Math.toDegrees(
-                evaluation.at(Calendars.SERVER.getCalendarTicks()).latitude()))) <= 0.0D) {
+                evaluation.latitude()))) <= 0.0D) {
             return StartResult.failure(Component.translatable(
                     "commands.wildfires.tfctime.until.aurora_latitude"));
         }
         UUID playerId = source.getEntity() instanceof ServerPlayer player ? player.getUUID() : null;
         long calendarTick = Calendars.SERVER.getCalendarTicks();
         RainSample rain = rain(level);
-        boolean matching = event.matches(evaluation.at(calendarTick), calendarTick, rain);
+        boolean matching = evaluation.matches(event, calendarTick, rain);
         active = new Active(event, multiplier, level.dimension(), observer, observer, playerId,
                 matching, Long.MIN_VALUE);
         TfcCalendarRateController.setServerMultiplier(multiplier);
@@ -67,10 +67,9 @@ public final class TfcCalendarEventAcceleration {
         BlockPos observer = BlockPos.containing(source.getPosition());
         Evaluation evaluation = evaluation(level, observer);
         long startTick = Calendars.SERVER.getCalendarTicks();
-        CelestialMath.Result initial = evaluation.at(startTick);
         if (event == CelestialEventType.AURORA
                 && CelestialEventRules.auroraProbability(Math.abs(Math.toDegrees(
-                initial.latitude()))) <= 0.0D) {
+                evaluation.latitude()))) <= 0.0D) {
             return JumpResult.failure(Component.translatable(
                     "commands.wildfires.tfctime.until.aurora_latitude"));
         }
@@ -82,10 +81,10 @@ public final class TfcCalendarEventAcceleration {
             return JumpResult.failure(Component.translatable(
                     "commands.wildfires.tfctime.skipto.no_target", searchDays));
         }
-        boolean currentlyMatching = event.matches(initial, startTick, null);
+        boolean currentlyMatching = evaluation.matches(event, startTick, null);
         CalendarEventWindowScanner.ScanResult scan = CalendarEventWindowScanner.scan(
                 startTick, maximumAdvance, currentlyMatching,
-                tick -> event.matches(evaluation.at(tick), tick, null));
+                tick -> evaluation.matches(event, tick, null));
         if (!scan.found()) {
             return JumpResult.failure(Component.translatable(
                     "commands.wildfires.tfctime.skipto.no_target", searchDays));
@@ -115,14 +114,14 @@ public final class TfcCalendarEventAcceleration {
         RainSample rain = rain(level);
         boolean previousMatching = task.previousMatching();
         if (!observer.equals(task.lastObserver())) {
-            previousMatching = task.event().matches(evaluation.at(startTick), startTick, rain);
+            previousMatching = evaluation.matches(task.event(), startTick, rain);
             task = task.withObserver(observer, previousMatching);
             active = task;
         }
         Active currentTask = task;
         CalendarEventWindowScanner.ScanResult scan = CalendarEventWindowScanner.scan(
                 startTick, desiredAdvance, previousMatching,
-                tick -> currentTask.event().matches(evaluation.at(tick), tick, rain));
+                tick -> evaluation.matches(currentTask.event(), tick, rain));
         if (scan.found()) {
             active = currentTask.withReachedTick(scan.reachedTick());
             return Math.max(1L, scan.reachedTick() - startTick);
@@ -224,8 +223,9 @@ public final class TfcCalendarEventAcceleration {
             return 0L;
         }
         double yearDays = CelestialMath.daysInYear(daysInMonth);
-        double synodicDays = settings.resolvedSynodicDays(daysInMonth);
-        double anomalisticDays = settings.resolvedAnomalisticDays(daysInMonth);
+        CelestialRuntimeSettings.PreparedPeriods prepared = settings.preparedPeriods(daysInMonth);
+        double synodicDays = prepared.synodicDays();
+        double anomalisticDays = prepared.anomalisticDays();
         double requested = switch (event) {
             case NOON, MIDNIGHT -> 2.0D;
             case SUNRISE, SUNSET -> yearDays + 2.0D;
@@ -249,14 +249,69 @@ public final class TfcCalendarEventAcceleration {
                 ? 1.0D / frequencyDifference : MAX_SKIP_SEARCH_DAYS;
     }
 
-    private record Evaluation(double observerZ, double hemisphereScale, int daysInMonth,
-                              CelestialRuntimeSettings settings) {
+    /** Test seam comparing the production event-specific path with the legacy complete sample. */
+    static boolean matchesAt(CelestialEventType event, long calendarTick,
+                             double observerZ, double hemisphereScale, int daysInMonth,
+                             CelestialRuntimeSettings settings, RainSample rain) {
+        return new Evaluation(observerZ, hemisphereScale, daysInMonth, settings)
+                .matches(event, calendarTick, rain);
+    }
 
-        private CelestialMath.Result at(long calendarTick) {
-            return CelestialMath.calculate(new CelestialMath.Input(observerZ, hemisphereScale, calendarTick,
-                    daysInMonth, settings.resolvedSynodicDays(daysInMonth),
-                    settings.resolvedAnomalisticDays(daysInMonth), settings.nodalYears(),
-                    settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale()));
+    private record Evaluation(CelestialMath.ObserverLatitudeContext observerLatitude,
+                              int daysInMonth,
+                              CelestialRuntimeSettings settings, double synodicDays,
+                              double anomalisticDays, double sineLunarInclination) {
+
+        private Evaluation(double observerZ, double hemisphereScale, int daysInMonth,
+                           CelestialRuntimeSettings settings) {
+            this(observerZ, hemisphereScale, daysInMonth, settings,
+                    settings.preparedPeriods(daysInMonth));
+        }
+
+        private Evaluation(double observerZ, double hemisphereScale, int daysInMonth,
+                           CelestialRuntimeSettings settings,
+                           CelestialRuntimeSettings.PreparedPeriods prepared) {
+            this(CelestialMath.prepareObserverLatitude(observerZ, hemisphereScale),
+                    daysInMonth, settings,
+                    prepared.synodicDays(), prepared.anomalisticDays(),
+                    prepared.sineLunarInclination());
+        }
+
+        private CelestialMath.DaylightSample daylightAt(long calendarTick) {
+            return CelestialMath.daylightSampleAt(observerLatitude, calendarTick, daysInMonth);
+        }
+
+        private CelestialMath.DisplayEventSample displayAt(long calendarTick) {
+            return CelestialMath.displayEventSampleAt(observerLatitude, calendarTick,
+                    daysInMonth, synodicDays, anomalisticDays, settings.nodalYears(),
+                    settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale(),
+                    sineLunarInclination);
+        }
+
+        private CelestialMath.QuarterEventSample quarterAt(long calendarTick) {
+            return CelestialMath.quarterEventSampleAt(observerLatitude, calendarTick,
+                    daysInMonth, synodicDays, anomalisticDays, settings.nodalYears(),
+                    settings.lunarInclinationRadians(), settings.sunScale(), settings.moonScale(),
+                    sineLunarInclination);
+        }
+
+        private double latitude() {
+            return observerLatitude.latitude();
+        }
+
+        private boolean matches(CelestialEventType event, long calendarTick, RainSample rain) {
+            return switch (event) {
+                case NOON, MIDNIGHT -> event.matchesFractionOfDay(
+                        CelestialMath.positiveModulo(calendarTick, CelestialMath.TICKS_IN_DAY)
+                                / CelestialMath.TICKS_IN_DAY);
+                case SUNRISE, SUNSET, AURORA, RAINBOW -> event.matches(
+                        daylightAt(calendarTick), latitude(), calendarTick, rain);
+                case MOONRISE, MOONSET, FULL_MOON, NEW_MOON, SUPERMOON,
+                     SOLAR_ECLIPSE, LUNAR_ECLIPSE, BLOOD_MOON ->
+                        event.matches(displayAt(calendarTick));
+                case FIRST_QUARTER, LAST_QUARTER ->
+                        event.matches(quarterAt(calendarTick));
+            };
         }
     }
 

@@ -1,6 +1,7 @@
 package first.wildfires.mixin.legendarysurvivaloverhaul;
 
 
+import first.wildfires.client.ThermalHudState;
 import first.wildfires.utils.CuriosUtil;
 import first.wildfires.thermal.ThermalFieldManager;
 import net.minecraft.client.Minecraft;
@@ -58,7 +59,7 @@ public class RenderTemperatureGuiMixin {
                         RenderTemperatureGui.drawBodyTemperature(guiGraphics, player, width, height);
                         Minecraft.getInstance().getProfiler().pop();
                     }
-                    if (player.getAbilities().instabuild) {
+                    if (player.getAbilities().instabuild && ThermalHudState.isEnabled()) {
                         float air = ThermalFieldManager.getClientAirTemperature();
                         float radiation = ThermalFieldManager.getClientRadiationOffset();
                         float effective = ThermalFieldManager.getTemperatureOffset(player);

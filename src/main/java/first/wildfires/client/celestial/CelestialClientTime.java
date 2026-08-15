@@ -5,6 +5,8 @@ public final class CelestialClientTime {
 
     private static final double MIDNIGHT = 0.75D;
     public static final double ECLIPSE_DARKENING_START = 0.20D;
+    private static final ThreadLocal<VisualAngleCache> VISUAL_ANGLE_CACHE =
+            ThreadLocal.withInitial(VisualAngleCache::new);
 
     private CelestialClientTime() {
     }
@@ -54,7 +56,31 @@ public final class CelestialClientTime {
     /** Converts the eclipse-adjusted visual time into the unit consumed by vanilla color methods. */
     public static float visualCelestialAngle(double solarApparentDayTime, double solarEclipseCoverage,
                                              float fallback) {
-        return vanillaCelestialAngle(visualApparentDayTime(solarApparentDayTime, solarEclipseCoverage),
-                fallback);
+        return VISUAL_ANGLE_CACHE.get().get(solarApparentDayTime, solarEclipseCoverage, fallback);
+    }
+
+    private static final class VisualAngleCache {
+        private long apparentDayTimeBits;
+        private long eclipseCoverageBits;
+        private int fallbackBits;
+        private boolean initialized;
+        private float value;
+
+        private float get(double solarApparentDayTime, double solarEclipseCoverage,
+                          float fallback) {
+            long apparentBits = Double.doubleToRawLongBits(solarApparentDayTime);
+            long eclipseBits = Double.doubleToRawLongBits(solarEclipseCoverage);
+            int fallbackRawBits = Float.floatToRawIntBits(fallback);
+            if (!initialized || apparentDayTimeBits != apparentBits
+                    || eclipseCoverageBits != eclipseBits || fallbackBits != fallbackRawBits) {
+                apparentDayTimeBits = apparentBits;
+                eclipseCoverageBits = eclipseBits;
+                fallbackBits = fallbackRawBits;
+                value = vanillaCelestialAngle(
+                        visualApparentDayTime(solarApparentDayTime, solarEclipseCoverage), fallback);
+                initialized = true;
+            }
+            return value;
+        }
     }
 }

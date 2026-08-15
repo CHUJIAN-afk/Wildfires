@@ -21,6 +21,8 @@ public final class SolarEclipseRegion {
     private static final int GLOBAL_MAXIMUM_ITERATIONS = 32;
     private static final CelestialVector CANONICAL_SUN = new CelestialVector(0.0D, 0.0D, 1.0D);
     private static final CelestialVector CANONICAL_NORTH = new CelestialVector(0.0D, 1.0D, 0.0D);
+    private static final ThreadLocal<EventCache> PREPARED_EVENT_CACHE =
+            ThreadLocal.withInitial(EventCache::new);
 
     private SolarEclipseRegion() {
     }
@@ -34,8 +36,38 @@ public final class SolarEclipseRegion {
         return eventAt(index, daysInYear, synodicDays, nodalYears, lunarInclination);
     }
 
+    static Event eventFor(double calendarDays, double daysInYear, double synodicDays,
+                          double nodalYears, double lunarInclination,
+                          double sineLunarInclination) {
+        if (!positiveFinite(synodicDays)) {
+            return Event.NONE;
+        }
+        long index = Math.round(calendarDays / synodicDays - 0.5D);
+        return eventAt(index, daysInYear, synodicDays, nodalYears, lunarInclination,
+                sineLunarInclination);
+    }
+
+    /** Internal repeated-sample path; public event factories retain their per-call object result. */
+    static Event eventForPrepared(double calendarDays, double daysInYear, double synodicDays,
+                                  double nodalYears, double lunarInclination,
+                                  double sineLunarInclination) {
+        if (!positiveFinite(synodicDays)) {
+            return Event.NONE;
+        }
+        long index = Math.round(calendarDays / synodicDays - 0.5D);
+        return PREPARED_EVENT_CACHE.get().get(index, daysInYear, synodicDays, nodalYears,
+                lunarInclination, sineLunarInclination);
+    }
+
     public static Event eventAt(long conjunctionIndex, double daysInYear, double synodicDays,
                                 double nodalYears, double lunarInclination) {
+        return eventAt(conjunctionIndex, daysInYear, synodicDays, nodalYears,
+                lunarInclination, Math.sin(lunarInclination));
+    }
+
+    static Event eventAt(long conjunctionIndex, double daysInYear, double synodicDays,
+                         double nodalYears, double lunarInclination,
+                         double sineLunarInclination) {
         if (!positiveFinite(daysInYear) || !positiveFinite(synodicDays)
                 || !positiveFinite(nodalYears) || !Double.isFinite(lunarInclination)) {
             return Event.NONE;
@@ -45,7 +77,7 @@ public final class SolarEclipseRegion {
         double solarLongitude = CelestialMath.TAU
                 * CelestialMath.positiveModulo(284.0D / 365.0D + fractionOfYear, 1.0D);
         double ascendingNode = CelestialMath.lunarAscendingNode(conjunctionDay, daysInYear, nodalYears);
-        double lunarLatitude = Math.asin(Math.sin(lunarInclination)
+        double lunarLatitude = Math.asin(sineLunarInclination
                 * Math.sin(solarLongitude - ascendingNode));
         double greatestLatitude = -lunarLatitude * LATITUDE_RADIANS_PER_LUNAR_RADIAN;
         double maximumTrackExcursion = TRACK_DRIFT_RADIANS_PER_DAY * 0.35D;
@@ -59,6 +91,24 @@ public final class SolarEclipseRegion {
                                      CelestialVector sunDirection, CelestialVector rawMoonDirection,
                                      CelestialVector celestialNorth, double sunHalfTangent,
                                      double moonHalfTangent, double synodicDays) {
+        return project(event, calendarDays, observerLatitude, sunDirection, rawMoonDirection,
+                celestialNorth, sunHalfTangent, moonHalfTangent, synodicDays, true);
+    }
+
+    /** Exact local direction/coverage path for callers that do not consume global band metadata. */
+    static Projection projectLocal(Event event, double calendarDays, double observerLatitude,
+                                   CelestialVector sunDirection, CelestialVector rawMoonDirection,
+                                   CelestialVector celestialNorth, double sunHalfTangent,
+                                   double moonHalfTangent, double synodicDays) {
+        return project(event, calendarDays, observerLatitude, sunDirection, rawMoonDirection,
+                celestialNorth, sunHalfTangent, moonHalfTangent, synodicDays, false);
+    }
+
+    private static Projection project(Event event, double calendarDays, double observerLatitude,
+                                      CelestialVector sunDirection, CelestialVector rawMoonDirection,
+                                      CelestialVector celestialNorth, double sunHalfTangent,
+                                      double moonHalfTangent, double synodicDays,
+                                      boolean includeGlobalState) {
         if (event == null || !event.valid()
                 || !positiveFinite(sunHalfTangent) || !positiveFinite(moonHalfTangent)
                 || !positiveFinite(synodicDays) || !Double.isFinite(observerLatitude)) {
@@ -102,6 +152,9 @@ public final class SolarEclipseRegion {
         CelestialVector apparentMoon = sun.add(basis.right().scale(x)).add(basis.up().scale(y)).normalized();
         double coverage = CelestialDiscGeometry.squareCoverage(sun, apparentMoon, celestialNorth,
                 sunHalfTangent, moonHalfTangent);
+        if (!includeGlobalState) {
+            return new Projection(apparentMoon, coverage, SolarEclipseState.NONE);
+        }
         double globalCoverage = maximumCoverageAtTime(event, calendarDays, sunHalfTangent,
                 moonHalfTangent, synodicDays);
         globalCoverage = Math.max(globalCoverage, coverage);
@@ -127,11 +180,19 @@ public final class SolarEclipseRegion {
                 || !positiveFinite(synodicDays)) {
             return 0.0D;
         }
+        double contact = sunHalfTangent + moonHalfTangent;
+        return coverageAtValidated(event, calendarDays, observerLatitude, sunHalfTangent,
+                moonHalfTangent, synodicDays, contact);
+    }
+
+    private static double coverageAtValidated(Event event, double calendarDays,
+                                              double observerLatitude,
+                                              double sunHalfTangent, double moonHalfTangent,
+                                              double synodicDays, double contact) {
         double phaseOffset = CelestialMath.TAU * (calendarDays - event.conjunctionDay()) / synodicDays;
         if (Math.abs(phaseOffset) >= Math.PI * 0.5D) {
             return 0.0D;
         }
-        double contact = sunHalfTangent + moonHalfTangent;
         double alongTrack = Math.tan(phaseOffset);
         double trackLatitude = event.trackLatitude(calendarDays);
         double crossTrack = (observerLatitude - trackLatitude) * contact / PARTIAL_HALF_WIDTH;
@@ -153,16 +214,18 @@ public final class SolarEclipseRegion {
         if (!(high >= low)) {
             return 0.0D;
         }
+        PreparedCoverage prepared = prepareCoverageAtTime(event, calendarDays,
+                sunHalfTangent, moonHalfTangent, synodicDays);
+        if (prepared == null) {
+            return 0.0D;
+        }
         double maximum = Math.max(
-                coverageAt(event, calendarDays, low, sunHalfTangent, moonHalfTangent, synodicDays),
-                coverageAt(event, calendarDays, high, sunHalfTangent, moonHalfTangent, synodicDays));
+                prepared.coverageAtPrepared(low), prepared.coverageAtPrepared(high));
         for (int iteration = 0; iteration < GLOBAL_MAXIMUM_ITERATIONS; iteration++) {
             double firstThird = (2.0D * low + high) / 3.0D;
             double secondThird = (low + 2.0D * high) / 3.0D;
-            double firstCoverage = coverageAt(event, calendarDays, firstThird,
-                    sunHalfTangent, moonHalfTangent, synodicDays);
-            double secondCoverage = coverageAt(event, calendarDays, secondThird,
-                    sunHalfTangent, moonHalfTangent, synodicDays);
+            double firstCoverage = prepared.coverageAtPrepared(firstThird);
+            double secondCoverage = prepared.coverageAtPrepared(secondThird);
             maximum = Math.max(maximum, Math.max(firstCoverage, secondCoverage));
             if (firstCoverage < secondCoverage) {
                 low = firstThird;
@@ -171,8 +234,7 @@ public final class SolarEclipseRegion {
             }
         }
         double middle = (low + high) * 0.5D;
-        return Math.max(maximum, coverageAt(event, calendarDays, middle,
-                sunHalfTangent, moonHalfTangent, synodicDays));
+        return Math.max(maximum, prepared.coverageAtPrepared(middle));
     }
 
     /** Latitude half-width reaching at least the requested coverage at one instant. */
@@ -193,8 +255,11 @@ public final class SolarEclipseRegion {
         double contact = sunHalfTangent + moonHalfTangent;
         double centerX = -Math.tan(phaseOffset);
         double northDot = solarNorthDot(calendarDays, event.daysInYear());
+        CelestialDiscGeometry.PreparedSquare preparedSun =
+                CelestialDiscGeometry.prepareFirstSquare(CANONICAL_SUN,
+                        canonicalNorth(northDot));
         double centerCoverage = projectedSquareCoverage(sunHalfTangent, moonHalfTangent,
-                centerX, 0.0D, northDot);
+                centerX, 0.0D, preparedSun);
         if ((coverageThreshold <= 0.0D && !(centerCoverage > 0.0D))
                 || (coverageThreshold > 0.0D && centerCoverage < coverageThreshold)) {
             return 0.0D;
@@ -204,7 +269,7 @@ public final class SolarEclipseRegion {
         for (int iteration = 0; iteration < LATITUDE_EDGE_ITERATIONS; iteration++) {
             double middle = (low + high) * 0.5D;
             double coverage = projectedSquareCoverage(sunHalfTangent, moonHalfTangent,
-                    centerX, middle, northDot);
+                    centerX, middle, preparedSun);
             boolean inside = coverageThreshold <= 0.0D
                     ? coverage > 0.0D : coverage >= coverageThreshold;
             if (inside) {
@@ -230,10 +295,75 @@ public final class SolarEclipseRegion {
         double maximum = 0.0D;
         for (int sample = 0; sample <= MAXIMUM_SAMPLES; sample++) {
             double dayOffset = (sample / (double) MAXIMUM_SAMPLES * 2.0D - 1.0D) * halfDuration;
-            maximum = Math.max(maximum, coverageAt(event, event.conjunctionDay() + dayOffset,
-                    observerLatitude, sunHalfTangent, moonHalfTangent, synodicDays));
+            maximum = Math.max(maximum, coverageAtValidated(event,
+                    event.conjunctionDay() + dayOffset, observerLatitude,
+                    sunHalfTangent, moonHalfTangent, synodicDays, contact));
         }
         return clamp(maximum, 0.0D, 1.0D);
+    }
+
+    /**
+     * Fills the uniformly sampled latitude profile without rebuilding the same time context once
+     * per latitude. Every output slot retains the public method's original 65-sample accumulation
+     * order and final clamp.
+     */
+    static void maximumCoverageAtLatitudeSamples(Event event,
+                                                 double sunHalfTangent, double moonHalfTangent,
+                                                 double synodicDays, double[] latitudes,
+                                                 double[] output) {
+        if (latitudes == null || latitudes.length < 2 || output == null
+                || output.length < latitudes.length) {
+            throw new IllegalArgumentException("Latitude output does not match its sample count");
+        }
+        int latitudeSamples = latitudes.length - 1;
+        java.util.Arrays.fill(output, 0, latitudeSamples + 1, 0.0D);
+        if (event == null || !event.valid() || !event.intersectsWorld()
+                || !positiveFinite(sunHalfTangent) || !positiveFinite(moonHalfTangent)
+                || !positiveFinite(synodicDays)) {
+            return;
+        }
+        double contact = sunHalfTangent + moonHalfTangent;
+        double halfDuration = Math.atan(contact) * synodicDays / CelestialMath.TAU;
+        for (int sample = 0; sample <= MAXIMUM_SAMPLES; sample++) {
+            double dayOffset = (sample / (double) MAXIMUM_SAMPLES * 2.0D - 1.0D)
+                    * halfDuration;
+            PreparedCoverage prepared = prepareCoverageAtTime(event,
+                    event.conjunctionDay() + dayOffset, sunHalfTangent, moonHalfTangent,
+                    synodicDays);
+            if (prepared == null) {
+                continue;
+            }
+            for (int latitudeIndex = 0; latitudeIndex <= latitudeSamples; latitudeIndex++) {
+                output[latitudeIndex] = Math.max(output[latitudeIndex],
+                        prepared.coverageAtPrepared(latitudes[latitudeIndex]));
+            }
+        }
+        for (int latitudeIndex = 0; latitudeIndex <= latitudeSamples; latitudeIndex++) {
+            output[latitudeIndex] = clamp(output[latitudeIndex], 0.0D, 1.0D);
+        }
+    }
+
+    static PreparedCoverage prepareCoverageAtTime(Event event, double calendarDays,
+                                                  double sunHalfTangent,
+                                                  double moonHalfTangent,
+                                                  double synodicDays) {
+        if (!Double.isFinite(calendarDays) || !positiveFinite(sunHalfTangent)
+                || !positiveFinite(moonHalfTangent) || !positiveFinite(synodicDays)) {
+            return null;
+        }
+        double phaseOffset = CelestialMath.TAU * (calendarDays - event.conjunctionDay()) / synodicDays;
+        if (Math.abs(phaseOffset) >= Math.PI * 0.5D) {
+            return null;
+        }
+        double contact = sunHalfTangent + moonHalfTangent;
+        double centerX = -Math.tan(phaseOffset);
+        double trackLatitude = event.trackLatitude(calendarDays);
+        double northDot = solarNorthDot(calendarDays, event.daysInYear());
+        CelestialDiscGeometry.PreparedSquare preparedSun =
+                CelestialDiscGeometry.prepareFirstSquare(CANONICAL_SUN,
+                        canonicalNorth(northDot));
+        return new PreparedCoverage(sunHalfTangent, moonHalfTangent, contact,
+                centerX, trackLatitude, preparedSun);
     }
 
     /** Exact perspective coverage for the same celestial-north square bases used by rendering. */
@@ -244,13 +374,37 @@ public final class SolarEclipseRegion {
                 || !Double.isFinite(northDot)) {
             return 0.0D;
         }
-        CelestialVector moon = new CelestialVector(centerX, centerY, 1.0D).normalized();
+        CelestialVector north = canonicalNorth(northDot);
+        CelestialDiscGeometry.PreparedSquare preparedSun =
+                CelestialDiscGeometry.prepareFirstSquare(CANONICAL_SUN, north);
+        return CelestialDiscGeometry.squareCoveragePreparedRaw(preparedSun,
+                centerX, centerY, 1.0D, firstHalf, secondHalf);
+    }
+
+    private static double projectedSquareCoverage(double firstHalf, double secondHalf,
+                                                  double centerX, double centerY,
+                                                  CelestialDiscGeometry.PreparedSquare preparedSun) {
+        if (!positiveFinite(firstHalf) || !positiveFinite(secondHalf)
+                || !Double.isFinite(centerX) || !Double.isFinite(centerY)
+                || preparedSun == null || !preparedSun.valid()) {
+            return 0.0D;
+        }
+        return CelestialDiscGeometry.squareCoveragePreparedRaw(preparedSun,
+                centerX, centerY, 1.0D, firstHalf, secondHalf);
+    }
+
+    private static double projectedSquareCoveragePrepared(double firstHalf, double secondHalf,
+                                                           double centerX, double centerY,
+                                                           CelestialDiscGeometry.PreparedSquare preparedSun) {
+        return CelestialDiscGeometry.squareCoveragePreparedRaw(preparedSun,
+                centerX, centerY, 1.0D, firstHalf, secondHalf);
+    }
+
+    private static CelestialVector canonicalNorth(double northDot) {
         double clampedNorthDot = clamp(northDot, -1.0D, 1.0D);
-        CelestialVector north = new CelestialVector(0.0D,
+        return new CelestialVector(0.0D,
                 Math.sqrt(Math.max(0.0D, 1.0D - clampedNorthDot * clampedNorthDot)),
                 clampedNorthDot);
-        return CelestialDiscGeometry.squareCoverage(CANONICAL_SUN, moon, north,
-                firstHalf, secondHalf);
     }
 
     private static double solarNorthDot(double calendarDays, double daysInYear) {
@@ -284,6 +438,46 @@ public final class SolarEclipseRegion {
         return Math.max(min, Math.min(max, value));
     }
 
+    private static final class EventCache {
+        private long conjunctionIndex;
+        private long daysInYearBits;
+        private long synodicDaysBits;
+        private long nodalYearsBits;
+        private long lunarInclinationBits;
+        private long sineLunarInclinationBits;
+        private Event value;
+        private boolean initialized;
+
+        private Event get(long conjunctionIndex, double daysInYear, double synodicDays,
+                          double nodalYears, double lunarInclination,
+                          double sineLunarInclination) {
+            long nextDaysInYearBits = Double.doubleToRawLongBits(daysInYear);
+            long nextSynodicDaysBits = Double.doubleToRawLongBits(synodicDays);
+            long nextNodalYearsBits = Double.doubleToRawLongBits(nodalYears);
+            long nextLunarInclinationBits = Double.doubleToRawLongBits(lunarInclination);
+            long nextSineLunarInclinationBits =
+                    Double.doubleToRawLongBits(sineLunarInclination);
+            if (!initialized || this.conjunctionIndex != conjunctionIndex
+                    || daysInYearBits != nextDaysInYearBits
+                    || synodicDaysBits != nextSynodicDaysBits
+                    || nodalYearsBits != nextNodalYearsBits
+                    || lunarInclinationBits != nextLunarInclinationBits
+                    || sineLunarInclinationBits != nextSineLunarInclinationBits) {
+                Event computed = eventAt(conjunctionIndex, daysInYear, synodicDays, nodalYears,
+                        lunarInclination, sineLunarInclination);
+                this.conjunctionIndex = conjunctionIndex;
+                daysInYearBits = nextDaysInYearBits;
+                synodicDaysBits = nextSynodicDaysBits;
+                nodalYearsBits = nextNodalYearsBits;
+                lunarInclinationBits = nextLunarInclinationBits;
+                sineLunarInclinationBits = nextSineLunarInclinationBits;
+                value = computed;
+                initialized = true;
+            }
+            return value;
+        }
+    }
+
     public record Event(long conjunctionIndex, double conjunctionDay, double daysInYear,
                         double lunarLatitude, double greatestLatitude,
                         boolean intersectsWorld, boolean valid) {
@@ -298,6 +492,25 @@ public final class SolarEclipseRegion {
     public record Projection(CelestialVector moonDirection, double coverage, SolarEclipseState state) {
         static Projection none(CelestialVector moonDirection) {
             return new Projection(moonDirection, 0.0D, SolarEclipseState.NONE);
+        }
+    }
+
+    record PreparedCoverage(double sunHalfTangent, double moonHalfTangent,
+                            double contact, double centerX,
+                            double trackLatitude,
+                            CelestialDiscGeometry.PreparedSquare preparedSun) {
+        double coverageAt(double observerLatitude) {
+            double crossTrack = (observerLatitude - trackLatitude)
+                    * contact / PARTIAL_HALF_WIDTH;
+            return projectedSquareCoverage(sunHalfTangent, moonHalfTangent,
+                    centerX, crossTrack, preparedSun);
+        }
+
+        double coverageAtPrepared(double observerLatitude) {
+            double crossTrack = (observerLatitude - trackLatitude)
+                    * contact / PARTIAL_HALF_WIDTH;
+            return projectedSquareCoveragePrepared(sunHalfTangent, moonHalfTangent,
+                    centerX, crossTrack, preparedSun);
         }
     }
 }

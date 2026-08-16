@@ -3,7 +3,7 @@ package first.wildfires.client;
 /** Client-session switch for the upper-left thermal diagnostic readout. */
 public final class ThermalHudState {
 
-    private static boolean enabled;
+    private static boolean enabled = true;
 
     private ThermalHudState() {
     }

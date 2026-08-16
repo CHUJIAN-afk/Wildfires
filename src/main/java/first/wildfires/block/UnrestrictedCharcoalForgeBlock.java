@@ -15,7 +15,6 @@ import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.HorizontalDirectionalBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
-import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -23,37 +22,23 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 /** A TFC charcoal forge that does not require an insulation multiblock. */
 public class UnrestrictedCharcoalForgeBlock extends CharcoalForgeBlock {
 
-    public static final BooleanProperty OVERHEATED = BooleanProperty.create("overheated");
     public static final DirectionProperty FACING = HorizontalDirectionalBlock.FACING;
-    private static final float OVERHEATED_TEMPERATURE = 2300.0F;
     private static final VoxelShape SHAPE = box(2, 0, 2, 14, 14, 14);
 
     public UnrestrictedCharcoalForgeBlock(ExtendedProperties properties) {
         super(properties);
         registerDefaultState(defaultBlockState()
-                .setValue(OVERHEATED, false)
                 .setValue(FACING, Direction.NORTH));
     }
 
-    /** Adds the eighth visual heat tier without changing TFC's fixed 0-7 HEAT property. */
     public static void serverTick(Level level, BlockPos pos, BlockState state, CharcoalForgeBlockEntity blockEntity) {
         CharcoalForgeBlockEntity.serverTick(level, pos, state, blockEntity);
-
-        BlockState updatedState = level.getBlockState(pos);
-        if (!(updatedState.getBlock() instanceof UnrestrictedCharcoalForgeBlock)) {
-            return;
-        }
-
-        boolean overheated = blockEntity.getTemperature() >= OVERHEATED_TEMPERATURE;
-        if (updatedState.getValue(OVERHEATED) != overheated) {
-            level.setBlockAndUpdate(pos, updatedState.setValue(OVERHEATED, overheated));
-        }
     }
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<net.minecraft.world.level.block.Block, BlockState> builder) {
         super.createBlockStateDefinition(builder);
-        builder.add(OVERHEATED, FACING);
+        builder.add(FACING);
     }
 
     @Override

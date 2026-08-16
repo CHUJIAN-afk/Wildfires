@@ -8,7 +8,7 @@
   "item.wildfires.damaged_compass": "缺水的罗盘",
   "item.wildfires.empty_super_glue": "空胶水",
   "item.wildfires.pulp_scoop": "抄网",
-  "item.wildfires.filled_pulp_scoop": "已填充的抄网",
+  "item.wildfires.filled_pulp_scoop": "正在沥水中...",
   "item.wildfires.drained_pulp_scoop": "已沥干的抄网",
   "item.wildfires.planetarium": "星象仪",
   "item.wildfires.planetarium.overworld_only": "星象仪只能观测主世界天空",

@@ -37,20 +37,14 @@ public class ReplacedBearRenderer extends GeoReplacedEntityRenderer<Predator, Re
         super.render(entity, entityYaw, partialTick, poseStack, bufferSource, packedLight);
 
         if (entity instanceof GeckoAnimal animal) {
-            if (animal.wildfires$startedAttack()) {
-                if (animatable.attackable) {
-                    var moveController = animatable.getAnimatableInstanceCache().getManagerForId(entity.getId()).getAnimationControllers().get("move");
+            if (animal.wildfires$consumeAttackAnimation()) {
+                var moveController = animatable.getAnimatableInstanceCache().getManagerForId(entity.getId()).getAnimationControllers().get("move");
 
-                    moveController.setAnimationSpeed(1.2f);
+                moveController.setAnimationSpeed(1.2f);
 
-                    moveController.transitionLength(0);
+                moveController.transitionLength(0);
 
-                    animatable.triggerAnim(entity, "move", "attack");
-
-                    animatable.attackable = false;
-
-                    animatable.attacking = true;
-                }
+                animatable.triggerAnim(entity, "move", "attack");
             }
         }
     }

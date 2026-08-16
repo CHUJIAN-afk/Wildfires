@@ -19,15 +19,13 @@ import org.spongepowered.asm.mixin.injection.At;
 @Mixin(value = ClimateScreen.class, priority = 1100, remap = false)
 public abstract class ClimateScreenMixin {
     @ModifyExpressionValue(
-            method = {
-                    "renderLabels(Lnet/minecraft/client/gui/GuiGraphics;II)V",
-                    "m_280003_(Lnet/minecraft/client/gui/GuiGraphics;II)V"
-            },
+            method = "renderLabels(Lnet/minecraft/client/gui/GuiGraphics;II)V",
             at = @At(
                     value = "INVOKE",
                     target = "Lcom/newterraearth/tfe/client/NTEKoppenClimateClassification;translationKey()Ljava/lang/String;",
                     remap = false
-            )
+            ),
+            remap = true
     )
     private String wildfires$useKubeJsClimateName(String originalTranslationKey) {
         final Level level = Minecraft.getInstance().level;

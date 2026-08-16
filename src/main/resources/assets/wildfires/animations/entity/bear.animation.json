@@ -1086,6 +1086,11 @@
 				}
 			}
 		},
+		"animation.bear.idle": {
+			"loop": true,
+			"animation_length": 1,
+			"bones": {}
+		},
 		"animation.bear.attack": {
 			"animation_length": 0.875,
 			"bones": {

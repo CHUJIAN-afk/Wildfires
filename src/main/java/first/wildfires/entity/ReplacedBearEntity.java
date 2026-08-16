@@ -3,6 +3,7 @@ package first.wildfires.entity;
 import net.dries007.tfc.common.entities.TFCEntities;
 import net.dries007.tfc.common.entities.predator.Predator;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.util.Mth;
 import software.bernie.geckolib.animatable.GeoReplacedEntity;
 import software.bernie.geckolib.animatable.SingletonGeoAnimatable;
 import software.bernie.geckolib.constant.DataTickets;
@@ -30,12 +31,6 @@ public class ReplacedBearEntity implements GeoReplacedEntity {
     public ReplacedBearEntity() {
         SingletonGeoAnimatable.registerSyncedAnimatable(this);
     }
-
-    public int swimTimer = 0;
-
-    public boolean attackable = true;
-
-    public boolean attacking = false;
 
     public String type;
 
@@ -87,22 +82,10 @@ public class ReplacedBearEntity implements GeoReplacedEntity {
     }
 
     private PlayState MoveController(AnimationState<ReplacedBearEntity> animationState) {
-
-        if (attacking)
-        {
-            if (animationState.getController().getAnimationState() == AnimationController.State.STOPPED)
-            {
-                attackable = true;
-
-                attacking = false;
-            }
-
-            return PlayState.CONTINUE;
-        }
-
         Predator predator = (Predator) animationState.getData(DataTickets.ENTITY);
-
-        var speed = predator.getDeltaMovement().lengthSqr() * 60;
+        double horizontalSpeed = Math.sqrt(
+                predator.getDeltaMovement().x * predator.getDeltaMovement().x
+                        + predator.getDeltaMovement().z * predator.getDeltaMovement().z);
 
         if (predator.isSleeping())
         {
@@ -116,28 +99,25 @@ public class ReplacedBearEntity implements GeoReplacedEntity {
         {
             animationState.getController().transitionLength(10);
 
-            if (predator.isInWater()) {
-                swimTimer = 20;
-            }
-            else if (swimTimer != 0)
-                swimTimer--;
-
-            if(swimTimer > 0 && !predator.onGround()) {
+            if (predator.isInWater() && !predator.onGround()) {
                 animationState.getController().setAnimationSpeed(1f);
 
                 return animationState.setAndContinue(SWIM);
             }
-            else if (speed > 1.0E-6)
+            else if (horizontalSpeed > 0.01D)
             {
-                animationState.getController().setAnimationSpeed(speed);
+                animationState.getController().setAnimationSpeed(
+                        Mth.clamp((float) (horizontalSpeed * 6.0D), 0.5F, 1.5F));
 
-                if(predator.isAggressive() && predator.onGround())
+                if(predator.isAggressive())
                     return animationState.setAndContinue(RUN);
                 else
                     return animationState.setAndContinue(WALK);
             }
-            else
+            else {
+                animationState.getController().setAnimationSpeed(1f);
                 return animationState.setAndContinue(IDLE);
+            }
         }
     }
 }

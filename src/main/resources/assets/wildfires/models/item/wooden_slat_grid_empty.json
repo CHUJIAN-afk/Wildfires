@@ -3,7 +3,7 @@
 	"credit": "Made with Blockbench",
 	"texture_size": [32, 32],
 	"textures": {
-		"1": "wildfires:item/wooden_slat_grid_full"
+		"1": "wildfires:item/wooden_slat_grid_empty"
 	},
 	"elements": [
 		{

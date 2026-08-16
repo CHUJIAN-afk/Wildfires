@@ -17,6 +17,7 @@ The built JAR carries `LICENSE`, this notice, and the complete versioned `third_
 | TFC Caelum-derived behavior and 31 PNG files | Unresolved BSD-2-Clause / `BSD 3` conflict; not cleared for public release |
 | VS: Genesis-derived cubemap, mesh and shaders | Apache-2.0 |
 | NTM: Space-derived orbit/capsule/navigation code, models and textures | LGPL-3.0-only |
+| Waterfall/KSP Interstellar Extended engine-effect shaders, meshes, textures and configs | CC BY-NC-SA 4.0 |
 
 ## Caelum
 
@@ -90,6 +91,18 @@ Each modified source/shader carries an Apache-2.0 notice and change description.
 - Preserved source evidence, corresponding-source/relinking statement and exact hashes: [`third_party/ntm-space/1.0.27_X5778-local-snapshot/`](third_party/ntm-space/1.0.27_X5778-local-snapshot/PROVENANCE.md)
 
 The root ARR license expressly excludes this LGPL partition. Its modified Java source, exact PNGs, build scripts, GPL/LGPL texts and attribution records are provided with the source distribution and evidence is included in the JAR. Wildfires does not claim authorship of the NTM textures; the inspected upstream snapshot did not provide per-PNG author or license exceptions, so the project-level LGPL claim and complete contributor credits are retained without narrowing them.
+
+## Waterfall engine effects
+
+- Projects: [Waterfall](https://github.com/post-kerbin-mining-corporation/Waterfall) and KSP Interstellar Extended engine configurations
+- Authors/copyright holders: Waterfall contributors; AstroX and KSP Interstellar Extended contributors for the engine configs
+- Referenced version/commit: Waterfall `0.10.3`, source commit `6be4f897ad86577c6ce2c17e6da0848b14d5250a`
+- License: [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+- Adapted material: Additive Dynamic, Billboard Additive and Billboard Directional shaders plus the antimatter radiant-drive and Daedalus v1/v2 material/controller configurations, translated to Forge GLSL 150. Daedalus v1 is uniformly scaled by `2.5 / 8`, giving a 2.5-block widest core, 147.353-block geometric endpoint diameter and 334.375-block length; Daedalus v2 keeps its 2.5-block widest core and independent axial compression to a 128-block endpoint. Both Daedalus ignition-beam systems are intentionally excluded until final engine models exist.
+- Derived resources: `fx-cylinder.mesh`, `fx-billboard-generic-1.mesh` and the PNG files under `textures/effect/`, decoded or format-converted from the preserved Waterfall assets.
+- Evidence, source snapshots, changes and exact hashes: [`third_party/waterfall/0.10.3-6be4f897/`](third_party/waterfall/0.10.3-6be4f897/PROVENANCE.md)
+
+This non-commercial share-alike partition is excluded from the root ARR claim. Redistribution and adaptations must retain attribution, the CC BY-NC-SA 4.0 terms and the recorded indication of changes.
 
 ## Dependencies and APIs
 

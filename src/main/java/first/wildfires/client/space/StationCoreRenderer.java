@@ -11,6 +11,7 @@ import com.mojang.math.Axis;
 import com.mojang.blaze3d.vertex.PoseStack;
 import first.wildfires.space.content.StationCoreBlockEntity;
 import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
@@ -30,6 +31,8 @@ public final class StationCoreRenderer implements BlockEntityRenderer<StationCor
     @Override
     public void render(StationCoreBlockEntity core, float partialTick, PoseStack poses,
                        MultiBufferSource buffers, int packedLight, int packedOverlay) {
+        int environmentLight = core.getLevel() == null ? packedLight
+                : LevelRenderer.getLightColor(core.getLevel(), core.getBlockPos().above(2));
         poses.pushPose();
         // RenderOrbitalStation uses the OBJ at its authored 1:1 scale and anchors it at block Y+1.
         // The old 0.52 fit-to-proxy transform made the five-unit port barely wider than the
@@ -38,13 +41,13 @@ public final class StationCoreRenderer implements BlockEntityRenderer<StationCor
         Set<String> previous = ObjComponentVisibility.enter(PORT_COMPONENT);
         try {
                 NtmSpaceObjModels.stationCore().render(poses, buffers,
-                        RenderType::entityCutoutNoCull, packedLight,
+                        RenderType::entityCutoutNoCull, environmentLight,
                         OverlayTexture.NO_OVERLAY, partialTick,
                         net.minecraftforge.client.model.renderable.CompositeRenderable.Transforms.EMPTY);
         } finally {
             ObjComponentVisibility.exit(previous);
         }
-        renderArms(poses, buffers, packedLight, partialTick,
+        renderArms(poses, buffers, environmentLight, partialTick,
                 core.clientArmRotation(partialTick));
         poses.popPose();
     }
@@ -52,6 +55,11 @@ public final class StationCoreRenderer implements BlockEntityRenderer<StationCor
     @Override
     public boolean shouldRenderOffScreen(StationCoreBlockEntity core) {
         return true;
+    }
+
+    @Override
+    public int getViewDistance() {
+        return 256;
     }
 
     /** Exact RenderOrbitalStation loop: one ArmZP mesh, rotated around the port four times. */

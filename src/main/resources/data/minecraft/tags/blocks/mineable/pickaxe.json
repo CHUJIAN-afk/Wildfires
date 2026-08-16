@@ -17,6 +17,8 @@
     "wildfires:station_control_computer",
     "wildfires:station_test_engine",
     "wildfires:station_jump_test_engine",
-    "wildfires:antimatter_test_engine"
+    "wildfires:antimatter_test_engine",
+    "wildfires:daedalus_v1_test_engine",
+    "wildfires:daedalus_v2_test_engine"
   ]
 }

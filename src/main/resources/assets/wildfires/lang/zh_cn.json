@@ -252,6 +252,8 @@
   ,"block.wildfires.station_test_engine": "空间站测试引擎"
   ,"block.wildfires.station_jump_test_engine": "空间站跃迁测试引擎"
   ,"block.wildfires.antimatter_test_engine": "反物质测试引擎"
+  ,"block.wildfires.daedalus_v1_test_engine": "代达罗斯v1测试引擎"
+  ,"block.wildfires.daedalus_v2_test_engine": "代达罗斯v2测试引擎"
   ,"screen.wildfires.station_control.title": "空间站控制电脑"
   ,"screen.wildfires.station_control.no_routes": "当前天体没有可用航线"
   ,"screen.wildfires.station_control.page": "航线页 %1$s/%2$s"

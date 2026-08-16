@@ -5,27 +5,62 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 
 /** Lifecycle hook for the loaded-engine index; it stores no inventory, tank or energy. */
-public final class StationTestEngineBlockEntity extends BlockEntity {
+public final class StationTestEngineBlockEntity extends BlockEntity implements StationPropulsion {
+
+    private boolean hasRegistered;
 
     public StationTestEngineBlockEntity(BlockPos pos, BlockState state) {
         super(SpaceContentRegister.STATION_TEST_ENGINE_BLOCK_ENTITY.get(), pos, state);
     }
 
-    @Override
-    public void onLoad() {
-        super.onLoad();
-        StationDriveIndex.register(this);
+    public static void tick(net.minecraft.world.level.Level level, BlockPos pos, BlockState state,
+                            StationTestEngineBlockEntity engine) {
+        if (!level.isClientSide && !engine.hasRegistered) {
+            engine.hasRegistered = StationDriveIndex.register(engine);
+        }
     }
 
     @Override
     public void onChunkUnloaded() {
-        StationDriveIndex.unregister(this);
+        unregisterPropulsion();
         super.onChunkUnloaded();
     }
 
     @Override
     public void setRemoved() {
-        StationDriveIndex.unregister(this);
+        unregisterPropulsion();
         super.setRemoved();
+    }
+
+    @Override
+    public BlockEntity blockEntity() {
+        return this;
+    }
+
+    @Override
+    public boolean canPerformBurn(int shipMass, double deltaV) {
+        return true;
+    }
+
+    @Override
+    public float thrust() {
+        return 10_000_000.0F;
+    }
+
+    @Override
+    public int startBurn() {
+        return 20;
+    }
+
+    @Override
+    public int endBurn() {
+        return 20;
+    }
+
+    private void unregisterPropulsion() {
+        if (hasRegistered) {
+            StationDriveIndex.unregister(this);
+            hasRegistered = false;
+        }
     }
 }

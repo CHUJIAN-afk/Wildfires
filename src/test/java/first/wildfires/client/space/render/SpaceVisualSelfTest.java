@@ -79,6 +79,9 @@ public final class SpaceVisualSelfTest {
         acceleratedEarthMoonTransfersClearBothMovingCubes();
         acceleratedCalendarLocalTransferLocksDepartureAndInterceptsMovingMoon();
         acceleratedLocalTransferClearsEveryMovingMoonAndDelayedPhasePacket();
+        interSystemIngressLocksTargetAndSweepsEverySatelliteSystemCube();
+        everySatelliteIngressClearsAllMovingBodiesAtAdverseArrivalPhases();
+        everySatelliteDepartureClearsItsMovingParentAtAdversePhases();
         everyBuiltInLocalTransferTracksTheAuthoritativeEphemeris();
         ntmPointAndCubeLodUsesRecordedThresholds();
         compressedDepthPreservesOcclusionAndAngularSize();
@@ -97,6 +100,7 @@ public final class SpaceVisualSelfTest {
         developmentClientSuppressesCitadelDevFollower();
         copiedNtmTexturesMatchRecordedHashes();
         adaptedShadersDeclareAlphaAndValidMatrices();
+        translatedWaterfallDaedalusRetainsSourceContracts();
         relativisticJumpMathIsFiniteAndDirectional();
         jumpArrivalPathAndSkyOrientationStayContinuous();
         orbitVisualFrameCacheIsExactAndLossless();
@@ -106,6 +110,199 @@ public final class SpaceVisualSelfTest {
         reusableCapsuleRenderAndTransferSourceContractsStayAligned();
         reusableCapsuleParticlesKeepTheCompleteNtmContract();
         System.out.println("SpaceVisualSelfTest passed");
+    }
+
+    private static void translatedWaterfallDaedalusRetainsSourceContracts() throws Exception {
+        String shader = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/WaterfallTranslatedEngineShader.java"));
+        String renderer = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/WaterfallTestEngineRenderer.java"));
+        String block = Files.readString(Path.of(
+                "src/main/java/first/wildfires/space/content/WaterfallTestEngineBlock.java"));
+        String blockEntity = Files.readString(Path.of(
+                "src/main/java/first/wildfires/space/content/WaterfallTestEngineBlockEntity.java"));
+        String register = Files.readString(Path.of(
+                "src/main/java/first/wildfires/space/content/SpaceContentRegister.java"));
+        String clientRegister = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/SpaceContentClientEvents.java"));
+        String directionalVertex = Files.readString(Path.of(
+                "src/main/resources/assets/wildfires/shaders/core/waterfall_billboard_directional.vsh"));
+        String directionalFragment = Files.readString(Path.of(
+                "src/main/resources/assets/wildfires/shaders/core/waterfall_billboard_directional.fsh"));
+        String dynamicJson = Files.readString(Path.of(
+                "src/main/resources/assets/wildfires/shaders/core/waterfall_test_engine_dynamic.json"));
+        String dynamicVertex = Files.readString(Path.of(
+                "src/main/resources/assets/wildfires/shaders/core/waterfall_test_engine_dynamic.vsh"));
+        String dynamicFragment = Files.readString(Path.of(
+                "src/main/resources/assets/wildfires/shaders/core/waterfall_test_engine_dynamic.fsh"));
+        Path daedalusV1Config = Path.of("third_party/waterfall/0.10.3-6be4f897/upstream/"
+                + "GameData/WarpPlugin/Parts/Engines/Daedalus/Deadalus.cfg");
+        String daedalusV1Source = Files.readString(daedalusV1Config);
+
+        assertTrue(block.contains("dimension() == SpaceDimensions.ORBIT")
+                        && block.contains("setValue(FACING, Direction.SOUTH)")
+                        && blockEntity.contains("implements StationPropulsion")
+                        && blockEntity.contains("StationDriveIndex.register(engine)")
+                        && blockEntity.contains("STARTUP_TICKS = 60")
+                        && blockEntity.contains("SHUTDOWN_TICKS = 20")
+                        && blockEntity.contains("int radius = v1 ? 76 : 6")
+                        && blockEntity.contains("v1 ? 350 : 140"),
+                "the translated Daedalus test block is an orbit-only fixed-south ordinary NTM drive");
+        assertTrue(register.contains("DAEDALUS_V1_TEST_ENGINE_BLOCK_ENTITY")
+                        && register.contains("DAEDALUS_V2_TEST_ENGINE_BLOCK_ENTITY")
+                        && register.contains("ANTIMATTER_TEST_ENGINE_BLOCK_ENTITY")
+                        && !register.contains("ANTIMATTER_CATALYZED")
+                        && clientRegister.contains("WaterfallTestEngineRenderer::new")
+                        && clientRegister.contains("WaterfallTranslatedEngineShader.register(event)")
+                        && clientRegister.contains("WaterfallTranslatedEngineShader.reset()"),
+                "Daedalus and the ordinary antimatter engine remain registered without catalyzed remnants");
+        assertTrue(renderer.contains("Stage.AFTER_PARTICLES")
+                        && renderer.contains("shouldRenderOffScreen")
+                        && renderer.contains("return true;")
+                        && renderer.contains("return 512;"),
+                "the translated plume defers behind station depth and survives origin culling");
+
+        assertTrue(shader.contains("DAEDALUS_RADIAL_UNIT = 2.5F / 6.0F")
+                        && shader.contains("DAEDALUS_LENGTH_UNIT = 128.0F / 658.0F")
+                        && shader.contains("DAEDALUS_V1_UNIT = 2.5F / 8.0F")
+                        && !shader.contains("CATALYZED"),
+                "both Daedalus variants retain their requested scaling without catalyzed data");
+        assertNear(2.5D, 2.0D * 3.0D * 2.5D / 6.0D, 1.0E-12D,
+                "Daedalus widest core diameter");
+        assertNear(125.0D, 300.0D * 2.5D / 6.0D, 1.0E-12D,
+                "Daedalus strict-scale core length");
+        assertNear(128.0D, 658.0D * 128.0D / 658.0D, 1.0E-12D,
+                "Daedalus compressed plume endpoint");
+        double daedalusTailMidExpansion = 10.0D * 0.5D + 0.707776666D * 0.25D
+                - 1.41555345D * (1.0D - Math.exp(-1.5D));
+        double daedalusTailEndExpansion = 10.0D + 0.707776666D
+                - 1.41555345D * (1.0D - Math.exp(-3.0D));
+        assertTrue(2.0D * (1.0D + daedalusTailMidExpansion) * 2.20000005D
+                        * 2.5D / 6.0D > 8.0D
+                        && 2.0D * (1.0D + daedalusTailEndExpansion) * 2.20000005D
+                        * 2.5D / 6.0D > 18.0D,
+                "Daedalus source tail is expanding rather than a long converging cone");
+        assertTrue(shader.contains("DAEDALUS_PLUME_BRIGHTNESS_BOOST = 2.5F")
+                        && shader.contains("ZERO_TO_POINT_SIX, DAEDALUS_LENGTH)")
+                        && shader.contains("brightnessScale = v1 ? 1.0F")
+                        && shader.contains(": DAEDALUS_PLUME_BRIGHTNESS_BOOST"),
+                "only Daedalus v2 receives its accepted presentation brightness multiplier");
+        String daedalusLayers = sourceSection(shader, "DynamicLayer[] DAEDALUS_LAYERS",
+                "BillboardLayer[] DAEDALUS_BILLBOARDS");
+        String daedalusBillboards = sourceSection(shader, "BillboardLayer[] DAEDALUS_BILLBOARDS",
+                "DynamicMaterial DAEDALUS_V1_DETONATION");
+        assertEquals(11, countOccurrences(daedalusLayers, "layer("),
+                "Daedalus dynamic Waterfall layer count");
+        assertEquals(2, countOccurrences(daedalusBillboards, "billboard("),
+                "Daedalus non-ignition billboard count");
+        assertTrue(!shader.contains("IgnitionaBeam")
+                        && shader.contains("fx-noise-4.png")
+                        && shader.contains("fx-ion-noise.png")
+                        && !shader.contains("fx-noise-6.png")
+                        && !shader.contains("fx-noise-2.png")
+                        && shader.contains("key(0.1F, 0.5F, 0, 1)"),
+                "runtime retains Daedalus source materials and excludes ignition and catalyzed assets");
+        assertTrue(shader.contains("active.time.set((float) (gameTime / 400.0D))"),
+                "Daedalus keeps Unity _Time.x texture motion");
+
+        assertTrue(dynamicJson.contains("\"vertex\": \"wildfires:waterfall_test_engine_dynamic\"")
+                        && dynamicJson.contains(
+                        "\"fragment\": \"wildfires:waterfall_test_engine_dynamic\"")
+                        && dynamicJson.contains("\"dstrgb\": \"one_minus_src_color\"")
+                        && dynamicVertex.contains("safeNormalize")
+                        && dynamicFragment.contains("safeNormalize"),
+                "Daedalus isolates numerically stable Waterfall dynamic GLSL");
+        assertTrue(shader.contains("DestFactor.ONE_MINUS_SRC_COLOR")
+                        && !dynamicJson.contains("\"dstrgb\": \"1-src-color\"")
+                        && shader.contains("useUnityFiltering(material.texture)")
+                        && shader.contains("useUnityFiltering(layer.texture)")
+                        && shader.contains("layer.sourcePosition - sourceOrigin"),
+                "Daedalus models retain Waterfall blend, filtering and shared position origin");
+        assertTrue(directionalVertex.contains("uniform vec3 CameraPosition")
+                        && directionalVertex.contains("objectCamera = CameraPosition / Scale")
+                        && directionalVertex.contains("dot(Direction, viewDirection)")
+                        && directionalVertex.contains("DirectionScale == 0.0 ? 1.0")
+                        && directionalFragment.contains("col.a <= 0.01")
+                        && directionalFragment.contains("directionalFactor * Brightness")
+                        && directionalFragment.contains("0.0, 50.0"),
+                "directional billboard keeps Waterfall camera-facing and directional equations");
+
+        ByteBuffer cylinder = ByteBuffer.wrap(Files.readAllBytes(Path.of(
+                "src/main/resources/assets/wildfires/models/effect/fx-cylinder.mesh")));
+        int cylinderVertices = cylinder.getInt();
+        float minCylinderX = Float.POSITIVE_INFINITY;
+        float maxCylinderX = Float.NEGATIVE_INFINITY;
+        for (int index = 0; index < cylinderVertices; index++) {
+            float x = cylinder.getFloat();
+            minCylinderX = Math.min(minCylinderX, x);
+            maxCylinderX = Math.max(maxCylinderX, x);
+            cylinder.position(cylinder.position() + 28);
+        }
+        assertNear(2.5D, (maxCylinderX - minCylinderX) * 3.0D * 2.5D / 6.0D,
+                1.0E-6D, "Daedalus visible widest-core diameter");
+
+        double v1Unit = 2.5D / 8.0D;
+        double v1CoreDiameter = 2.0D * 4.0D * v1Unit;
+        double v1OuterStartDiameter = 2.0D * (1.0D + 2.02221918D) * 2.5D * v1Unit;
+        double v1OuterEndExpansion = 2.02221918D + 130.0D - 0.707776666D
+                - 40.0D * (1.0D - Math.exp(-3.0D));
+        double v1OuterEndDiameter = 2.0D * (1.0D + v1OuterEndExpansion) * 2.5D * v1Unit;
+        assertNear(2.5D, v1CoreDiameter, 1.0E-12D,
+                "Daedalus v1 maximum core diameter");
+        assertNear(4.72221746875D, v1OuterStartDiameter, 1.0E-12D,
+                "Daedalus v1 outer starting diameter");
+        assertNear(147.353008201117D, v1OuterEndDiameter, 1.0E-12D,
+                "Daedalus v1 geometric endpoint diameter");
+        assertNear(334.375D, 1070.0D * v1Unit, 1.0E-12D,
+                "Daedalus v1 exact endpoint length");
+        String v1Layers = sourceSection(shader, "DynamicLayer[] DAEDALUS_V1_LAYERS",
+                "BillboardLayer[] DAEDALUS_V1_BILLBOARDS");
+        String v1Billboards = sourceSection(shader, "BillboardLayer[] DAEDALUS_V1_BILLBOARDS",
+                "private static DynamicBindings dynamic");
+        assertEquals(9, countOccurrences(v1Layers, "layer("),
+                "Daedalus v1 non-ignition dynamic layer count");
+        assertEquals(4, countOccurrences(v1Billboards, "billboard("),
+                "Daedalus v1 directional flare count");
+        assertEquals(40, countOccurrences(daedalusV1Source, "name = IgnitionBeam"),
+                "Daedalus v1 excluded source ignition-beam count");
+        assertTrue(shader.contains("fade(0.00455631875F, 0.671389401F)")
+                        && shader.contains("2.02221918F, 130.0F, -40.0F, 200.0F")
+                        && shader.contains("3.33666158F, 100.0F, -25.0F, 83.9109879F")
+                        && shader.contains("fx_flarelens02.png")
+                        && !shader.contains("name = IgnitionBeam"),
+                "Daedalus v1 keeps source fade, expansion, motion and flare fields only");
+        byte[] v1ConfigDigest = MessageDigest.getInstance("SHA-256")
+                .digest(Files.readAllBytes(daedalusV1Config));
+        StringBuilder v1ConfigHash = new StringBuilder(64);
+        for (byte value : v1ConfigDigest) v1ConfigHash.append(String.format("%02x", value & 0xFF));
+        assertEquals("715050892fe1c8f91a7a70c3bb1bedb3729372f5e4945714717a1de27c8ba5ae",
+                v1ConfigHash.toString(), "Daedalus v1 preserved source config SHA-256");
+
+        assertTrue(Files.isRegularFile(Path.of(
+                        "src/main/resources/assets/wildfires/blockstates/daedalus_v1_test_engine.json"))
+                        && Files.isRegularFile(Path.of(
+                        "src/main/resources/assets/wildfires/models/item/daedalus_v1_test_engine.json"))
+                        && Files.isRegularFile(Path.of(
+                        "src/main/resources/data/wildfires/loot_tables/blocks/daedalus_v1_test_engine.json"))
+                        && Files.isRegularFile(Path.of(
+                        "src/main/resources/assets/wildfires/textures/effect/fx_flarelens02.png"))
+                        && Files.isRegularFile(Path.of(
+                        "src/main/resources/assets/wildfires/blockstates/daedalus_v2_test_engine.json"))
+                        && Files.isRegularFile(Path.of(
+                        "src/main/resources/assets/wildfires/models/item/daedalus_v2_test_engine.json"))
+                        && Files.isRegularFile(Path.of(
+                        "src/main/resources/data/wildfires/loot_tables/blocks/daedalus_v2_test_engine.json")),
+                "Daedalus has blockstate, item model and loot resources");
+        for (String path : List.of(
+                "src/main/resources/assets/wildfires/blockstates/antimatter_catalyzed_test_engine.json",
+                "src/main/resources/assets/wildfires/models/block/antimatter_catalyzed_test_engine_off.json",
+                "src/main/resources/assets/wildfires/models/block/antimatter_catalyzed_test_engine_on.json",
+                "src/main/resources/assets/wildfires/models/item/antimatter_catalyzed_test_engine.json",
+                "src/main/resources/data/wildfires/loot_tables/blocks/antimatter_catalyzed_test_engine.json",
+                "src/main/resources/assets/wildfires/textures/effect/fx-noise-2.png",
+                "src/main/resources/assets/wildfires/textures/effect/fx-noise-6.png")) {
+            assertTrue(!Files.exists(Path.of(path)), "removed catalyzed resource is absent: " + path);
+        }
     }
 
     private static void ntmObjFastRendererIsBitExactAndStrictlyBounded() throws Exception {
@@ -466,6 +663,14 @@ public final class SpaceVisualSelfTest {
                 "src/main/java/first/wildfires/mixin/minecraft/ReturnCapsuleCameraMixin.java"));
         String coreRenderer = Files.readString(Path.of(
                 "src/main/java/first/wildfires/client/space/StationCoreRenderer.java"));
+        String objModels = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/NtmSpaceObjModels.java"));
+        String engineRenderer = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/AntimatterTestEngineRenderer.java"));
+        String radiantShader = Files.readString(Path.of(
+                "src/main/java/first/wildfires/client/space/AntimatterRadiantDriveShader.java"));
+        String engineEntity = Files.readString(Path.of(
+                "src/main/java/first/wildfires/space/content/AntimatterTestEngineBlockEntity.java"));
         String coreItemModel = Files.readString(Path.of(
                 "src/main/resources/assets/wildfires/models/item/station_core.json"));
         String coreEntity = Files.readString(Path.of(
@@ -573,13 +778,52 @@ public final class SpaceVisualSelfTest {
         assertTrue(coreRenderer.contains("Set.of(\"Port\")")
                         && coreRenderer.contains("Set.of(\"ArmZP\")")
                         && coreRenderer.contains("index < 4")
-                        && coreRenderer.contains("index * 90.0F"),
-                "station port repeats the single ArmZP mesh four times");
+                        && coreRenderer.contains("index * 90.0F")
+                        && coreRenderer.contains("return 256;"),
+                "station port repeats the single ArmZP mesh four times and remains visible for 256 blocks");
         assertTrue(coreRenderer.contains("poses.translate(0.5D, 1.0D, 0.5D)")
                         && !coreRenderer.contains("poses.scale(")
                         && coreItemModel.contains("\"scale\": [0.125, 0.125, 0.125]")
                         && coreItemModel.contains("\"translation\": [0, 2, 0]"),
                 "station core keeps NTM 1:1 world scale and its ten-pixel inventory presentation");
+        assertTrue(objModels.contains("docking_port.obj\"), false, true, true,")
+                        && objModels.contains("false, \"wildfires:models/third_party/ntm_space/docking_port.mtl\"")
+                        && coreRenderer.contains("LevelRenderer.getLightColor")
+                        && coreRenderer.contains("core.getBlockPos().above(2)")
+                        && coreRenderer.contains("RenderType::entityCutoutNoCull, environmentLight")
+                        && engineRenderer.contains("Stage.AFTER_PARTICLES")
+                        && engineRenderer.contains("DEFERRED.add")
+                        && engineRenderer.contains("return 320;")
+                        && engineEntity.contains("worldPosition.offset(5, 5, 130)")
+                        && radiantShader.contains("RandomnessController uses Random.Range(-1, 1)")
+                        && radiantShader.contains("0.2D * KSP_TO_MC * throttle"),
+                "station core uses environment light while the complete plume is deferred and never origin-culled");
+        assertTrue(engineEntity.contains("STARTUP_TICKS = 60")
+                        && engineEntity.contains("SHUTDOWN_TICKS = 20")
+                        && engineEntity.contains("ramp_ticks")
+                        && engineEntity.contains("return STARTUP_TICKS")
+                        && engineEntity.contains("return SHUTDOWN_TICKS")
+                        && radiantShader.contains("OUTER_BRIGHTNESS_MULTIPLIER = 1.35F")
+                        && radiantShader.contains("brightness *= OUTER_BRIGHTNESS_MULTIPLIER"),
+                "antimatter output reaches full power in sixty ticks, shuts down in twenty, and only OuterBeam receives the requested brightness lift");
+        ByteBuffer billboard = ByteBuffer.wrap(Files.readAllBytes(Path.of(
+                "src/main/resources/assets/wildfires/models/effect/fx-billboard-generic-1.mesh")));
+        int billboardVertices = billboard.getInt();
+        float minBillboardY = Float.POSITIVE_INFINITY;
+        float maxBillboardY = Float.NEGATIVE_INFINITY;
+        float maxBillboardZ = 0.0F;
+        for (int index = 0; index < billboardVertices; index++) {
+            billboard.getFloat();
+            float y = billboard.getFloat();
+            float z = billboard.getFloat();
+            minBillboardY = Math.min(minBillboardY, y);
+            maxBillboardY = Math.max(maxBillboardY, y);
+            maxBillboardZ = Math.max(maxBillboardZ, Math.abs(z));
+            billboard.position(billboard.position() + 20);
+        }
+        assertTrue(billboardVertices == 4 && maxBillboardY - minBillboardY > 0.99F
+                        && maxBillboardZ < 0.0001F,
+                "Waterfall billboard occupies camera-facing XY instead of collapsing into plume-axis XZ");
         assertTrue(coreEntity.contains("clientPreviousArmRotation = core.clientArmRotation")
                         && coreEntity.contains("clientArmRotation + 2.25F")
                         && coreEntity.contains("clientArmRotation - 2.25F")
@@ -1253,6 +1497,230 @@ public final class SpaceVisualSelfTest {
                     delayedState, duration + 1.0D, delayedCalendar, rate).observerPosition();
             assertVector(liveTarget, staleCruise,
                     route[0] + " -> " + route[1] + " delayed CRUISE packet handoff");
+        }
+    }
+
+    private static void interSystemIngressLocksTargetAndSweepsEverySatelliteSystemCube() {
+        long duration = 1_000L;
+        CelestialState state = stateWithJovianMoonsAcrossIngressLine(
+                new CelestialVector(20.0D, 1.0704D, 0.0D));
+        ObservationJourney cruise = new ObservationJourney(EARTH, EUROPA,
+                StationJourneyPhase.CRUISE, 0L, duration);
+        ObservationContext active = context(EARTH, Optional.of(cruise));
+        CelestialVector stableStart = OrbitVisualRules.frame(context(EARTH, Optional.empty()),
+                state, 0.0D, 0.0D, 0.0D).observerPosition();
+        CelestialVector stableEnd = OrbitVisualRules.frame(context(EUROPA, Optional.empty()),
+                state, duration, 0.0D, 0.0D).observerPosition();
+        Map<ResourceLocation, OrbitVisualRules.BodyEphemeris> ephemeris = testEphemeris(state);
+        OrbitVisualRules.BodyEphemeris earth = ephemeris.get(EARTH);
+        OrbitVisualRules.BodyEphemeris europa = ephemeris.get(EUROPA);
+        OrbitVisualRules.BodyEphemeris jupiter = ephemeris.get(JUPITER);
+        double legacyMinimum = Double.POSITIVE_INFINITY;
+        CelestialVector legacyClosest = stableStart;
+        for (int step = 0; step <= 2_000; step++) {
+            double progress = step / 2_000.0D;
+            CelestialVector legacy = OrbitVisualRules.safeTransferPosition(stableStart, stableEnd,
+                    earth, europa, OrbitVisualRules.circularTransfer(progress));
+            double distance = legacy.subtract(jupiter.position()).length();
+            if (distance < legacyMinimum) {
+                legacyMinimum = distance;
+                legacyClosest = legacy;
+            }
+        }
+        // A moon can occupy the otherwise untested lane around the parent. This is exactly the
+        // missing target-system obstacle that the old endpoint-only curve could not see.
+        state = stateWithJovianMoonsAcrossIngressLine(legacyClosest);
+        ephemeris = testEphemeris(state);
+        double ganymedeGuard = ephemeris.get(GANYMEDE).radius() * Math.sqrt(3.0D) * 1.05D;
+        assertTrue(segmentDistanceToPoint(legacyClosest, legacyClosest,
+                        ephemeris.get(GANYMEDE).position()) <= ganymedeGuard,
+                "regression geometry places a target-system moon directly in the old Bezier lane");
+
+        CelestialVector previous = OrbitVisualRules.frame(active, state, 0.0D, 0.0D, 0.0D)
+                .observerPosition();
+        assertVector(stableStart, previous, "inter-system ingress locks the departure orbit");
+        for (int step = 1; step < 4_000; step++) {
+            double tick = duration * step / 4_000.0D;
+            CelestialVector current = OrbitVisualRules.frame(active, state, tick, 0.0D, 0.0D)
+                    .observerPosition();
+            for (ResourceLocation body : List.of(EARTH, MOON, JUPITER, IO, EUROPA, GANYMEDE)) {
+                OrbitVisualRules.BodyEphemeris obstacle = ephemeris.get(body);
+                double sweptDistance = segmentDistanceToPoint(previous, current,
+                        obstacle.position());
+                double guard = obstacle.radius() * Math.sqrt(3.0D) * 1.05D;
+                assertTrue(sweptDistance > guard,
+                        "Earth -> Europa swept ingress entered " + body + " at tick " + tick
+                                + ": clearance=" + (sweptDistance - guard));
+            }
+            previous = current;
+        }
+        CelestialVector nearEnd = OrbitVisualRules.frame(active, state,
+                duration - 1.0E-7D, 0.0D, 0.0D).observerPosition();
+        assertTrue(nearEnd.subtract(stableEnd).length() < 1.0E-5D,
+                "inter-system ingress ends at the locked Europa stable orbit");
+
+        double startCalendar = 1_234_567.0D;
+        double rate = 1_200.0D;
+        long movingDuration = 600L;
+        int routeIndex = 0;
+        for (ResourceLocation movingTargetId : List.of(JUPITER, EUROPA)) {
+            long gameStart = 10_000L + routeIndex++ * 1_000L;
+            ObservationJourney movingCruise = new ObservationJourney(EARTH, movingTargetId,
+                    StationJourneyPhase.CRUISE, gameStart, movingDuration);
+            ObservationContext movingActive = context(EARTH, Optional.of(movingCruise));
+            CelestialState previousState = authoritativeStateAt(startCalendar);
+            OrbitVisualRules.Frame movingStartFrame = OrbitVisualRules.frame(movingActive,
+                    previousState, gameStart, startCalendar, rate, 8);
+            CelestialVector previousStation = movingStartFrame.observerPosition();
+            double lockedHeading = movingStartFrame.viewRotationRadians();
+            for (int elapsed = 1; elapsed < movingDuration; elapsed++) {
+                double calendar = startCalendar + rate * elapsed;
+                CelestialState currentState = authoritativeStateAt(calendar);
+                OrbitVisualRules.Frame currentFrame = OrbitVisualRules.frame(movingActive,
+                        currentState, gameStart + elapsed, calendar, rate, 8);
+                CelestialVector currentStation = currentFrame.observerPosition();
+                assertNear(lockedHeading, currentFrame.viewRotationRadians(), 1.0E-12D,
+                        "cross-system cruise heading remains locked while target system moves");
+                Map<ResourceLocation, OrbitVisualRules.BodyEphemeris> previousBodies =
+                        testEphemeris(previousState);
+                Map<ResourceLocation, OrbitVisualRules.BodyEphemeris> currentBodies =
+                        testEphemeris(currentState);
+                for (CelestialBodyState body : localSystemBodies(currentState, JUPITER)) {
+                    double swept = movingSegmentDistance(previousStation, currentStation,
+                            previousBodies.get(body.id()).position(),
+                            currentBodies.get(body.id()).position());
+                    double radius = currentBodies.get(body.id()).radius();
+                    assertTrue(swept > radius * Math.sqrt(3.0D) * 1.05D,
+                            "moving Earth -> " + movingTargetId + " ingress swept through "
+                                    + body.id() + " between cruise ticks " + (elapsed - 1)
+                                    + " and " + elapsed + ": swept=" + swept + ", guard="
+                                    + (radius * Math.sqrt(3.0D) * 1.05D));
+                }
+                previousState = currentState;
+                previousStation = currentStation;
+            }
+            double endCalendar = startCalendar + rate * movingDuration;
+            CelestialState endState = authoritativeStateAt(endCalendar);
+            CelestialVector movingNearEnd = OrbitVisualRules.frame(movingActive, endState,
+                    gameStart + movingDuration - 1.0E-7D, endCalendar - rate * 1.0E-7D,
+                    rate, 8).observerPosition();
+            CelestialVector movingTarget = OrbitVisualRules.frame(
+                    context(movingTargetId, Optional.empty()), endState,
+                    gameStart + movingDuration, endCalendar, rate, 8).observerPosition();
+            assertTrue(movingNearEnd.subtract(movingTarget).length() < 1.0E-5D,
+                    "cross-system plan intercepts " + movingTargetId
+                            + " authoritative end-of-cruise ephemeris: "
+                            + movingNearEnd.subtract(movingTarget).length());
+        }
+    }
+
+    private static void everySatelliteIngressClearsAllMovingBodiesAtAdverseArrivalPhases() {
+        double startCalendar = 4_321_000.0D;
+        double rate = 1.0D;
+        long duration = 600L;
+        List<ResourceLocation> satelliteTargets = new ArrayList<>();
+        satelliteTargets.add(MOON);
+        for (CelestialBodies body : CelestialBodies.values()) {
+            if (body.parent() != null) satelliteTargets.add(body.id());
+        }
+        for (ResourceLocation targetId : satelliteTargets) {
+            CelestialState arrivalState = authoritativeStateAt(startCalendar + rate * duration);
+            Map<ResourceLocation, OrbitVisualRules.BodyEphemeris> arrivalBodies =
+                    testEphemeris(arrivalState);
+            OrbitVisualRules.BodyEphemeris target = arrivalBodies.get(targetId);
+            OrbitVisualRules.BodyEphemeris primary = arrivalBodies.get(target.parent());
+            CelestialVector targetFromPrimary = target.position().subtract(primary.position());
+            double inwardAngle = Math.atan2(-targetFromPrimary.y(), -targetFromPrimary.x());
+            if (inwardAngle < 0.0D) inwardAngle += Math.PI * 2.0D;
+            long gameEnd = 8_000L + Math.round(inwardAngle / (Math.PI * 2.0D) * 8_000.0D);
+            long gameStart = gameEnd - duration;
+            ObservationJourney cruise = new ObservationJourney(EARTH, targetId,
+                    StationJourneyPhase.CRUISE, gameStart, duration);
+            ObservationContext active = context(EARTH, Optional.of(cruise));
+            CelestialState previousState = authoritativeStateAt(startCalendar);
+            CelestialVector previousStation = OrbitVisualRules.frame(active, previousState,
+                    gameStart, startCalendar, rate, 8).observerPosition();
+            for (int elapsed = 1; elapsed <= duration; elapsed++) {
+                double calendar = startCalendar + rate * elapsed;
+                CelestialState currentState = authoritativeStateAt(calendar);
+                CelestialVector currentStation = OrbitVisualRules.frame(active, currentState,
+                        gameStart + elapsed, calendar, rate, 8).observerPosition();
+                Map<ResourceLocation, OrbitVisualRules.BodyEphemeris> previousBodies =
+                        testEphemeris(previousState);
+                Map<ResourceLocation, OrbitVisualRules.BodyEphemeris> currentBodies =
+                        testEphemeris(currentState);
+                for (Map.Entry<ResourceLocation, OrbitVisualRules.BodyEphemeris> entry
+                        : currentBodies.entrySet()) {
+                    OrbitVisualRules.BodyEphemeris currentBody = entry.getValue();
+                    OrbitVisualRules.BodyEphemeris previousBody = previousBodies.get(entry.getKey());
+                    double swept = movingSegmentDistance(previousStation, currentStation,
+                            previousBody.position(), currentBody.position());
+                    double guard = Math.max(previousBody.radius(), currentBody.radius())
+                            * Math.sqrt(3.0D) * 1.05D;
+                    assertTrue(swept > guard,
+                            "adverse Earth -> " + targetId + " ingress swept through "
+                                    + entry.getKey() + " between ticks " + (elapsed - 1)
+                                    + " and " + elapsed + ": clearance=" + (swept - guard));
+                }
+                previousState = currentState;
+                previousStation = currentStation;
+            }
+        }
+    }
+
+    private static void everySatelliteDepartureClearsItsMovingParentAtAdversePhases() {
+        double startCalendar = 7_654_000.0D;
+        double rate = 1.0D;
+        long duration = 600L;
+        List<ResourceLocation> satelliteSources = new ArrayList<>();
+        satelliteSources.add(MOON);
+        for (CelestialBodies body : CelestialBodies.values()) {
+            if (body.parent() != null) satelliteSources.add(body.id());
+        }
+        CelestialState departureState = authoritativeStateAt(startCalendar);
+        Map<ResourceLocation, OrbitVisualRules.BodyEphemeris> departureBodies =
+                testEphemeris(departureState);
+        for (ResourceLocation sourceId : satelliteSources) {
+            OrbitVisualRules.BodyEphemeris source = departureBodies.get(sourceId);
+            OrbitVisualRules.BodyEphemeris primary = departureBodies.get(source.parent());
+            CelestialVector sourceFromPrimary = source.position().subtract(primary.position());
+            double inwardAngle = Math.atan2(-sourceFromPrimary.y(), -sourceFromPrimary.x());
+            if (inwardAngle < 0.0D) inwardAngle += Math.PI * 2.0D;
+            long gameStart = 8_000L
+                    + Math.round(inwardAngle / (Math.PI * 2.0D) * 8_000.0D);
+            ResourceLocation targetId = sourceId.equals(MOON) ? MARS : EARTH;
+            ObservationJourney cruise = new ObservationJourney(sourceId, targetId,
+                    StationJourneyPhase.CRUISE, gameStart, duration);
+            ObservationContext active = context(sourceId, Optional.of(cruise));
+            CelestialState previousState = departureState;
+            CelestialVector previousStation = OrbitVisualRules.frame(active, previousState,
+                    gameStart, startCalendar, rate, 8).observerPosition();
+            for (int elapsed = 1; elapsed <= duration; elapsed++) {
+                double calendar = startCalendar + rate * elapsed;
+                CelestialState currentState = authoritativeStateAt(calendar);
+                CelestialVector currentStation = OrbitVisualRules.frame(active, currentState,
+                        gameStart + elapsed, calendar, rate, 8).observerPosition();
+                Map<ResourceLocation, OrbitVisualRules.BodyEphemeris> previousBodies =
+                        testEphemeris(previousState);
+                Map<ResourceLocation, OrbitVisualRules.BodyEphemeris> currentBodies =
+                        testEphemeris(currentState);
+                for (Map.Entry<ResourceLocation, OrbitVisualRules.BodyEphemeris> entry
+                        : currentBodies.entrySet()) {
+                    OrbitVisualRules.BodyEphemeris currentBody = entry.getValue();
+                    OrbitVisualRules.BodyEphemeris previousBody = previousBodies.get(entry.getKey());
+                    double swept = movingSegmentDistance(previousStation, currentStation,
+                            previousBody.position(), currentBody.position());
+                    double guard = Math.max(previousBody.radius(), currentBody.radius())
+                            * Math.sqrt(3.0D) * 1.05D;
+                    assertTrue(swept > guard,
+                            "adverse " + sourceId + " -> " + targetId
+                                    + " departure swept through " + entry.getKey()
+                                    + " between ticks " + (elapsed - 1) + " and " + elapsed
+                                    + ": clearance=" + (swept - guard));
+                }
+                previousState = currentState;
+                previousStation = currentStation;
+            }
         }
     }
 
@@ -2932,6 +3400,25 @@ public final class SpaceVisualSelfTest {
                 new DaylightState(0.0D, true, 0.0D, 1.0D));
     }
 
+    private static CelestialState stateWithJovianMoonsAcrossIngressLine(
+            CelestialVector ganymedePosition) {
+        CelestialBodyState sun = body(SUN, null, new CelestialVector(100.0D, 0.0D, 0.0D), 1.0D);
+        CelestialBodyState moon = body(MOON, EARTH, new CelestialVector(0.0D, 0.3844D, 0.0D),
+                0.001737D);
+        CelestialVector jupiterPosition = new CelestialVector(20.0D, 0.0D, 0.0D);
+        CelestialBodyState jupiter = body(JUPITER, SUN, jupiterPosition, 0.071492D);
+        CelestialBodyState io = body(IO, JUPITER,
+                new CelestialVector(19.5783D, 0.0D, 0.0D), 0.0018216D);
+        CelestialBodyState europa = body(EUROPA, JUPITER,
+                new CelestialVector(20.669151D, 0.0D, 0.0D), 0.0015608D);
+        CelestialBodyState ganymede = body(GANYMEDE, JUPITER, ganymedePosition, 0.0026341D);
+        return new CelestialState(0.0D, 0.0D, 0.0D, 0L, sun, moon,
+                new CelestialVector(0.0D, 1.0D, 0.0D),
+                List.of(jupiter, io, europa, ganymede), 0, 0.0D, 0.0D,
+                SolarEclipseState.NONE, 0.0D, LunarEclipseState.NONE, 0.0D, 0.0D,
+                1.0D, 1.0D, 1.0D, new DaylightState(0.0D, true, 0.0D, 1.0D));
+    }
+
     private static CelestialState stateWithMoonAt(double calendarTicks) {
         first.wildfires.celestial.CelestialRuntimeSettings settings =
                 first.wildfires.celestial.CelestialRuntimeSettings.DEFAULT;
@@ -3142,6 +3629,25 @@ public final class SpaceVisualSelfTest {
         return true;
     }
 
+    private static double segmentDistanceToPoint(CelestialVector start, CelestialVector end,
+                                                 CelestialVector point) {
+        CelestialVector segment = end.subtract(start);
+        double lengthSquared = segment.dot(segment);
+        double along = lengthSquared > 1.0E-24D
+                ? Math.max(0.0D, Math.min(1.0D,
+                point.subtract(start).dot(segment) / lengthSquared)) : 0.0D;
+        return start.add(segment.scale(along)).subtract(point).length();
+    }
+
+    private static double movingSegmentDistance(CelestialVector stationStart,
+                                                CelestialVector stationEnd,
+                                                CelestialVector bodyStart,
+                                                CelestialVector bodyEnd) {
+        CelestialVector relativeStart = stationStart.subtract(bodyStart);
+        CelestialVector relativeEnd = stationEnd.subtract(bodyEnd);
+        return segmentDistanceToPoint(relativeStart, relativeEnd, CelestialVector.ZERO);
+    }
+
     private static GenesisCubeAtlasLayout.Direction edge(GenesisCubeAtlasLayout.Face face,
                                                          int edge, double value) {
         return switch (edge) {
@@ -3189,6 +3695,24 @@ public final class SpaceVisualSelfTest {
             actual.append(String.format("%02x", value & 0xFF));
         }
         assertEquals(expected, actual.toString(), file + " SHA-256");
+    }
+
+    private static String sourceSection(String source, String startMarker, String endMarker) {
+        int start = source.indexOf(startMarker);
+        int end = source.indexOf(endMarker, start);
+        assertTrue(start >= 0 && end > start,
+                "source section exists: " + startMarker + " to " + endMarker);
+        return source.substring(start, end);
+    }
+
+    private static int countOccurrences(String source, String needle) {
+        int count = 0;
+        int offset = 0;
+        while ((offset = source.indexOf(needle, offset)) >= 0) {
+            count++;
+            offset += needle.length();
+        }
+        return count;
     }
 
     private static void assertVector(CelestialVector expected, CelestialVector actual, String name) {

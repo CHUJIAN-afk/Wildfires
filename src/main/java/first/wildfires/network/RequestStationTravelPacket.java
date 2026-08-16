@@ -109,6 +109,11 @@ public record RequestStationTravelPacket(StationTravelRequest request) implement
         }
 
         @Override
+        public int startTestBurn(StationRecord station) {
+            return StationDriveIndex.startBurn(player.serverLevel(), station);
+        }
+
+        @Override
         public boolean hasLoadedJumpTestEngine(StationRecord station) {
             return StationJumpDriveIndex.hasLoadedEngine(player.serverLevel(), station);
         }

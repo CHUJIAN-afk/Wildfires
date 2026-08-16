@@ -92,7 +92,9 @@ public final class StationTravelService {
                     || persisted.station().isEmpty()) {
                 return StationTravelResult.rejected(StationTravelResult.Status.PERSISTENCE_REJECTED);
             }
-            return StationTravelResult.started(persisted.station().orElseThrow());
+            StationRecord started = persisted.station().orElseThrow();
+            context.startTestBurn(started);
+            return StationTravelResult.started(started);
         } catch (IllegalArgumentException | IllegalStateException exception) {
             return StationTravelResult.rejected(StationTravelResult.Status.PERSISTENCE_REJECTED);
         }
@@ -104,6 +106,10 @@ public final class StationTravelService {
         boolean validControlComputer(StationRecord station, StationTravelRequest request);
 
         boolean hasLoadedTestEngine(StationRecord station);
+
+        default int startTestBurn(StationRecord station) {
+            return 20;
+        }
 
         default boolean hasLoadedJumpTestEngine(StationRecord station) {
             return false;

@@ -29,5 +29,6 @@ Snapshots under `upstream/` are immutable evidence. When upstream changes, add a
 | Mattenii aurora shader | adapted shader | source URL and in-file notice | CC BY-NC-SA 3.0 release compatibility must be reviewed |
 | VS: Genesis `1.20.1-0.7.3` | adapted cubemap/mesh/shaders/ascent body + 2 verbatim planet PNGs | local source-tree digest, README, Apache-2.0 license, metadata and file manifest | Recorded |
 | NTM: Space `1.0.27_X5778` | adapted orbit/capsule/navigation/ascent code and models + 8 verbatim PNGs | local source-tree digest, README, GPL/LGPL texts, contributor credits, corresponding-source statement and file hashes | LGPL-3.0-only partition recorded |
+| Waterfall `0.10.3` / commit `6be4f897` | adapted radiant-drive and Daedalus v1/v2 shaders/configs + derived meshes and textures | README, CC BY-NC-SA 4.0 statement, source/config snapshots and file manifest | Non-commercial share-alike partition recorded |
 
 This register is about incorporated or adapted material. Ordinary dependencies may be documented in build files without snapshotting their entire source repositories.

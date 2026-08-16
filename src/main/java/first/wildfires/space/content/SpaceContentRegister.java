@@ -57,6 +57,16 @@ public final class SpaceContentRegister {
             "antimatter_test_engine", () -> new AntimatterTestEngineBlock(
                     BlockBehaviour.Properties.of().strength(4.0F, 8.0F)
                             .sound(SoundType.METAL).requiresCorrectToolForDrops()));
+    public static final RegistryObject<Block> DAEDALUS_V1_TEST_ENGINE = BLOCKS.register(
+            "daedalus_v1_test_engine", () -> new WaterfallTestEngineBlock(
+                    BlockBehaviour.Properties.of().strength(4.0F, 8.0F)
+                            .sound(SoundType.METAL).requiresCorrectToolForDrops(),
+                    WaterfallTestEngineVariant.DAEDALUS_V1));
+    public static final RegistryObject<Block> DAEDALUS_V2_TEST_ENGINE = BLOCKS.register(
+            "daedalus_v2_test_engine", () -> new WaterfallTestEngineBlock(
+                    BlockBehaviour.Properties.of().strength(4.0F, 8.0F)
+                            .sound(SoundType.METAL).requiresCorrectToolForDrops(),
+                    WaterfallTestEngineVariant.DAEDALUS_V2));
 
     public static final RegistryObject<Item> STATION_CONTROL_COMPUTER_ITEM = ITEMS.register(
             "station_control_computer", () -> new BlockItem(STATION_CONTROL_COMPUTER.get(),
@@ -71,6 +81,12 @@ public final class SpaceContentRegister {
                     new Item.Properties()));
     public static final RegistryObject<Item> ANTIMATTER_TEST_ENGINE_ITEM = ITEMS.register(
             "antimatter_test_engine", () -> new BlockItem(ANTIMATTER_TEST_ENGINE.get(),
+                    new Item.Properties()));
+    public static final RegistryObject<Item> DAEDALUS_V1_TEST_ENGINE_ITEM = ITEMS.register(
+            "daedalus_v1_test_engine", () -> new BlockItem(DAEDALUS_V1_TEST_ENGINE.get(),
+                    new Item.Properties()));
+    public static final RegistryObject<Item> DAEDALUS_V2_TEST_ENGINE_ITEM = ITEMS.register(
+            "daedalus_v2_test_engine", () -> new BlockItem(DAEDALUS_V2_TEST_ENGINE.get(),
                     new Item.Properties()));
     public static final RegistryObject<Item> REUSABLE_RETURN_CAPSULE_ITEM = ITEMS.register(
             "reusable_return_capsule", () -> new first.wildfires.space.capsule.ReusableReturnCapsuleItem(
@@ -116,6 +132,16 @@ public final class SpaceContentRegister {
             ANTIMATTER_TEST_ENGINE_BLOCK_ENTITY = BLOCK_ENTITIES.register(
             "antimatter_test_engine", () -> BlockEntityType.Builder.of(
                     AntimatterTestEngineBlockEntity::new, ANTIMATTER_TEST_ENGINE.get()).build(null));
+    public static final RegistryObject<BlockEntityType<WaterfallTestEngineBlockEntity>>
+            DAEDALUS_V1_TEST_ENGINE_BLOCK_ENTITY = BLOCK_ENTITIES.register(
+            "daedalus_v1_test_engine", () -> BlockEntityType.Builder.of(
+                    WaterfallTestEngineBlockEntity::new,
+                    DAEDALUS_V1_TEST_ENGINE.get()).build(null));
+    public static final RegistryObject<BlockEntityType<WaterfallTestEngineBlockEntity>>
+            DAEDALUS_V2_TEST_ENGINE_BLOCK_ENTITY = BLOCK_ENTITIES.register(
+            "daedalus_v2_test_engine", () -> BlockEntityType.Builder.of(
+                    WaterfallTestEngineBlockEntity::new,
+                    DAEDALUS_V2_TEST_ENGINE.get()).build(null));
 
     public static final RegistryObject<MenuType<StationControlMenu>> STATION_CONTROL_MENU = MENUS.register(
             "station_control", () -> IForgeMenuType.create(StationControlMenu::new));

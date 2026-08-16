@@ -24,4 +24,13 @@ public final class StationTestEngineBlock extends BaseEntityBlock {
     public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
         return new StationTestEngineBlockEntity(pos, state);
     }
+
+    @Nullable
+    @Override
+    public <T extends BlockEntity> net.minecraft.world.level.block.entity.BlockEntityTicker<T> getTicker(
+            net.minecraft.world.level.Level level, BlockState state,
+            net.minecraft.world.level.block.entity.BlockEntityType<T> type) {
+        return createTickerHelper(type, SpaceContentRegister.STATION_TEST_ENGINE_BLOCK_ENTITY.get(),
+                StationTestEngineBlockEntity::tick);
+    }
 }

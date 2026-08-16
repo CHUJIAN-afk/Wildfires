@@ -1,6 +1,12 @@
 {
   "variants": {
+    "facing=north,on=false": { "model": "wildfires:block/antimatter_test_engine_off" },
+    "facing=east,on=false": { "model": "wildfires:block/antimatter_test_engine_off" },
     "facing=south,on=false": { "model": "wildfires:block/antimatter_test_engine_off" },
-    "facing=south,on=true": { "model": "wildfires:block/antimatter_test_engine_on" }
+    "facing=west,on=false": { "model": "wildfires:block/antimatter_test_engine_off" },
+    "facing=north,on=true": { "model": "wildfires:block/antimatter_test_engine_on" },
+    "facing=east,on=true": { "model": "wildfires:block/antimatter_test_engine_on" },
+    "facing=south,on=true": { "model": "wildfires:block/antimatter_test_engine_on" },
+    "facing=west,on=true": { "model": "wildfires:block/antimatter_test_engine_on" }
   }
 }

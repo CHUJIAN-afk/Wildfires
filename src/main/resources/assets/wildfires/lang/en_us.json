@@ -139,6 +139,8 @@
   "block.wildfires.station_test_engine": "Station Test Engine",
   "block.wildfires.station_jump_test_engine": "Station Jump Test Engine",
   "block.wildfires.antimatter_test_engine": "Antimatter Test Engine",
+  "block.wildfires.daedalus_v1_test_engine": "Daedalus v1 Test Engine",
+  "block.wildfires.daedalus_v2_test_engine": "Daedalus v2 Test Engine",
   "screen.wildfires.station_control.title": "Station Control Computer",
   "screen.wildfires.station_control.no_routes": "No available routes from the current body",
   "screen.wildfires.station_control.page": "Route page %1$s/%2$s",

@@ -3,6 +3,8 @@ package first.wildfires.space.station;
 import first.wildfires.space.celestial.CelestialRegistryRuntime;
 import first.wildfires.space.celestial.CelestialRegistrySnapshot;
 import first.wildfires.space.route.StationRouteRuntime;
+import first.wildfires.space.SpaceDimensions;
+import first.wildfires.space.content.StationDriveIndex;
 import first.wildfires.space.route.StationRouteSnapshot;
 import net.minecraft.server.MinecraftServer;
 import net.minecraftforge.event.TickEvent;
@@ -59,6 +61,12 @@ public final class StationJourneyTicker {
                 }
                 StationService.OperationResult result = StationService.applyJourneyStateSystem(
                         data, stationId, transition.state(), transition.status(), gameTime);
+                if (transition.faulted() || transition.state().journey().isEmpty()) {
+                    net.minecraft.server.level.ServerLevel orbit = server.getLevel(SpaceDimensions.ORBIT);
+                    if (orbit != null) {
+                        StationDriveIndex.endBurn(orbit, station);
+                    }
+                }
                 if (result.station().isEmpty()
                         || result.station().orElseThrow().journey().isEmpty()
                         || transition.faulted()) {

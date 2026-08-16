@@ -19,7 +19,7 @@ final class NtmSpaceObjModels {
             true, "wildfires:models/third_party/ntm_space/rp_drop_pod.mtl");
     private static final ObjModel.ModelSettings CORE_SETTINGS = new ObjModel.ModelSettings(
             Wildfires.rl("models/third_party/ntm_space/docking_port.obj"), false, true, true,
-            true, "wildfires:models/third_party/ntm_space/docking_port.mtl");
+            false, "wildfires:models/third_party/ntm_space/docking_port.mtl");
     private static volatile CompositeRenderable capsule;
     private static volatile CompositeRenderable stationCore;
 

@@ -12,6 +12,9 @@ import net.minecraftforge.fml.loading.FMLEnvironment;
 import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.client.event.RegisterClientReloadListenersEvent;
 import net.minecraftforge.client.event.RegisterParticleProvidersEvent;
+import net.minecraftforge.client.event.RegisterShadersEvent;
+
+import java.io.IOException;
 
 /** Client-only menu registration for the station control computer. */
 @Mod.EventBusSubscriber(modid = Wildfires.MODID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.MOD)
@@ -38,6 +41,10 @@ public final class SpaceContentClientEvents {
                 StationCoreRenderer::new);
         event.registerBlockEntityRenderer(SpaceContentRegister.ANTIMATTER_TEST_ENGINE_BLOCK_ENTITY.get(),
                 AntimatterTestEngineRenderer::new);
+        event.registerBlockEntityRenderer(SpaceContentRegister.DAEDALUS_V1_TEST_ENGINE_BLOCK_ENTITY.get(),
+                WaterfallTestEngineRenderer::new);
+        event.registerBlockEntityRenderer(SpaceContentRegister.DAEDALUS_V2_TEST_ENGINE_BLOCK_ENTITY.get(),
+                WaterfallTestEngineRenderer::new);
     }
 
     @SubscribeEvent
@@ -49,8 +56,18 @@ public final class SpaceContentClientEvents {
     }
 
     @SubscribeEvent
+    public static void registerShaders(RegisterShadersEvent event) throws IOException {
+        AntimatterRadiantDriveShader.register(event);
+        WaterfallTranslatedEngineShader.register(event);
+    }
+
+    @SubscribeEvent
     public static void registerReloadListeners(RegisterClientReloadListenersEvent event) {
         event.registerReloadListener((net.minecraft.server.packs.resources.ResourceManagerReloadListener)
-                resourceManager -> NtmSpaceObjModels.reset());
+                resourceManager -> {
+                    NtmSpaceObjModels.reset();
+                    AntimatterRadiantDriveShader.reset();
+                    WaterfallTranslatedEngineShader.reset();
+                });
     }
 }

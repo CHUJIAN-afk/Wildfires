@@ -73,8 +73,10 @@ public final class OrbitVisualRules {
     public static final int MAX_SATELLITE_SHADOWS = 4;
     private static final int MIN_LOCAL_TRANSFER_SAMPLES = 96;
     private static final int MAX_LOCAL_TRANSFER_SAMPLES = 512;
+    private static final int MAX_INTER_SYSTEM_TRANSFER_SAMPLES = 2_048;
     private static final int LOCAL_TRANSFER_SAMPLES_PER_ORBIT = 24;
     private static final int LOCAL_TRANSFER_CACHE_SIZE = 24;
+    private static final int INTER_SYSTEM_TRANSFER_CACHE_SIZE = 24;
 
     private static final double EARTH_RADIUS_MILLION_KM = 0.006371D;
     private static final double DEPTH_REFERENCE_MILLION_KM = 0.02D;
@@ -92,6 +94,16 @@ public final class OrbitVisualRules {
                 protected boolean removeEldestEntry(
                         Map.Entry<LocalTransferCacheKey, CachedLocalTransferPlan> eldest) {
                     return size() > LOCAL_TRANSFER_CACHE_SIZE;
+                }
+            };
+    private static final Map<InterSystemTransferCacheKey, CachedInterSystemTransferPlan>
+            INTER_SYSTEM_TRANSFER_CACHE = new LinkedHashMap<>(
+            INTER_SYSTEM_TRANSFER_CACHE_SIZE + 1, 0.75F, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        Map.Entry<InterSystemTransferCacheKey,
+                                CachedInterSystemTransferPlan> eldest) {
+                    return size() > INTER_SYSTEM_TRANSFER_CACHE_SIZE;
                 }
             };
 
@@ -762,9 +774,9 @@ public final class OrbitVisualRules {
     }
 
     /**
-     * During local-system cruise the route heading is taken from the locked transfer plan.  Using
-     * the two moons' live positions here makes the complete sky yaw after a moving target even
-     * though the station has already committed to an intercept arc.
+     * During cruise the route heading is taken from the locked transfer plan. Using live moon
+     * positions here makes the complete sky yaw after a moving target even though the station has
+     * already committed to an intercept arc.
      */
     private static double travelAngleRadians(ObservationContext context, ObservationJourney journey,
                                               Map<ResourceLocation, BodyEphemeris> ephemeris,
@@ -780,6 +792,11 @@ public final class OrbitVisualRules {
             if (Math.hypot(route.x(), route.y()) > 1.0E-12D) {
                 return wrapRadians(-Math.atan2(route.y(), route.x()) + Math.PI * 0.5D);
             }
+        }
+        if (primaryId == null && journey.phase() == StationJourneyPhase.CRUISE) {
+            InterSystemTransferPlan plan = interSystemTransferPlan(context, journey, ephemeris,
+                    gameTime, calendarTicks, calendarTicksPerGameTick, calendarDaysInMonth);
+            return plan.headingRadians();
         }
         return travelAngleRadians(journey.fromBody(), journey.toBody(), ephemeris);
     }
@@ -897,10 +914,6 @@ public final class OrbitVisualRules {
             if (gameTime >= journey.phaseStartedGameTime() + journey.phaseDurationTicks()) {
                 return orbitPosition(journey.toBody(), ephemeris, gameTime);
             }
-            CelestialVector from = orbitPosition(journey.fromBody(), ephemeris, gameTime);
-            CelestialVector to = orbitPosition(journey.toBody(), ephemeris, gameTime);
-            BodyEphemeris origin = requireBody(ephemeris, journey.fromBody());
-            BodyEphemeris target = requireBody(ephemeris, journey.toBody());
             double phaseProgress = phaseProgress(journey, gameTime);
             ResourceLocation localPrimary = localSystemPrimary(
                     journey.fromBody(), journey.toBody(), ephemeris);
@@ -910,7 +923,10 @@ public final class OrbitVisualRules {
                         calendarDaysInMonth);
                 return localSystemTransferPosition(plan, phaseProgress);
             }
-            return safeTransferPosition(from, to, origin, target, circularTransfer(phaseProgress));
+            InterSystemTransferPlan plan = interSystemTransferPlan(context, journey, ephemeris,
+                    gameTime, calendarTicks, calendarTicksPerGameTick, calendarDaysInMonth);
+            return interSystemTransferPosition(plan, phaseProgress,
+                    requireBody(ephemeris, journey.toBody()).position());
         }
         if (phase.isJumpPhase()) {
             JumpLine line = Objects.requireNonNull(frameJumpLine, "frameJumpLine");
@@ -1209,6 +1225,226 @@ public final class OrbitVisualRules {
     }
 
     /**
+     * Locks an ordinary cross-system cruise in the Sun-following frame. NTM's transfer-cost code
+     * climbs the body tree for moon-to-other-system journeys; the visual route mirrors that
+     * topology by approaching a satellite from outside its parent system instead of aiming a
+     * per-frame chord through the parent planet.
+     */
+    private static InterSystemTransferPlan interSystemTransferPlan(
+            ObservationContext context, ObservationJourney journey,
+            Map<ResourceLocation, BodyEphemeris> current, double gameTime,
+            double calendarTicks, double calendarTicksPerGameTick, int calendarDaysInMonth) {
+        double elapsed = clamp(gameTime - journey.phaseStartedGameTime(), 0.0D,
+                journey.phaseDurationTicks());
+        double departureCalendarTicks = calendarTicks - elapsed * calendarTicksPerGameTick;
+        CelestialRuntimeSettings settings = CelestialSettingsCache.current();
+        InterSystemTransferCacheKey cacheKey = new InterSystemTransferCacheKey(context.stationId(),
+                context.celestialRegistryGeneration(), journey.fromBody(), journey.toBody(),
+                journey.phaseStartedGameTime(), journey.phaseDurationTicks(),
+                Math.round(departureCalendarTicks),
+                Double.doubleToLongBits(calendarTicksPerGameTick), calendarDaysInMonth, settings);
+        BodyEphemeris currentSun = requireBody(current, SUN);
+        synchronized (INTER_SYSTEM_TRANSFER_CACHE) {
+            CachedInterSystemTransferPlan cached = INTER_SYSTEM_TRANSFER_CACHE.get(cacheKey);
+            if (cached != null) {
+                return translateInterSystemTransferPlan(cached.plan(),
+                        currentSun.position().subtract(cached.sunAnchor()));
+            }
+        }
+
+        List<Map<ResourceLocation, BodyEphemeris>> obstacleTimeline = interSystemObstacleTimeline(
+                current, calendarTicks, calendarTicksPerGameTick, calendarDaysInMonth, elapsed,
+                journey.phaseDurationTicks());
+        Map<ResourceLocation, BodyEphemeris> departure = obstacleTimeline.get(0);
+        Map<ResourceLocation, BodyEphemeris> arrival = obstacleTimeline.get(
+                obstacleTimeline.size() - 1);
+        CelestialVector from = orbitPosition(journey.fromBody(), departure,
+                journey.phaseStartedGameTime());
+        CelestialVector to = orbitPosition(journey.toBody(), arrival,
+                journey.phaseStartedGameTime() + journey.phaseDurationTicks());
+        InterSystemTransferPlan plan = chooseInterSystemTransferPlan(journey.fromBody(),
+                journey.toBody(), from, to, departure, arrival, obstacleTimeline);
+        synchronized (INTER_SYSTEM_TRANSFER_CACHE) {
+            INTER_SYSTEM_TRANSFER_CACHE.put(cacheKey,
+                    new CachedInterSystemTransferPlan(currentSun.position(), plan));
+        }
+        return plan;
+    }
+
+    private static CelestialVector interSystemTransferPosition(InterSystemTransferPlan plan,
+                                                                double progress) {
+        return interSystemTransferPosition(plan, progress,
+                timelinePosition(plan.targetBodyTimeline(), progress));
+    }
+
+    private static CelestialVector interSystemTransferPosition(InterSystemTransferPlan plan,
+                                                                double progress,
+                                                                CelestialVector liveTargetBody) {
+        double value = circularTransfer(clamp(progress, 0.0D, 1.0D));
+        if (value <= plan.ingressProgress()) {
+            double local = value / plan.ingressProgress();
+            return cubicBezier(plan.from(), plan.departureControl(), plan.ingressControl(),
+                    plan.ingress(), local);
+        }
+        double local = (value - plan.ingressProgress()) / (1.0D - plan.ingressProgress());
+        CelestialVector relative;
+        if (plan.captureOrbitJoinProgress() > 1.0E-12D
+                && local <= plan.captureOrbitJoinProgress()) {
+            double capture = local / plan.captureOrbitJoinProgress();
+            double outerRadius = Math.min(plan.ingressRelative().length(),
+                    plan.targetOuterRelative().length());
+            relative = sphericalArc(CelestialVector.ZERO, plan.ingressRelative(),
+                    plan.targetOuterRelative(), capture, outerRadius);
+        } else if (plan.captureRadialJoinProgress() - plan.captureOrbitJoinProgress()
+                > 1.0E-12D && local <= plan.captureRadialJoinProgress()) {
+            double capture = (local - plan.captureOrbitJoinProgress())
+                    / (plan.captureRadialJoinProgress() - plan.captureOrbitJoinProgress());
+            relative = mix(plan.targetOuterRelative(), plan.targetGateRelative(), capture);
+        } else {
+            double phasing = (local - plan.captureRadialJoinProgress())
+                    / Math.max(1.0E-12D, 1.0D - plan.captureRadialJoinProgress());
+            relative = sphericalArc(CelestialVector.ZERO, plan.targetGateRelative(),
+                    plan.toRelative(), phasing, plan.targetStableRadius());
+        }
+        // At the exact gate boundary the Sun-frame transfer must remain continuous. Blend from
+        // the planned target anchor to the live authoritative target while still on the far outer
+        // capture sphere; radial descent and final phasing then follow the live body exactly.
+        CelestialVector plannedTargetBody = timelinePosition(plan.targetBodyTimeline(), progress);
+        double liveAnchorBlend = plan.captureOrbitJoinProgress() > 1.0E-12D
+                ? smoothStep01(local / plan.captureOrbitJoinProgress()) : 1.0D;
+        return mix(plannedTargetBody, liveTargetBody, liveAnchorBlend).add(relative);
+    }
+
+    private static InterSystemTransferPlan chooseInterSystemTransferPlan(
+            ResourceLocation fromId, ResourceLocation toId, CelestialVector from,
+            CelestialVector to, Map<ResourceLocation, BodyEphemeris> departure,
+            Map<ResourceLocation, BodyEphemeris> arrival,
+            List<Map<ResourceLocation, BodyEphemeris>> obstacles) {
+        BodyEphemeris origin = requireBody(departure, fromId);
+        BodyEphemeris target = requireBody(arrival, toId);
+        ResourceLocation sourcePrimaryId = endpointSystemPrimary(fromId, origin);
+        ResourceLocation targetPrimaryId = endpointSystemPrimary(toId, target);
+        BodyEphemeris sourcePrimary = requireBody(departure, sourcePrimaryId);
+        BodyEphemeris targetPrimary = requireBody(arrival, targetPrimaryId);
+        double lockedHeading = travelAngleRadians(fromId, toId, departure);
+        CelestialVector route = to.subtract(from);
+        CelestialVector sourceOut = from.subtract(sourcePrimary.position()).normalized();
+        CelestialVector targetOut = to.subtract(targetPrimary.position()).normalized();
+        CelestialVector sourceBodyOut = from.subtract(origin.position()).normalized();
+        CelestialVector targetBodyOut = to.subtract(target.position()).normalized();
+        if (sourceOut.length() < 1.0E-12D) {
+            sourceOut = from.subtract(origin.position()).normalized();
+        }
+        if (targetOut.length() < 1.0E-12D) {
+            targetOut = to.subtract(target.position()).normalized();
+        }
+        if (sourceBodyOut.length() < 1.0E-12D) sourceBodyOut = sourceOut;
+        if (targetBodyOut.length() < 1.0E-12D) targetBodyOut = targetOut;
+        CelestialVector planar = eclipticLateral(route, sourceOut);
+        CelestialVector routeNormal = cross(sourceOut, route.normalized()).normalized();
+        CelestialVector orbitalSide = routeNormal.length() > 1.0E-12D
+                ? cross(routeNormal, route.normalized()).normalized() : planar;
+        List<CelestialVector> sides = List.of(planar, planar.scale(-1.0D), orbitalSide,
+                orbitalSide.scale(-1.0D), new CelestialVector(0.0D, 0.0D, 1.0D),
+                new CelestialVector(0.0D, 0.0D, -1.0D));
+        double sourceSystemRadius = systemGuardRadius(departure, sourcePrimaryId);
+        double targetSystemRadius = systemGuardRadius(arrival, targetPrimaryId);
+        List<CelestialVector> targetPrimaryTimeline = obstacles.stream()
+                .map(frame -> requireBody(frame, targetPrimaryId).position()).toList();
+        List<CelestialVector> targetBodyTimeline = obstacles.stream()
+                .map(frame -> requireBody(frame, toId).position()).toList();
+        double ingressProgress = 0.82D;
+        double ingressPhaseProgress = inverseCircularTransfer(ingressProgress);
+        CelestialVector ingressPrimary = timelinePosition(targetPrimaryTimeline,
+                ingressPhaseProgress);
+        double baseHandle = Math.max(route.length() * 0.05D,
+                Math.max(sourceSystemRadius, targetSystemRadius));
+        baseHandle = Math.max(baseHandle, Math.max(origin.radius(), target.radius()) * 8.0D);
+        double bestClearance = Double.NEGATIVE_INFINITY;
+        for (double multiplier : new double[]{1.0D, 1.5D, 2.25D, 3.5D, 5.5D, 8.0D,
+                12.0D, 18.0D, 27.0D, 40.0D, 64.0D}) {
+            double handle = baseHandle * multiplier;
+            double captureScale = Math.sqrt(multiplier);
+            for (CelestialVector side : sides) {
+                CelestialVector lateral = side.normalized();
+                // A moon's system-radial direction can point straight through the moon from the
+                // station's current side. Leave along the endpoint body's own outward radius
+                // before the heliocentric leg starts.
+                CelestialVector firstDirection = sourceBodyOut.add(lateral).normalized();
+                CelestialVector departureControl = from.add(firstDirection.scale(
+                        Math.max(handle, sourceSystemRadius)));
+                double ingressRadius = targetSystemRadius
+                        * (1.35D + (captureScale - 1.0D) * 0.25D);
+                CelestialVector ingressRelative = targetOut.scale(ingressRadius)
+                        .add(lateral.scale(targetSystemRadius * 0.35D * captureScale));
+                CelestialVector ingress = ingressPrimary.add(ingressRelative);
+                CelestialVector ingressControl = ingress.add(targetOut.add(
+                        lateral.scale(0.35D)).normalized().scale(
+                        Math.max(handle * 0.35D, targetSystemRadius * 0.5D)));
+                CelestialVector ingressTarget = timelinePosition(targetBodyTimeline,
+                        ingressPhaseProgress);
+                CelestialVector ingressTargetRelative = ingress.subtract(ingressTarget);
+                // Once through the system gate, capture follows the target body itself. A fast
+                // moon can no longer orbit repeatedly through a curve frozen to its parent.
+                CelestialVector toRelative = to.subtract(target.position());
+                double targetStableRadius = to.subtract(target.position()).length();
+                double targetSafeRadius = Math.max(targetStableRadius, target.radius() * 6.0D);
+                CelestialVector targetGateDirection = targetBodyOut
+                        .add(lateral.scale(captureScale)).normalized();
+                CelestialVector targetGateRelative = targetGateDirection.scale(targetSafeRadius);
+                double targetOuterRadius = Math.max(ingressTargetRelative.length(),
+                        Math.max(targetSystemRadius * 1.35D * captureScale, targetSafeRadius));
+                CelestialVector targetOuterRelative = targetGateDirection.scale(targetOuterRadius);
+                double departureLength = cubicBezierLength(from, departureControl,
+                        ingressControl, ingress);
+                // Capture never draws a chord through the target: orbit at an outer safe radius,
+                // descend on one ray, then phase around the stable-orbit sphere.
+                double captureOrbitLength = sphericalArcLength(CelestialVector.ZERO,
+                        ingressTargetRelative, targetOuterRelative,
+                        Math.min(ingressTargetRelative.length(), targetOuterRadius));
+                double captureRadialLength = targetOuterRadius - targetSafeRadius;
+                double phasingLength = sphericalArcLength(CelestialVector.ZERO,
+                        targetGateRelative, toRelative, targetStableRadius);
+                double captureTotal = Math.max(1.0E-12D,
+                        captureOrbitLength + captureRadialLength + phasingLength);
+                double captureOrbitJoinProgress = captureOrbitLength / captureTotal;
+                double captureRadialJoinProgress = (captureOrbitLength + captureRadialLength)
+                        / captureTotal;
+                InterSystemTransferPlan candidate = new InterSystemTransferPlan(from, to,
+                        departureControl, ingressControl, ingress, ingressTargetRelative,
+                        targetOuterRelative, targetGateRelative, toRelative, targetBodyTimeline,
+                        ingressProgress, captureOrbitJoinProgress, captureRadialJoinProgress,
+                        targetStableRadius, departureLength + captureTotal,
+                        lockedHeading);
+                double clearance = interSystemTransferClearance(candidate, obstacles);
+                if (clearance > bestClearance) {
+                    bestClearance = clearance;
+                }
+                if (clearance > 0.0D) return candidate;
+            }
+        }
+        throw new IllegalStateException("No collision-free inter-system transfer from " + fromId
+                + " to " + toId + "; best swept clearance=" + bestClearance);
+    }
+
+    private static ResourceLocation endpointSystemPrimary(ResourceLocation id,
+                                                          BodyEphemeris body) {
+        return body.parent() != null && !body.parent().equals(SUN) ? body.parent() : id;
+    }
+
+    private static double systemGuardRadius(Map<ResourceLocation, BodyEphemeris> ephemeris,
+                                            ResourceLocation primaryId) {
+        BodyEphemeris primary = requireBody(ephemeris, primaryId);
+        double radius = primary.radius() * SQRT_THREE * 1.05D;
+        for (BodyEphemeris body : ephemeris.values()) {
+            if (!primaryId.equals(body.parent())) continue;
+            radius = Math.max(radius, body.position().subtract(primary.position()).length()
+                    + body.radius() * SQRT_THREE * 1.05D);
+        }
+        return radius;
+    }
+
+    /**
      * NTM distinguishes parent/moon and sibling-moon transfers from interplanetary transfers.
      * Wildfires keeps that topology but evaluates the cruise around the common planet instead of
      * lifting the station onto an unrelated ecliptic-normal corridor.
@@ -1362,6 +1598,134 @@ public final class OrbitVisualRules {
                         moon.radius(), moon.parent()));
         }
         return Map.copyOf(shifted);
+    }
+
+    /**
+     * Advances the complete hierarchy while keeping the Sun at the current frame's anchor. A
+     * cached inter-system plan can then follow the changing Earth-centred coordinate origin with
+     * one Sun-anchor translation without chasing either endpoint every render frame.
+     */
+    private static Map<ResourceLocation, BodyEphemeris> shiftedSolarSystemEphemeris(
+            Map<ResourceLocation, BodyEphemeris> current,
+            Map<ResourceLocation, BodyEphemeris> modelCurrent,
+            Map<ResourceLocation, BodyEphemeris> modelTarget) {
+        BodyEphemeris sun = requireBody(current, SUN);
+        BodyEphemeris modelCurrentSun = requireBody(modelCurrent, SUN);
+        BodyEphemeris modelTargetSun = requireBody(modelTarget, SUN);
+        Map<ResourceLocation, BodyEphemeris> shifted = new LinkedHashMap<>();
+        shifted.put(SUN, sun);
+        for (Map.Entry<ResourceLocation, BodyEphemeris> entry : current.entrySet()) {
+            ResourceLocation id = entry.getKey();
+            if (id.equals(SUN)) continue;
+            BodyEphemeris currentModelBody = modelCurrent.get(id);
+            BodyEphemeris targetModelBody = modelTarget.get(id);
+            if (currentModelBody == null || targetModelBody == null) continue;
+            CelestialVector actualFromSun = entry.getValue().position().subtract(sun.position());
+            CelestialVector modelFromSun = currentModelBody.position()
+                    .subtract(modelCurrentSun.position());
+            CelestialVector targetFromSun = targetModelBody.position()
+                    .subtract(modelTargetSun.position());
+            CelestialVector predicted = sun.position().add(actualFromSun)
+                    .add(targetFromSun.subtract(modelFromSun));
+            shifted.put(id, new BodyEphemeris(predicted, entry.getValue().radius(),
+                    entry.getValue().parent()));
+        }
+
+        // Preserve unsupported data-driven children as parent-following obstacles.
+        for (Map.Entry<ResourceLocation, BodyEphemeris> entry : current.entrySet()) {
+            if (shifted.containsKey(entry.getKey())) continue;
+            BodyEphemeris body = entry.getValue();
+            BodyEphemeris currentParent = body.parent() != null ? current.get(body.parent()) : null;
+            BodyEphemeris shiftedParent = body.parent() != null ? shifted.get(body.parent()) : null;
+            CelestialVector position = currentParent != null && shiftedParent != null
+                    ? shiftedParent.position().add(body.position().subtract(currentParent.position()))
+                    : body.position();
+            shifted.put(entry.getKey(), new BodyEphemeris(position, body.radius(), body.parent()));
+        }
+        return Map.copyOf(shifted);
+    }
+
+    private static Map<ResourceLocation, BodyEphemeris> modeledSolarSystemEphemeris(
+            Map<ResourceLocation, BodyEphemeris> radii, double calendarTicks,
+            int calendarDaysInMonth) {
+        CelestialRuntimeSettings settings = CelestialSettingsCache.current();
+        double synodicDays = settings.resolvedSynodicDays(calendarDaysInMonth);
+        double anomalisticDays = settings.resolvedAnomalisticDays(calendarDaysInMonth);
+        CelestialMath.Result frame = CelestialMath.calculate(new CelestialMath.Input(0.0D, 1.0D,
+                calendarTicks, calendarDaysInMonth, synodicDays, anomalisticDays,
+                settings.nodalYears(), settings.lunarInclinationRadians(), settings.sunScale(),
+                settings.moonScale()));
+        CelestialPlanetSettings planets = settings.planetSettings();
+        CelestialVector sunPosition = new CelestialVector(Math.cos(frame.solarLongitude())
+                * planets.earthSemiMajorMillionKm(), Math.sin(frame.solarLongitude())
+                * planets.earthSemiMajorMillionKm(), 0.0D);
+        Map<ResourceLocation, BodyEphemeris> modeled = new LinkedHashMap<>();
+        BodyEphemeris sun = requireBody(radii, SUN);
+        modeled.put(SUN, new BodyEphemeris(sunPosition, sun.radius(), sun.parent()));
+        BodyEphemeris earth = requireBody(radii, EARTH);
+        modeled.put(EARTH, new BodyEphemeris(CelestialVector.ZERO, earth.radius(), earth.parent()));
+        BodyEphemeris moon = radii.get(MOON);
+        if (moon != null) {
+            CelestialVector moonPosition = equatorialToEcliptic(frame.moonGeocentric())
+                    .scale(CelestialMath.MOON_MEAN_DISTANCE_MILLION_KM * frame.moonDistance());
+            modeled.put(MOON, new BodyEphemeris(moonPosition, moon.radius(), moon.parent()));
+        }
+        List<CelestialBodyState> bodies = CelestialBodies.calculate(frame,
+                CelestialMath.calendarYears(calendarTicks, calendarDaysInMonth), planets,
+                settings.orbitalPhases());
+        for (CelestialBodyState state : bodies) {
+            BodyEphemeris measured = radii.get(state.id());
+            if (measured == null) continue;
+            modeled.put(state.id(), new BodyEphemeris(state.geocentricPosition(),
+                    measured.radius(), measured.parent()));
+        }
+        return Map.copyOf(modeled);
+    }
+
+    private static List<Map<ResourceLocation, BodyEphemeris>> interSystemObstacleTimeline(
+            Map<ResourceLocation, BodyEphemeris> current, double calendarTicks,
+            double calendarTicksPerGameTick, int calendarDaysInMonth, double elapsedGameTicks,
+            long durationGameTicks) {
+        int samples = interSystemTransferSampleCount(current, calendarTicksPerGameTick,
+                durationGameTicks, calendarDaysInMonth);
+        List<Map<ResourceLocation, BodyEphemeris>> timeline = new ArrayList<>(samples + 1);
+        Map<ResourceLocation, BodyEphemeris> modelCurrent = modeledSolarSystemEphemeris(current,
+                calendarTicks, calendarDaysInMonth);
+        for (int step = 0; step <= samples; step++) {
+            double journeyTick = durationGameTicks * (step / (double) samples);
+            double offset = (journeyTick - elapsedGameTicks) * calendarTicksPerGameTick;
+            Map<ResourceLocation, BodyEphemeris> modelTarget = modeledSolarSystemEphemeris(current,
+                    calendarTicks + offset, calendarDaysInMonth);
+            timeline.add(shiftedSolarSystemEphemeris(current, modelCurrent, modelTarget));
+        }
+        return List.copyOf(timeline);
+    }
+
+    private static int interSystemTransferSampleCount(
+            Map<ResourceLocation, BodyEphemeris> current, double calendarTicksPerGameTick,
+            long durationGameTicks, int calendarDaysInMonth) {
+        double transferCalendarTicks = Math.abs(calendarTicksPerGameTick * durationGameTicks);
+        CelestialRuntimeSettings settings = CelestialSettingsCache.current();
+        CelestialPlanetSettings planets = settings.planetSettings();
+        double shortestDays = calendarDaysInMonth * 12.0D;
+        for (Map.Entry<ResourceLocation, BodyEphemeris> entry : current.entrySet()) {
+            if (entry.getKey().equals(MOON)) {
+                shortestDays = Math.min(shortestDays,
+                        settings.resolvedSynodicDays(calendarDaysInMonth));
+                continue;
+            }
+            CelestialBodies body = CelestialBodies.byId(entry.getKey());
+            if (body == null) continue;
+            double tfcOrbitalDays = planets.parameters(body).orbitalDays()
+                    * calendarDaysInMonth * 12.0D / planets.earthOrbitalDays();
+            shortestDays = Math.min(shortestDays, tfcOrbitalDays);
+        }
+        double turns = transferCalendarTicks / (shortestDays * CelestialMath.TICKS_IN_DAY);
+        int orbitalSamples = (int) Math.ceil(turns * LOCAL_TRANSFER_SAMPLES_PER_ORBIT);
+        int perGameTickSamples = (int) Math.min(Integer.MAX_VALUE,
+                Math.max(0L, durationGameTicks));
+        return Math.max(MIN_LOCAL_TRANSFER_SAMPLES, Math.min(MAX_INTER_SYSTEM_TRANSFER_SAMPLES,
+                Math.max(orbitalSamples, perGameTickSamples)));
     }
 
     /**
@@ -1565,19 +1929,60 @@ public final class OrbitVisualRules {
                                                 List<Map<ResourceLocation, BodyEphemeris>> obstacles) {
         double minimum = Double.POSITIVE_INFINITY;
         int samples = Math.max(2, obstacles.size() - 1);
-        for (int step = 1; step < samples; step++) {
+        CelestialVector previousPoint = localSystemTransferPosition(plan, 0.0D);
+        Map<ResourceLocation, BodyEphemeris> previousFrame = obstacles.get(0);
+        for (int step = 1; step <= samples; step++) {
             double progress = step / (double) samples;
             CelestialVector point = localSystemTransferPosition(plan, progress);
             Map<ResourceLocation, BodyEphemeris> frame = obstacles.get(
                     Math.min(step, obstacles.size() - 1));
-            for (Map.Entry<ResourceLocation, BodyEphemeris> entry : frame.entrySet()) {
-                BodyEphemeris obstacle = entry.getValue();
-                double guard = obstacle.radius() * Math.sqrt(3.0D) * 1.05D;
-                // Endpoint bodies are intentionally approached only by the separate local capture
-                // legs; the common-primary arc itself must remain outside every conservative cube.
-                double clearance = point.subtract(obstacle.position()).length() - guard;
-                minimum = Math.min(minimum, clearance);
-            }
+            minimum = Math.min(minimum, sweptTransferClearance(previousPoint, point,
+                    previousFrame, frame));
+            previousPoint = point;
+            previousFrame = frame;
+        }
+        return minimum;
+    }
+
+    private static double interSystemTransferClearance(InterSystemTransferPlan plan,
+                                                        List<Map<ResourceLocation,
+                                                                BodyEphemeris>> obstacles) {
+        double minimum = Double.POSITIVE_INFINITY;
+        int samples = Math.max(2, obstacles.size() - 1);
+        CelestialVector previousPoint = interSystemTransferPosition(plan, 0.0D);
+        Map<ResourceLocation, BodyEphemeris> previousFrame = obstacles.get(0);
+        for (int step = 1; step <= samples; step++) {
+            double progress = step / (double) samples;
+            CelestialVector point = interSystemTransferPosition(plan, progress);
+            Map<ResourceLocation, BodyEphemeris> frame = obstacles.get(
+                    Math.min(step, obstacles.size() - 1));
+            minimum = Math.min(minimum, sweptTransferClearance(previousPoint, point,
+                    previousFrame, frame));
+            previousPoint = point;
+            previousFrame = frame;
+        }
+        return minimum;
+    }
+
+    /** Conservative relative-motion sweep between adjacent path and ephemeris samples. */
+    private static double sweptTransferClearance(CelestialVector stationStart,
+                                                  CelestialVector stationEnd,
+                                                  Map<ResourceLocation, BodyEphemeris> startFrame,
+                                                  Map<ResourceLocation, BodyEphemeris> endFrame) {
+        double minimum = Double.POSITIVE_INFINITY;
+        for (Map.Entry<ResourceLocation, BodyEphemeris> entry : endFrame.entrySet()) {
+            BodyEphemeris end = entry.getValue();
+            BodyEphemeris start = startFrame.getOrDefault(entry.getKey(), end);
+            CelestialVector relativeStart = stationStart.subtract(start.position());
+            CelestialVector relativeEnd = stationEnd.subtract(end.position());
+            CelestialVector relativeMotion = relativeEnd.subtract(relativeStart);
+            double motionSquared = relativeMotion.dot(relativeMotion);
+            double along = motionSquared > 1.0E-24D
+                    ? clamp(-relativeStart.dot(relativeMotion) / motionSquared, 0.0D, 1.0D)
+                    : 0.0D;
+            double distance = relativeStart.add(relativeMotion.scale(along)).length();
+            double guard = Math.max(start.radius(), end.radius()) * SQRT_THREE * 1.05D;
+            minimum = Math.min(minimum, distance - guard);
         }
         return minimum;
     }
@@ -1595,6 +2000,40 @@ public final class OrbitVisualRules {
                 plan.arc().secondControl().add(translation), plan.arc().length());
         return new LocalTransferPlan(plan.from().add(translation), plan.to().add(translation),
                 primary, origin, target, source, destination, arc);
+    }
+
+    private static InterSystemTransferPlan translateInterSystemTransferPlan(
+            InterSystemTransferPlan plan, CelestialVector translation) {
+        if (translation.length() < 1.0E-15D) return plan;
+        List<CelestialVector> translatedTimeline = plan.targetBodyTimeline().stream()
+                .map(position -> position.add(translation)).toList();
+        return new InterSystemTransferPlan(plan.from().add(translation),
+                plan.to().add(translation), plan.departureControl().add(translation),
+                plan.ingressControl().add(translation), plan.ingress().add(translation),
+                plan.ingressRelative(), plan.targetOuterRelative(), plan.targetGateRelative(),
+                plan.toRelative(), translatedTimeline, plan.ingressProgress(),
+                plan.captureOrbitJoinProgress(), plan.captureRadialJoinProgress(),
+                plan.targetStableRadius(), plan.length(), plan.headingRadians());
+    }
+
+    private static CelestialVector timelinePosition(List<CelestialVector> timeline,
+                                                    double progress) {
+        if (timeline.size() == 1) return timeline.get(0);
+        double index = clamp(progress, 0.0D, 1.0D) * (timeline.size() - 1);
+        int first = Math.min((int) Math.floor(index), timeline.size() - 1);
+        int second = Math.min(first + 1, timeline.size() - 1);
+        return mix(timeline.get(first), timeline.get(second), index - first);
+    }
+
+    private static double inverseCircularTransfer(double value) {
+        double low = 0.0D;
+        double high = 1.0D;
+        for (int step = 0; step < 48; step++) {
+            double middle = (low + high) * 0.5D;
+            if (circularTransfer(middle) < value) low = middle;
+            else high = middle;
+        }
+        return (low + high) * 0.5D;
     }
 
     private static BodyEphemeris translate(BodyEphemeris body, CelestialVector translation) {
@@ -2069,7 +2508,38 @@ public final class OrbitVisualRules {
     }
 
     private record CachedLocalTransferPlan(CelestialVector primaryAnchor,
-                                           LocalTransferPlan plan) {
+                                            LocalTransferPlan plan) {
+    }
+
+    private record InterSystemTransferPlan(CelestialVector from, CelestialVector to,
+                                           CelestialVector departureControl,
+                                           CelestialVector ingressControl,
+                                           CelestialVector ingress,
+                                           CelestialVector ingressRelative,
+                                           CelestialVector targetOuterRelative,
+                                           CelestialVector targetGateRelative,
+                                           CelestialVector toRelative,
+                                           List<CelestialVector> targetBodyTimeline,
+                                           double ingressProgress,
+                                           double captureOrbitJoinProgress,
+                                           double captureRadialJoinProgress,
+                                           double targetStableRadius,
+                                           double length, double headingRadians) {
+    }
+
+    private record InterSystemTransferCacheKey(UUID stationId, long celestialGeneration,
+                                               ResourceLocation fromBody,
+                                               ResourceLocation toBody,
+                                               long cruiseStartedGameTime,
+                                               long cruiseDurationTicks,
+                                               long departureCalendarTick,
+                                               long calendarRateBits,
+                                               int calendarDaysInMonth,
+                                               CelestialRuntimeSettings settings) {
+    }
+
+    private record CachedInterSystemTransferPlan(CelestialVector sunAnchor,
+                                                 InterSystemTransferPlan plan) {
     }
 
     public record OrbitIllumination(double sunlight, double occlusion, double starVisibility) {

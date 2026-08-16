@@ -9,6 +9,7 @@ import first.wildfires.api.celestial.LunarEclipseState;
 import first.wildfires.celestial.CelestialBodies;
 import first.wildfires.celestial.CelestialDiscGeometry;
 import first.wildfires.celestial.CelestialMath;
+import first.wildfires.celestial.CelestialConfig;
 import first.wildfires.api.celestial.CelestialVector;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -40,6 +41,7 @@ public final class CelestialClientSelfTest {
             return;
         }
         starTablesMergeInStableOrderAndIsolateErrors();
+        skyOwnershipAutoModeTracksActiveShaderPacksSafely();
         starRgbValidationMatchesLegacyRegexExactly();
         starCatalogBufferPreparationMatchesLegacyBits();
         starConfigSignatureStableFrameCheckMatchesRecordEquals();
@@ -80,6 +82,57 @@ public final class CelestialClientSelfTest {
         planetariumPixelAssetsClockAndTimelineAreComplete();
         localVisualSceneMatrixIsFiniteAndComplete();
         System.out.println("CelestialClientSelfTest: all checks passed");
+    }
+
+    private static void skyOwnershipAutoModeTracksActiveShaderPacksSafely() {
+        assertSkyOwnership(CelestialSkyOwnership.Ownership.WILDFIRES,
+                CelestialSkyOwnership.resolve(CelestialConfig.SkyMode.AUTO, false, false, false),
+                "AUTO without shaders");
+        assertSkyOwnership(CelestialSkyOwnership.Ownership.SHADER_NATIVE,
+                CelestialSkyOwnership.resolve(CelestialConfig.SkyMode.AUTO, true, false, false),
+                "AUTO with an unknown shader pack");
+        assertSkyOwnership(CelestialSkyOwnership.Ownership.SHADER_NATIVE,
+                CelestialSkyOwnership.resolve(CelestialConfig.SkyMode.AUTO, true, true, false),
+                "AUTO with a declared Photon pack but no bridge");
+        assertSkyOwnership(CelestialSkyOwnership.Ownership.PHOTON_BRIDGE,
+                CelestialSkyOwnership.resolve(CelestialConfig.SkyMode.AUTO, true, true, true),
+                "AUTO with an implemented Photon bridge");
+        assertSkyOwnership(CelestialSkyOwnership.Ownership.WILDFIRES,
+                CelestialSkyOwnership.resolve(CelestialConfig.SkyMode.WILDFIRES, true, false, false),
+                "forced Wildfires sky");
+        assertSkyOwnership(CelestialSkyOwnership.Ownership.SHADER_NATIVE,
+                CelestialSkyOwnership.resolve(CelestialConfig.SkyMode.SHADER_NATIVE, false, false, false),
+                "forced native sky");
+
+        java.util.function.BooleanSupplier missingApi = IrisShaderPackProbe.discover(new ClassLoader(null) {
+        });
+        assertSkyOwnership(CelestialSkyOwnership.Ownership.WILDFIRES,
+                CelestialSkyOwnership.resolve(CelestialConfig.SkyMode.AUTO, missingApi, false, false),
+                "missing Iris API fallback");
+        assertSkyOwnership(CelestialSkyOwnership.Ownership.WILDFIRES,
+                CelestialSkyOwnership.resolve(CelestialConfig.SkyMode.AUTO,
+                        () -> { throw new IllegalStateException("synthetic probe failure"); }, false, false),
+                "failed Iris API fallback");
+
+        boolean[] runtimeStates = {false, true, false};
+        java.util.concurrent.atomic.AtomicInteger index = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.function.BooleanSupplier switchingProbe = () -> runtimeStates[index.getAndIncrement()];
+        assertSkyOwnership(CelestialSkyOwnership.Ownership.WILDFIRES,
+                CelestialSkyOwnership.resolve(CelestialConfig.SkyMode.AUTO, switchingProbe, false, false),
+                "runtime shaders initially disabled");
+        assertSkyOwnership(CelestialSkyOwnership.Ownership.SHADER_NATIVE,
+                CelestialSkyOwnership.resolve(CelestialConfig.SkyMode.AUTO, switchingProbe, false, false),
+                "runtime shaders enabled");
+        assertSkyOwnership(CelestialSkyOwnership.Ownership.WILDFIRES,
+                CelestialSkyOwnership.resolve(CelestialConfig.SkyMode.AUTO, switchingProbe, false, false),
+                "runtime shaders disabled again");
+    }
+
+    private static void assertSkyOwnership(CelestialSkyOwnership.Ownership expected,
+                                           CelestialSkyOwnership.Ownership actual, String name) {
+        if (expected != actual) {
+            throw new AssertionError(name + ": expected " + expected + " but was " + actual);
+        }
     }
 
     private static void cachedCircleTrigonometryMatchesLegacyBits() {

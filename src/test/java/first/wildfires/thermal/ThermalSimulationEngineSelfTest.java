@@ -26,6 +26,7 @@ public final class ThermalSimulationEngineSelfTest {
         sectionInputDefensivelyCopiesCallerData();
         crossSectionBarrierIsDeterministic();
         cancelledBatchCannotProduceAResult();
+        immersedFluidRadiationUsesConfiguredTemperature();
         GreedyPatchMergerSelfTest.runAll();
         System.out.println("ThermalSimulationEngineSelfTest: all checks passed");
     }
@@ -290,6 +291,38 @@ public final class ThermalSimulationEngineSelfTest {
             throw new AssertionError("cancelled batch unexpectedly completed");
         } catch (CancellationException expected) {
             // Expected: cancelled epochs must never reach the main-thread commit path.
+        }
+    }
+
+    private static void immersedFluidRadiationUsesConfiguredTemperature() {
+        ThermalSourceRegistry.ThermalSourceDefinition hotDefinition =
+                new ThermalSourceRegistry.ThermalSourceDefinition(0.0F, 0.0F, 100.0F, 50.0F);
+        ThermalSourceRegistry.ResolvedThermalSource hot =
+                new ThermalSourceRegistry.ResolvedThermalSource(hotDefinition, true, 0.0F, false);
+        assertClose(100.0F, ThermalRadiationSolver.selectImmersedFluidRadiation(true, hot),
+                "immersed hot fluid must expose its full configured radiation temperature");
+
+        ThermalSourceRegistry.ThermalSourceDefinition coldDefinition =
+                new ThermalSourceRegistry.ThermalSourceDefinition(0.0F, 0.0F, -24.0F, 2.0F);
+        ThermalSourceRegistry.ResolvedThermalSource cold =
+                new ThermalSourceRegistry.ResolvedThermalSource(coldDefinition, true, 0.0F, false);
+        assertClose(-24.0F, ThermalRadiationSolver.selectImmersedFluidRadiation(true, cold),
+                "immersed cold fluid must preserve the configured negative sign");
+
+        ThermalSourceRegistry.ResolvedThermalSource inactive =
+                new ThermalSourceRegistry.ResolvedThermalSource(hotDefinition, false, 0.0F, false);
+        if (ThermalRadiationSolver.selectImmersedFluidRadiation(false, hot) != null
+                || ThermalRadiationSolver.selectImmersedFluidRadiation(true, inactive) != null
+                || ThermalRadiationSolver.selectImmersedFluidRadiation(true, null) != null) {
+            throw new AssertionError("non-fluid, inactive, and unmatched receivers must not use direct radiation");
+        }
+
+        ThermalSourceRegistry.ThermalSourceDefinition noRadiationDefinition =
+                new ThermalSourceRegistry.ThermalSourceDefinition(30.0F, 2.0F, null, null);
+        ThermalSourceRegistry.ResolvedThermalSource noRadiation =
+                new ThermalSourceRegistry.ResolvedThermalSource(noRadiationDefinition, true, 30.0F, false);
+        if (ThermalRadiationSolver.selectImmersedFluidRadiation(true, noRadiation) != null) {
+            throw new AssertionError("fluid sources without radiation must not use direct radiation");
         }
     }
 

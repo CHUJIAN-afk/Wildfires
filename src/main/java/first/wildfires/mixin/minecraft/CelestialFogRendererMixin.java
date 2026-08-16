@@ -4,6 +4,7 @@ import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import first.wildfires.api.celestial.CelestialState;
 import first.wildfires.client.celestial.CelestialClientStateCache;
 import first.wildfires.client.celestial.CelestialClientTime;
+import first.wildfires.client.celestial.CelestialSkyOwnership;
 import net.minecraft.client.Camera;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.FogRenderer;
@@ -24,6 +25,9 @@ public abstract class CelestialFogRendererMixin {
     private static float wildfires$localFogTime(float original, Camera camera, float partialTick,
                                                  ClientLevel level, int renderDistanceChunks,
                                                  float bossColorModifier) {
+        if (!wildfires$usesLocalCelestialVisuals(level)) {
+            return original;
+        }
         CelestialState state = CelestialClientStateCache.stateOrNull(
                 level, camera.getPosition(), partialTick);
         return state == null ? original : CelestialClientTime.visualCelestialAngle(
@@ -37,6 +41,9 @@ public abstract class CelestialFogRendererMixin {
     private static float wildfires$localSunriseDirection(Vector3f look, Vector3fc original,
                                                           Camera camera, float partialTick, ClientLevel level,
                                                           int renderDistanceChunks, float bossColorModifier) {
+        if (!wildfires$usesLocalCelestialVisuals(level)) {
+            return look.dot(original);
+        }
         CelestialState state = CelestialClientStateCache.stateOrNull(
                 level, camera.getPosition(), partialTick);
         if (state == null) {
@@ -49,5 +56,10 @@ public abstract class CelestialFogRendererMixin {
             return 0.0F;
         }
         return look.dot((float) (x / length), 0.0F, (float) (z / length));
+    }
+
+    private static boolean wildfires$usesLocalCelestialVisuals(ClientLevel level) {
+        return level.dimension() != net.minecraft.world.level.Level.OVERWORLD
+                || CelestialSkyOwnership.usesWildfiresOverworldVisuals();
     }
 }

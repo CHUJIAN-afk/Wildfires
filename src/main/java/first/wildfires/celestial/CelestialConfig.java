@@ -18,6 +18,7 @@ public final class CelestialConfig {
 
     public enum StarsMode { CUSTOM, VANILLA, NONE }
     public enum AuroraMode { POLAR_NIGHT, LEGACY_GLOBAL, DISABLED }
+    public enum SkyMode { AUTO, WILDFIRES, SHADER_NATIVE }
 
     private static final ForgeConfigSpec SERVER_SPEC;
     private static final ForgeConfigSpec CLIENT_SPEC;
@@ -35,6 +36,7 @@ public final class CelestialConfig {
     private static final ConfiguredEarth CONFIGURED_EARTH;
 
     private static final ForgeConfigSpec.EnumValue<StarsMode> STARS_MODE;
+    private static final ForgeConfigSpec.EnumValue<SkyMode> SKY_MODE;
     private static final ForgeConfigSpec.DoubleValue MAX_MAGNITUDE;
     private static final ForgeConfigSpec.DoubleValue STAR_BRIGHTNESS;
     private static final ForgeConfigSpec.BooleanValue STAR_COLORS;
@@ -113,6 +115,8 @@ public final class CelestialConfig {
 
         ForgeConfigSpec.Builder client = new ForgeConfigSpec.Builder();
         client.push("celestial");
+        SKY_MODE = client.comment("AUTO uses Wildfires without an active shader pack and returns the overworld sky to unknown shader packs. WILDFIRES and SHADER_NATIVE force either owner.")
+                .defineEnum("sky.mode", SkyMode.AUTO);
         STARS_MODE = client.defineEnum("stars.mode", StarsMode.CUSTOM);
         MAX_MAGNITUDE = client.defineInRange("stars.maxMagnitude", 5.0D, -30.0D, 30.0D);
         STAR_BRIGHTNESS = client.defineInRange("stars.brightness", 2.0D, 0.0D, 100.0D);
@@ -185,6 +189,7 @@ public final class CelestialConfig {
     }
 
     public static StarsMode starsMode() { return STARS_MODE.get(); }
+    public static SkyMode skyMode() { return SKY_MODE.get(); }
     public static double maxMagnitude() { return MAX_MAGNITUDE.get(); }
     public static double starBrightness() { return STAR_BRIGHTNESS.get(); }
     public static boolean starColors() { return STAR_COLORS.get(); }

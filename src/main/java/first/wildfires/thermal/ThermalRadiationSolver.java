@@ -4,9 +4,11 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
+import javax.annotation.Nullable;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -27,6 +29,11 @@ final class ThermalRadiationSolver {
                         BlockPos targetPosition, float airTemperature) {
         if (!ThermalConfig.radiationEnabled()) {
             return airTemperature;
+        }
+        Float immersedRadiation = immersedFluidRadiationTemperature(level, targetPosition);
+        if (immersedRadiation != null) {
+            double effective = airTemperature + immersedRadiation;
+            return Double.isFinite(effective) ? (float) effective : airTemperature;
         }
         Vec3 target = player == null
                 ? Vec3.atCenterOf(targetPosition)
@@ -78,6 +85,32 @@ final class ThermalRadiationSolver {
         // become a cooler whenever Tair exceeded Tr, which reverses the configured source sign.
         double effective = airTemperature + weightedRadiation / (1.0D + totalWeight);
         return Double.isFinite(effective) ? (float) effective : airTemperature;
+    }
+
+    @Nullable
+    private static Float immersedFluidRadiationTemperature(ServerLevel level, BlockPos receiverPosition) {
+        if (level.isOutsideBuildHeight(receiverPosition) || !level.hasChunkAt(receiverPosition)) {
+            return null;
+        }
+        BlockState state = level.getBlockState(receiverPosition);
+        if (state.getFluidState().isEmpty()) {
+            return null;
+        }
+        ThermalSourceRegistry.ResolvedThermalSource source =
+                ThermalSourceRegistry.resolve(level, receiverPosition, state);
+        return selectImmersedFluidRadiation(true, source);
+    }
+
+    /** Pure selection contract used by the runtime single-cell lookup and regression tests. */
+    @Nullable
+    static Float selectImmersedFluidRadiation(boolean containsFluid,
+                                               @Nullable ThermalSourceRegistry.ResolvedThermalSource source) {
+        if (!containsFluid || source == null || !source.active()) {
+            return null;
+        }
+        Float temperature = source.radiationTemperature();
+        return temperature != null && Math.abs(temperature) >= MINIMUM_CONTRIBUTION
+                ? temperature : null;
     }
 
     static synchronized void invalidate(ServerLevel level) {

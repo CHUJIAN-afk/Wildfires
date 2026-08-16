@@ -16,6 +16,9 @@ public final class WildfiresOverworldEffects extends DimensionSpecialEffects.Ove
         if (level.dimension() != Level.OVERWORLD) {
             return false;
         }
+        if (!CelestialSkyOwnership.usesWildfiresOverworldVisuals()) {
+            return false;
+        }
         CelestialRenderer.render(level, ticks, partialTick, poseStack, camera, projectionMatrix, isFoggy, setupFog);
         return true;
     }

@@ -5,6 +5,7 @@ import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 import first.wildfires.api.celestial.CelestialState;
 import first.wildfires.client.celestial.CelestialClientTime;
 import first.wildfires.client.celestial.CelestialClientStateCache;
+import first.wildfires.client.celestial.CelestialSkyOwnership;
 import first.wildfires.client.space.OrbitClientIllumination;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -22,6 +23,9 @@ public abstract class CelestialClientLevelMixin {
     )
     private float wildfires$localSkyColorTime(float original, Vec3 observer, float partialTick) {
         ClientLevel level = (ClientLevel) (Object) this;
+        if (!wildfires$usesLocalCelestialVisuals(level)) {
+            return original;
+        }
         CelestialState state = CelestialClientStateCache.stateOrNull(level, observer, partialTick);
         return state == null ? original : CelestialClientTime.visualCelestialAngle(
                 state.daylight().apparentDayTime(), state.solarEclipse(), original);
@@ -62,9 +66,17 @@ public abstract class CelestialClientLevelMixin {
 
     private float wildfires$localCameraTime(float original, float partialTick) {
         ClientLevel level = (ClientLevel) (Object) this;
+        if (!wildfires$usesLocalCelestialVisuals(level)) {
+            return original;
+        }
         Vec3 observer = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
         CelestialState state = CelestialClientStateCache.stateOrNull(level, observer, partialTick);
         return state == null ? original : CelestialClientTime.visualCelestialAngle(
                 state.daylight().apparentDayTime(), state.solarEclipse(), original);
+    }
+
+    private static boolean wildfires$usesLocalCelestialVisuals(ClientLevel level) {
+        return level.dimension() != net.minecraft.world.level.Level.OVERWORLD
+                || CelestialSkyOwnership.usesWildfiresOverworldVisuals();
     }
 }

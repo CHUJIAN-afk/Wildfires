@@ -3,8 +3,8 @@
  * Copyright NTM: Space contributors.
  * SPDX-License-Identifier: LGPL-3.0-only
  * Wildfires modifications: rebuilt as a single Forge 1.20.1 entity with synchronized stable
- * phases, persisted passenger/station/endpoints, Forge water capability and protected transfer
- * lifetime; removed modular stages, weapons and NTM's custom fluid system, while replacing its
+ * phases, persisted passenger/station/endpoints, player-only seating/effects, Forge water capability
+ * and protected transfer lifetime; removed modular stages, weapons and NTM's custom fluid system, while replacing its
  * swappable coordinate navigation drive with the station-UUID tape contract.
  */
 package first.wildfires.space.capsule;
@@ -321,6 +321,12 @@ public final class ReusableReturnCapsuleEntity extends Entity {
                 || state == ReturnCapsuleState.RECOVERY_REQUIRED;
     }
 
+    /** Launch and transfer effects are valid only while a player directly occupies the sole seat. */
+    public boolean hasPlayerPassenger() {
+        Entity passenger = getFirstPassenger();
+        return passenger instanceof Player && passenger.getVehicle() == this;
+    }
+
     @Override
     protected void removePassenger(Entity passenger) {
         // The no-exit rule is authoritative only on the server. On the client Minecraft's
@@ -536,7 +542,9 @@ public final class ReusableReturnCapsuleEntity extends Entity {
 
     @Override
     protected boolean canAddPassenger(Entity passenger) {
-        return (capsuleState().interactive() || transferProtected()) && getPassengers().isEmpty();
+        return passenger instanceof Player
+                && (capsuleState().interactive() || transferProtected())
+                && getPassengers().isEmpty();
     }
 
     @Override

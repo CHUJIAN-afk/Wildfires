@@ -30,9 +30,9 @@ final class ThermalRadiationSolver {
         if (!ThermalConfig.radiationEnabled()) {
             return airTemperature;
         }
-        Float immersedRadiation = immersedFluidRadiationTemperature(level, targetPosition);
-        if (immersedRadiation != null) {
-            double effective = airTemperature + immersedRadiation;
+        Float directRadiation = directSourceRadiationTemperature(level, targetPosition);
+        if (directRadiation != null) {
+            double effective = airTemperature + directRadiation;
             return Double.isFinite(effective) ? (float) effective : airTemperature;
         }
         Vec3 target = player == null
@@ -88,24 +88,23 @@ final class ThermalRadiationSolver {
     }
 
     @Nullable
-    private static Float immersedFluidRadiationTemperature(ServerLevel level, BlockPos receiverPosition) {
+    private static Float directSourceRadiationTemperature(ServerLevel level, BlockPos receiverPosition) {
         if (level.isOutsideBuildHeight(receiverPosition) || !level.hasChunkAt(receiverPosition)) {
             return null;
         }
         BlockState state = level.getBlockState(receiverPosition);
-        if (state.getFluidState().isEmpty()) {
+        if (!ThermalSourceRegistry.isRegisteredBlock(state)) {
             return null;
         }
         ThermalSourceRegistry.ResolvedThermalSource source =
                 ThermalSourceRegistry.resolve(level, receiverPosition, state);
-        return selectImmersedFluidRadiation(true, source);
+        return selectDirectSourceRadiation(source);
     }
 
     /** Pure selection contract used by the runtime single-cell lookup and regression tests. */
     @Nullable
-    static Float selectImmersedFluidRadiation(boolean containsFluid,
-                                               @Nullable ThermalSourceRegistry.ResolvedThermalSource source) {
-        if (!containsFluid || source == null || !source.active()) {
+    static Float selectDirectSourceRadiation(@Nullable ThermalSourceRegistry.ResolvedThermalSource source) {
+        if (source == null || !source.active()) {
             return null;
         }
         Float temperature = source.radiationTemperature();

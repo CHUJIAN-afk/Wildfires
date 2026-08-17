@@ -26,6 +26,7 @@ import first.wildfires.space.route.StationTravelMode;
 import first.wildfires.space.station.StationRegion;
 import first.wildfires.space.station.StationStatus;
 import first.wildfires.thirdparty.genesisadapt.GenesisCubeAtlasLayout;
+import net.minecraft.client.Camera;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.client.renderer.block.model.BakedQuad;
 import net.minecraft.core.Direction;
@@ -496,6 +497,8 @@ public final class SpaceVisualSelfTest {
     }
 
     private static void ntmAscentAtmosphereUsesExactAltitudeCurve() {
+        assertTrue(NtmAscentAtmosphereVisuals.ascentBody(null, new Camera()).isEmpty(),
+                "an unbound login-frame camera cannot activate capsule ascent visuals");
         assertClose(1.0D, NtmAscentAtmosphereVisuals.curvature(299.0D),
                 "NTM ascent atmosphere remains complete below Y=300");
         assertClose(1.0D, NtmAscentAtmosphereVisuals.curvature(300.0D),
@@ -611,6 +614,7 @@ public final class SpaceVisualSelfTest {
                         && !shock.contains("one deterministic grey smoke sprite"),
                 "NTM shock smoke retains six stable quads, Gaussian offsets and pre-move damping");
         assertTrue(visuals.contains("int count = 1 + capsule.level().random.nextInt(3)")
+                        && visuals.contains("if (!capsule.hasPlayerPassenger()) return;")
                         && visuals.contains("double strength = 1.0D + capsule.level().random.nextGaussian()")
                         && visuals.contains("Mth.TWO_PI / count")
                         && visuals.contains("capsule.flightVelocity()")
@@ -862,6 +866,13 @@ public final class SpaceVisualSelfTest {
                         && transition.contains("return toStation ? orbitSceneReady()")
                         && transition.contains("!armed() || !targetGraphReady()"),
                 "capsule receiving screen hides vanilla loading but reveals only a proven live target frame");
+        assertTrue(capsuleEntity.contains("public boolean hasPlayerPassenger()")
+                        && capsuleEntity.contains("passenger instanceof Player && passenger.getVehicle() == this")
+                        && capsuleEntity.contains("protected boolean canAddPassenger(Entity passenger)")
+                        && flightSound.contains("return capsule.hasPlayerPassenger()")
+                        && ascentAtmosphere.contains("if (!(observer instanceof Player)")
+                        && ascentAtmosphere.contains("capsule.getFirstPassenger() != observer"),
+                "only a directly seated player can activate capsule ascent, exhaust and flight audio");
         assertTrue(mixins.contains("minecraft.NtmAscentFogRendererMixin")
                         && mixins.contains("minecraft.NtmAscentLevelRendererMixin")
                         && ascentAtmosphere.contains("frame.profile().curvature(frame.altitude())")

@@ -2,6 +2,7 @@
  * Adapted from NTM: Space EntityRideableRocket's AudioWrapper lifecycle.
  * Copyright NTM: Space contributors.
  * SPDX-License-Identifier: LGPL-3.0-only
+ * Wildfires modifications: Forge tickable audio gated to a directly seated player passenger.
  */
 package first.wildfires.client.space;
 
@@ -44,10 +45,11 @@ final class ReturnCapsuleFlightSound extends AbstractTickableSoundInstance {
 
     static boolean shouldPlay(ReusableReturnCapsuleEntity capsule) {
         ReturnCapsuleState state = capsule.capsuleState();
-        return state == ReturnCapsuleState.SURFACE_LAUNCHING
+        return capsule.hasPlayerPassenger()
+                && (state == ReturnCapsuleState.SURFACE_LAUNCHING
                 || (state == ReturnCapsuleState.REENTRY
                 || state == ReturnCapsuleState.SURFACE_LANDING)
-                && capsule.getDeltaMovement().y > -0.4D;
+                && capsule.getDeltaMovement().y > -0.4D);
     }
 
     private void updatePosition() {

@@ -26,7 +26,7 @@ public final class ThermalSimulationEngineSelfTest {
         sectionInputDefensivelyCopiesCallerData();
         crossSectionBarrierIsDeterministic();
         cancelledBatchCannotProduceAResult();
-        immersedFluidRadiationUsesConfiguredTemperature();
+        enclosedSourceRadiationUsesConfiguredTemperature();
         GreedyPatchMergerSelfTest.runAll();
         System.out.println("ThermalSimulationEngineSelfTest: all checks passed");
     }
@@ -294,35 +294,41 @@ public final class ThermalSimulationEngineSelfTest {
         }
     }
 
-    private static void immersedFluidRadiationUsesConfiguredTemperature() {
+    private static void enclosedSourceRadiationUsesConfiguredTemperature() {
         ThermalSourceRegistry.ThermalSourceDefinition hotDefinition =
                 new ThermalSourceRegistry.ThermalSourceDefinition(0.0F, 0.0F, 100.0F, 50.0F);
         ThermalSourceRegistry.ResolvedThermalSource hot =
                 new ThermalSourceRegistry.ResolvedThermalSource(hotDefinition, true, 0.0F, false);
-        assertClose(100.0F, ThermalRadiationSolver.selectImmersedFluidRadiation(true, hot),
-                "immersed hot fluid must expose its full configured radiation temperature");
+        assertClose(100.0F, ThermalRadiationSolver.selectDirectSourceRadiation(hot),
+                "an enclosed hot source must expose its full configured radiation temperature");
 
         ThermalSourceRegistry.ThermalSourceDefinition coldDefinition =
                 new ThermalSourceRegistry.ThermalSourceDefinition(0.0F, 0.0F, -24.0F, 2.0F);
         ThermalSourceRegistry.ResolvedThermalSource cold =
                 new ThermalSourceRegistry.ResolvedThermalSource(coldDefinition, true, 0.0F, false);
-        assertClose(-24.0F, ThermalRadiationSolver.selectImmersedFluidRadiation(true, cold),
-                "immersed cold fluid must preserve the configured negative sign");
+        assertClose(-24.0F, ThermalRadiationSolver.selectDirectSourceRadiation(cold),
+                "an enclosed cold source must preserve the configured negative sign");
+
+        ThermalSourceRegistry.ThermalSourceDefinition dynamicDefinition =
+                new ThermalSourceRegistry.ThermalSourceDefinition(100.0F, 0.0F, 40.0F, 2.0F);
+        ThermalSourceRegistry.ResolvedThermalSource dynamic =
+                new ThermalSourceRegistry.ResolvedThermalSource(dynamicDefinition, true, 50.0F, true);
+        assertClose(20.0F, ThermalRadiationSolver.selectDirectSourceRadiation(dynamic),
+                "an enclosed dynamic source must preserve resolved runtime radiation scaling");
 
         ThermalSourceRegistry.ResolvedThermalSource inactive =
                 new ThermalSourceRegistry.ResolvedThermalSource(hotDefinition, false, 0.0F, false);
-        if (ThermalRadiationSolver.selectImmersedFluidRadiation(false, hot) != null
-                || ThermalRadiationSolver.selectImmersedFluidRadiation(true, inactive) != null
-                || ThermalRadiationSolver.selectImmersedFluidRadiation(true, null) != null) {
-            throw new AssertionError("non-fluid, inactive, and unmatched receivers must not use direct radiation");
+        if (ThermalRadiationSolver.selectDirectSourceRadiation(inactive) != null
+                || ThermalRadiationSolver.selectDirectSourceRadiation(null) != null) {
+            throw new AssertionError("inactive and unmatched receivers must not use direct radiation");
         }
 
         ThermalSourceRegistry.ThermalSourceDefinition noRadiationDefinition =
                 new ThermalSourceRegistry.ThermalSourceDefinition(30.0F, 2.0F, null, null);
         ThermalSourceRegistry.ResolvedThermalSource noRadiation =
                 new ThermalSourceRegistry.ResolvedThermalSource(noRadiationDefinition, true, 30.0F, false);
-        if (ThermalRadiationSolver.selectImmersedFluidRadiation(true, noRadiation) != null) {
-            throw new AssertionError("fluid sources without radiation must not use direct radiation");
+        if (ThermalRadiationSolver.selectDirectSourceRadiation(noRadiation) != null) {
+            throw new AssertionError("enclosed sources without radiation must not use direct radiation");
         }
     }
 

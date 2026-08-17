@@ -3,7 +3,8 @@
  * Copyright NTM: Space contributors.
  * SPDX-License-Identifier: LGPL-3.0-only
  * Wildfires changes: scopes the source atmosphere and underfoot-body altitude curves to an
- * explicitly bound reusable-return-capsule surface ascents and exposes them to Forge 1.20.1.
+ * explicitly bound reusable-return-capsule surface ascents, gates them to a directly seated player,
+ * and exposes them to Forge 1.20.1.
  */
 package first.wildfires.client.space;
 
@@ -20,6 +21,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -178,11 +180,8 @@ public final class NtmAscentAtmosphereVisuals {
     }
 
     public static Optional<ResourceLocation> ascentBody(ClientLevel level, Camera camera) {
-        if (level == null || camera == null) return Optional.empty();
-        Entity observer = camera.getEntity();
-        if (!(observer.getVehicle() instanceof ReusableReturnCapsuleEntity capsule)) {
-            return Optional.empty();
-        }
+        ReusableReturnCapsuleEntity capsule = playerCapsule(camera);
+        if (level == null || capsule == null) return Optional.empty();
         ReturnCapsuleState state = capsule.capsuleState();
         if (state != ReturnCapsuleState.SURFACE_LAUNCHING
                 && state != ReturnCapsuleState.ASCENT_TRANSITION
@@ -200,9 +199,10 @@ public final class NtmAscentAtmosphereVisuals {
 
     /** One resolved body-relative frame shared by square-body, sky and local-scene gates. */
     public static Optional<AscentFrame> frame(ClientLevel level, Camera camera) {
+        ReusableReturnCapsuleEntity capsule = playerCapsule(camera);
+        if (level == null || capsule == null) return Optional.empty();
         ResourceLocation bodyId = ascentBody(level, camera).orElse(null);
-        if (bodyId == null || !(camera.getEntity().getVehicle()
-                instanceof ReusableReturnCapsuleEntity capsule)) return Optional.empty();
+        if (bodyId == null) return Optional.empty();
         CelestialDefinition definition = CelestialDefinitionRegistry.get(level.registryAccess()).get(bodyId);
         if (definition == null) return Optional.empty();
         int surfaceY = capsule.surfaceReferenceY().orElse(0);
@@ -210,6 +210,15 @@ public final class NtmAscentAtmosphereVisuals {
                 definition.visual(), CelestialSettingsCache.current().planetSettings());
         return Optional.of(new AscentFrame(bodyId, definition, profile,
                 camera.getPosition().y - surfaceY));
+    }
+
+    private static ReusableReturnCapsuleEntity playerCapsule(Camera camera) {
+        if (camera == null) return null;
+        Entity observer = camera.getEntity();
+        if (!(observer instanceof Player)
+                || !(observer.getVehicle() instanceof ReusableReturnCapsuleEntity capsule)
+                || capsule.getFirstPassenger() != observer) return null;
+        return capsule;
     }
 
     private static boolean active(ClientLevel level, Camera camera) {

@@ -2,7 +2,8 @@
  * Adapted from NTM: Space RenderDropPod and EntityRideableRocket reusable-capsule presentation.
  * Copyright NTM: Space contributors.
  * SPDX-License-Identifier: LGPL-3.0-only
- * Wildfires modifications: deterministic synchronized animation curves and bounded Forge particles.
+ * Wildfires modifications: deterministic synchronized animation curves and bounded Forge particles
+ * that activate only while a player directly occupies the capsule.
  */
 package first.wildfires.space.capsule;
 
@@ -69,6 +70,7 @@ public final class ReturnCapsuleVisuals {
 
     public static void spawnClientParticles(ReusableReturnCapsuleEntity capsule) {
         if (!capsule.level().isClientSide()) return;
+        if (!capsule.hasPlayerPassenger()) return;
         if (capsule.phaseTicks() <= 1) {
             if (capsule.capsuleState() == ReturnCapsuleState.SURFACE_LAUNCHING) {
                 capsule.level().playLocalSound(capsule.getX(), capsule.getY(), capsule.getZ(),

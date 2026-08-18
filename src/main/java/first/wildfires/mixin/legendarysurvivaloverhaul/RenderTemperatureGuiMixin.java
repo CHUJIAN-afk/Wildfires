@@ -59,7 +59,7 @@ public class RenderTemperatureGuiMixin {
                         RenderTemperatureGui.drawBodyTemperature(guiGraphics, player, width, height);
                         Minecraft.getInstance().getProfiler().pop();
                     }
-                    if (player.getAbilities().instabuild && ThermalHudState.isEnabled()) {
+                    if (ThermalHudState.isEnabled()) {
                         float air = ThermalFieldManager.getClientAirTemperature();
                         float radiation = ThermalFieldManager.getClientRadiationOffset();
                         float effective = ThermalFieldManager.getTemperatureOffset(player);

@@ -327,4 +327,5 @@
   ,"space.wildfires.station_id_tape.not_surface_landed": "空间站磁带只能引导稳定停放在地表或已对接的返回舱"
   ,"commands.wildfires.thermal_hud.enabled": "左上角热量提示已开启"
   ,"commands.wildfires.thermal_hud.disabled": "左上角热量提示已关闭"
+  ,"commands.wildfires.thermal_debug.denied": "你需要2级管理权限或创造模式才能使用热调试快照"
 }

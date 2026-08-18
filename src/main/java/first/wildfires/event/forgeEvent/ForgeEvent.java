@@ -149,10 +149,7 @@ public class ForgeEvent {
 
 	@SubscribeEvent
 	public static void onCurioChange(CurioChangeEvent event) {
-		Map<Item, Boolean> cache = CuriosUtil.CACHE.get(event.getEntity().getUUID());
-		if (cache != null && !cache.isEmpty()) {
-			cache.clear();
-		}
+		CuriosUtil.invalidate(event.getEntity());
 	}
 
 	@SubscribeEvent

@@ -36,7 +36,12 @@ public record ThermalDebugRequestPacket(boolean includeVisible, boolean includeH
     @Override
     public void handle(Supplier<NetworkEvent.Context> context) {
         ServerPlayer player = context.get().getSender();
-        if (player == null || !player.getAbilities().instabuild || !allowRequest(player)) {
+        if (player == null || !allowRequest(player)) {
+            return;
+        }
+        if (!mayUseThermalDebug(player)) {
+            NetworkPacketRegister.Instance.send(PacketDistributor.PLAYER.with(() -> player),
+                    ThermalDebugSnapshotPacket.denied());
             return;
         }
         ThermalWorldManager manager = ThermalWorldManager.get(player.serverLevel());
@@ -52,7 +57,7 @@ public record ThermalDebugRequestPacket(boolean includeVisible, boolean includeH
         var surfaces = includeVisible
                 ? manager.surfaceSnapshot(player.blockPosition(), RADIUS, MAX_SURFACES)
                 : java.util.List.<ThermalWorldManager.SurfaceDebug>of();
-        ThermalDebugSnapshotPacket response = new ThermalDebugSnapshotPacket(cells, hiddenCells, sources,
+        ThermalDebugSnapshotPacket response = new ThermalDebugSnapshotPacket(true, cells, hiddenCells, sources,
                 surfaces, manager.diagnostics());
         NetworkPacketRegister.Instance.send(PacketDistributor.PLAYER.with(() -> player), response);
     }
@@ -78,5 +83,9 @@ public record ThermalDebugRequestPacket(boolean includeVisible, boolean includeH
         }
         LAST_REQUEST_TICKS.put(player, tick);
         return true;
+    }
+
+    private static boolean mayUseThermalDebug(ServerPlayer player) {
+        return player.hasPermissions(2) || player.getAbilities().instabuild;
     }
 }

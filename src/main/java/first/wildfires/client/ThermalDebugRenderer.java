@@ -77,11 +77,28 @@ public final class ThermalDebugRenderer {
         return displaySources.size();
     }
 
-    public static void acceptSnapshot(Map<Long, Float> cells,
+    public static void acceptSnapshot(boolean authorized,
+                                      Map<Long, Float> cells,
                                       Map<Long, Float> hiddenCells,
                                       List<ThermalWorldManager.SourceDebug> sources,
                                       List<ThermalWorldManager.SurfaceDebug> surfaces,
                                       ThermalWorldManager.ThermalDiagnostics newDiagnostics) {
+        if (!authorized) {
+            boolean wasRequested = enabled || hiddenEnabled;
+            enabled = false;
+            hiddenEnabled = false;
+            displayCells = Map.of();
+            displayHiddenCells = Map.of();
+            displaySources = List.of();
+            displaySurfaces = List.of();
+            Minecraft minecraft = Minecraft.getInstance();
+            if (wasRequested && minecraft.player != null) {
+                minecraft.player.displayClientMessage(
+                        net.minecraft.network.chat.Component.translatable(
+                                "commands.wildfires.thermal_debug.denied"), false);
+            }
+            return;
+        }
         displayCells = Map.copyOf(cells);
         displayHiddenCells = Map.copyOf(hiddenCells);
         displaySources = List.copyOf(sources);
@@ -110,8 +127,7 @@ public final class ThermalDebugRenderer {
             displaySurfaces = List.of();
             return;
         }
-        if ((!enabled && !hiddenEnabled)
-                || !minecraft.player.getAbilities().instabuild) {
+        if (!enabled && !hiddenEnabled) {
             return;
         }
         boolean requested = refreshRequestedTick != Integer.MIN_VALUE
@@ -127,8 +143,7 @@ public final class ThermalDebugRenderer {
             return;
         }
         Minecraft minecraft = Minecraft.getInstance();
-        if ((!enabled && !hiddenEnabled) || minecraft.player == null || minecraft.level == null
-                || !minecraft.player.getAbilities().instabuild) {
+        if ((!enabled && !hiddenEnabled) || minecraft.player == null || minecraft.level == null) {
             return;
         }
         PoseStack poseStack = event.getPoseStack();
@@ -156,7 +171,7 @@ public final class ThermalDebugRenderer {
 
     private static void requestSnapshot() {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null || !minecraft.player.getAbilities().instabuild) {
+        if (minecraft.player == null || minecraft.getConnection() == null) {
             return;
         }
         new ThermalDebugRequestPacket(enabled, hiddenEnabled).sendToServer();

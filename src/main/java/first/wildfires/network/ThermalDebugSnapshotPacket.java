@@ -13,7 +13,8 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 /** Bounded server-authoritative visible/hidden cells and source data for the client debugger. */
-public record ThermalDebugSnapshotPacket(Map<Long, Float> cells,
+public record ThermalDebugSnapshotPacket(boolean authorized,
+                                         Map<Long, Float> cells,
                                          Map<Long, Float> hiddenCells,
                                          List<ThermalWorldManager.SourceDebug> sources,
                                          List<ThermalWorldManager.SurfaceDebug> surfaces,
@@ -35,12 +36,19 @@ public record ThermalDebugSnapshotPacket(Map<Long, Float> cells,
     }
 
     public ThermalDebugSnapshotPacket(FriendlyByteBuf buffer) {
-        this(readCells(buffer, "thermal cells"), readCells(buffer, "hidden thermal cells"),
+        this(buffer.readBoolean(), readCells(buffer, "thermal cells"), readCells(buffer, "hidden thermal cells"),
                 readSources(buffer), readSurfaces(buffer), readDiagnostics(buffer));
+    }
+
+    public static ThermalDebugSnapshotPacket denied() {
+        return new ThermalDebugSnapshotPacket(false, Map.of(), Map.of(), List.of(), List.of(),
+                new ThermalWorldManager.ThermalDiagnostics(0, 0, 0, 0, 0, 0, 0, 0,
+                        0L, 0L, 0L, 0L));
     }
 
     @Override
     public void encode(FriendlyByteBuf buffer) {
+        buffer.writeBoolean(authorized);
         buffer.writeVarInt(cells.size());
         for (Map.Entry<Long, Float> entry : cells.entrySet()) {
             buffer.writeLong(entry.getKey());
@@ -81,7 +89,7 @@ public record ThermalDebugSnapshotPacket(Map<Long, Float> cells,
     @Override
     public void handle(Supplier<NetworkEvent.Context> context) {
         context.get().enqueueWork(() -> ThermalDebugRenderer.acceptSnapshot(
-                cells, hiddenCells, sources, surfaces, diagnostics));
+                authorized, cells, hiddenCells, sources, surfaces, diagnostics));
     }
 
     private static Map<Long, Float> readCells(FriendlyByteBuf buffer, String label) {

@@ -62,6 +62,7 @@ public class ClientForgeEvent {
     @SubscribeEvent
     public static void onClientLogout(ClientPlayerNetworkEvent.LoggingOut event) {
         ReturnCapsuleClientTransition.shutdown();
+        CuriosUtil.clear();
         jumpWasDown = false;
     }
 

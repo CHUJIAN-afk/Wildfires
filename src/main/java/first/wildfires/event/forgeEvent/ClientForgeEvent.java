@@ -63,6 +63,7 @@ public class ClientForgeEvent {
     public static void onClientLogout(ClientPlayerNetworkEvent.LoggingOut event) {
         ReturnCapsuleClientTransition.shutdown();
         CuriosUtil.clear();
+        ThermalHudState.reset();
         jumpWasDown = false;
     }
 

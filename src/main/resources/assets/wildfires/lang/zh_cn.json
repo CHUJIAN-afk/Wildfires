@@ -328,4 +328,10 @@
   ,"commands.wildfires.thermal_hud.enabled": "左上角热量提示已开启"
   ,"commands.wildfires.thermal_hud.disabled": "左上角热量提示已关闭"
   ,"commands.wildfires.thermal_debug.denied": "你需要2级管理权限或创造模式才能使用热调试快照"
+  ,"spell.wildfires.galaxy_hymn": "星河礼赞"
+  ,"ui.wildfires.galaxy_hymn.core_damage": "核心爆发伤害：%s"
+  ,"ui.wildfires.galaxy_hymn.tracking_damage": "追踪星点伤害：%s"
+  ,"ui.wildfires.galaxy_hymn.delay": "最早追踪：%s 秒（末轮稳定后）"
+  ,"death.attack.wildfires.galaxy_hymn": "%1$s 化作了散落的星光"
+  ,"death.attack.wildfires.galaxy_hymn.player": "%1$s 被 %2$s 化作了散落的星光"
 }

@@ -17,6 +17,7 @@ import first.wildfires.client.space.ReturnCapsuleClientTransition;
 import first.wildfires.client.space.ReturnCapsuleSoundController;
 import first.wildfires.client.space.StationCoreOverlay;
 import first.wildfires.client.celestial.CelestialClientStateCache;
+import first.wildfires.client.spell.GalaxyHymnImpactVisuals;
 import first.wildfires.client.space.render.NtmAscentPlanetRenderer;
 import first.wildfires.api.customEvent.CreativeTabBuildEvent;
 import first.wildfires.kinetic.loom.LoomControlBlock;
@@ -43,6 +44,7 @@ import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.client.event.RenderLevelStageEvent;
 import net.minecraftforge.client.event.RenderGuiOverlayEvent;
+import net.minecraftforge.client.event.ViewportEvent;
 import net.minecraftforge.client.event.MovementInputUpdateEvent;
 import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
@@ -64,6 +66,7 @@ public class ClientForgeEvent {
         ReturnCapsuleClientTransition.shutdown();
         CuriosUtil.clear();
         ThermalHudState.reset();
+        GalaxyHymnImpactVisuals.reset();
         jumpWasDown = false;
     }
 
@@ -94,12 +97,26 @@ public class ClientForgeEvent {
 
     @SubscribeEvent
       public static void tickThermalDebug(TickEvent.ClientTickEvent event) {
+          if (event.phase == TickEvent.Phase.START) {
+              GalaxyHymnImpactVisuals.tickShakeAtStart();
+          }
           if (event.phase == TickEvent.Phase.END) {
               if (ReturnCapsuleClientTransition.armed()) syncPhysicalJumpKey();
               ReturnCapsuleClientTransition.tick();
               ReturnCapsuleSoundController.tick();
               ThermalDebugRenderer.tick();
+              GalaxyHymnImpactVisuals.tick();
         }
+    }
+
+    @SubscribeEvent
+    public static void renderGalaxyHymnImpact(RenderLevelStageEvent event) {
+        GalaxyHymnImpactVisuals.render(event);
+    }
+
+    @SubscribeEvent
+    public static void shakeGalaxyHymnCamera(ViewportEvent.ComputeCameraAngles event) {
+        GalaxyHymnImpactVisuals.applyCameraShake(event);
     }
 
     @SubscribeEvent

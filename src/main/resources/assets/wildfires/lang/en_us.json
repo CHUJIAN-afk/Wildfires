@@ -214,5 +214,11 @@
   "space.wildfires.station_id_tape.not_surface_landed": "A station tape can only guide a stable surface-landed or docked return capsule",
   "commands.wildfires.thermal_hud.enabled": "The upper-left thermal readout is enabled",
   "commands.wildfires.thermal_hud.disabled": "The upper-left thermal readout is disabled",
-  "commands.wildfires.thermal_debug.denied": "Thermal debug snapshots require permission level 2 or Creative mode"
+  "commands.wildfires.thermal_debug.denied": "Thermal debug snapshots require permission level 2 or Creative mode",
+  "spell.wildfires.galaxy_hymn": "Galaxy Hymn",
+  "ui.wildfires.galaxy_hymn.core_damage": "Core burst damage: %s",
+  "ui.wildfires.galaxy_hymn.tracking_damage": "Homing star damage: %s",
+  "ui.wildfires.galaxy_hymn.delay": "Earliest tracking: %s s (after final volley settles)",
+  "death.attack.wildfires.galaxy_hymn": "%1$s was scattered across the galaxy",
+  "death.attack.wildfires.galaxy_hymn.player": "%1$s was scattered across the galaxy by %2$s"
 }

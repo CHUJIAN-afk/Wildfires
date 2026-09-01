@@ -19,6 +19,7 @@ import first.wildfires.network.ReturnCapsuleTrackingCommitPacket;
 import first.wildfires.network.ReturnCapsuleTrackingReadyPacket;
 import first.wildfires.network.ReturnCapsuleTransitionCompletePacket;
 import first.wildfires.network.ReturnCapsuleTransitionAbortPacket;
+import first.wildfires.network.GalaxyHymnImpactVisualPacket;
 import first.wildfires.network.base.ICustomPacketPayload;
 import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.NetworkDirection;
@@ -26,7 +27,7 @@ import net.minecraftforge.network.simple.SimpleChannel;
 
 public class NetworkPacketRegister {
 
-    public static final String Version = "18";
+    public static final String Version = "21";
     public static final SimpleChannel Instance = NetworkRegistry.newSimpleChannel(Wildfires.rl("main"), () -> Version, Version::equals, Version::equals);
     public static int id = 1;
 
@@ -49,6 +50,7 @@ public class NetworkPacketRegister {
         ICustomPacketPayload.register(ReturnCapsuleTrackingReadyPacket.class, NetworkDirection.PLAY_TO_SERVER);
         ICustomPacketPayload.register(ReturnCapsuleTransitionCompletePacket.class, NetworkDirection.PLAY_TO_CLIENT);
         ICustomPacketPayload.register(ReturnCapsuleTransitionAbortPacket.class, NetworkDirection.PLAY_TO_CLIENT);
+        ICustomPacketPayload.register(GalaxyHymnImpactVisualPacket.class, NetworkDirection.PLAY_TO_CLIENT);
     }
 
 }

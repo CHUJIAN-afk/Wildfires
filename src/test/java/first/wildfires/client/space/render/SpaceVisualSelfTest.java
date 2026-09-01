@@ -993,7 +993,7 @@ public final class SpaceVisualSelfTest {
                         && service.contains("PASSENGER_GRAPH_RETRY_TICKS = 5")
                         && service.contains("ticket.stage() != ReturnCapsuleTransitionTicket.Stage.CLIENT_ARMED")
                         && armedPacket.contains("confirmClientArmed")
-                        && network.contains("Version = \"18\"")
+                        && network.contains("Version = \"21\"")
                         && network.contains("ReturnCapsuleTransitionArmedPacket.class")
                         && network.indexOf("ReturnCapsuleTransitionCompletePacket.class")
                         < network.indexOf("ReturnCapsuleTransitionAbortPacket.class")

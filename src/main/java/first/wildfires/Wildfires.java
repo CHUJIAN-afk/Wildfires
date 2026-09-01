@@ -6,6 +6,7 @@ import first.wildfires.celestial.CelestialConfig;
 import first.wildfires.celestial.CelestialBodies;
 import first.wildfires.celestial.LegacyCelestialModGuard;
 import first.wildfires.celestial.OverworldCelestialProvider;
+import first.wildfires.compats.irons_spellbooks.GalaxyHymnRegister;
 import first.wildfires.diagnostics.StartupDiagnostics;
 import first.wildfires.register.*;
 import first.wildfires.space.SpaceBootstrap;
@@ -37,6 +38,7 @@ public class Wildfires {
 		CelestialApi.register(SpaceDimensions.ORBIT, StationCelestialProvider.INSTANCE);
 		ThermalConfig.register();
 		IEventBus eventBus = context.getModEventBus();
+		GalaxyHymnRegister.register(eventBus);
 		SpaceBootstrap.register(eventBus);
 		Registrate.registerEventListeners(eventBus);
 		AttributeRegister.register(eventBus);

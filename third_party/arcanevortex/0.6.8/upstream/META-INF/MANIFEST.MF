@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Specification-Title: arcanevortex
+Specification-Vendor: ErChien
+Specification-Version: 1
+Implementation-Title: ArcaneVortex-1.20.1-Forge and NeoForge
+Implementation-Version: 0.6.8
+Implementation-Vendor: ErChien
+Implementation-Timestamp: 2026-05-20T00:53:37+0800
+MixinConfigs: arcanevortex.mixins.json
+

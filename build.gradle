@@ -212,8 +212,8 @@ dependencies {
     //spartan-weaponry
     implementation fg.deobf("curse.maven:spartan-weaponry-278141:5597663")
     //irons-spells
-    compileOnly fg.deobf("curse.maven:irons-spells-n-spellbooks-855414:6054196")
-    runtimeOnly fg.deobf("curse.maven:irons-spells-n-spellbooks-855414:6054196")
+    compileOnly fg.deobf("curse.maven:irons-spells-n-spellbooks-855414:6970299")
+    runtimeOnly fg.deobf("curse.maven:irons-spells-n-spellbooks-855414:6970299")
     runtimeOnly fg.deobf("maven.modrinth:caelus:3.2.0+1.20.1")
     runtimeOnly fg.deobf("maven.modrinth:playeranimator:1.0.2-rc1+1.20-forge")
     //kubejs-tfc
@@ -365,10 +365,18 @@ tasks.register('returnCapsuleSelfTest', JavaExec) {
     mainClass = 'first.wildfires.space.ReturnCapsuleSelfTest'
 }
 
+tasks.register('galaxyHymnSelfTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs plain-Java checks for Galaxy Hymn damage, timing, targeting, and shader contracts.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'first.wildfires.compats.irons_spellbooks.GalaxyHymnSelfTest'
+}
+
 tasks.named('check').configure {
     dependsOn tasks.named('celestialMathSelfTest'), tasks.named('celestialClientSelfTest'),
             tasks.named('calendarRateSelfTest'), tasks.named('spaceCoreSelfTest'),
             tasks.named('spacePersistenceSelfTest'), tasks.named('spaceObservationSelfTest'),
             tasks.named('spaceTravelSelfTest'), tasks.named('spaceVisualSelfTest')
-    dependsOn tasks.named('returnCapsuleSelfTest')
+    dependsOn tasks.named('returnCapsuleSelfTest'), tasks.named('galaxyHymnSelfTest')
 }
